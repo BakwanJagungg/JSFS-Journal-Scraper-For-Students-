@@ -1,0 +1,87 @@
+# =============================================================================
+# JSFS - Journal Scraper For Students
+# config.py — Konfigurasi global scraper v1.3.8 (Multi-Tier Focus & Scope Mining, Pixel-Perfect Layout, Previewer)
+# =============================================================================
+
+import os
+import re
+from datetime import datetime
+
+# --- Target URL ---
+GARUDA_BASE_URL = "https://garuda.kemdiktisaintek.go.id"
+GARUDA_JOURNAL_URL = f"{GARUDA_BASE_URL}/journal"
+SINTA_BASE_URL = "https://sinta.kemdiktisaintek.go.id"
+SINTA_JOURNAL_URL = f"{SINTA_BASE_URL}/journals"
+
+# --- Request Headers (imitasi browser sungguhan) ---
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Connection": "keep-alive",
+}
+
+# --- Delay antar request (detik) ---
+REQUEST_DELAY_MIN = 0.1  # detik minimum (akselerasi turbo)
+REQUEST_DELAY_MAX = 0.4  # detik maksimum
+
+# --- Batas hasil scraping & Skalabilitas Paginasi ---
+MAX_PAGES = 5            # default batas halaman dasar
+MAX_PAGES_LIMIT = 200    # batas maksimum penjelajahan halaman untuk target 250 - 1000 jurnal
+MAX_RESULTS = 50         # default batas total jurnal yang dikembalikan
+TARGET_OPTIONS = ["10", "50", "100", "250", "500", "1000"]
+
+# --- Filter peringkat SINTA yang relevan untuk mahasiswa ---
+DEFAULT_SINTA_RANKS = [3, 4, 5, 6]
+
+# --- Standarisasi Nilai Fallback & URL ---
+INFO_NOT_FOUND = "Informasi tidak ditemukan dalam situs jurnal"
+DEAD_LINK_TEXT = "Situs tidak dapat diakses"
+
+# --- Parameter Konversi Mata Uang & Batas Kewajaran APC ---
+# Kurs acuan tetap: 1 USD = Rp 17.500
+USD_TO_IDR_RATE = 17500
+APC_SANITY_MIN_IDR = 50_000
+APC_SANITY_MAX_IDR = 15_000_000
+
+# --- Sistem Caching Metadata OJS Lokal (TTL 7 Hari) ---
+CACHE_DIR = ".cache"
+OJS_CACHE_FILE = os.path.join(CACHE_DIR, "ojs_cache.json")
+CACHE_TTL_DAYS = 7
+CACHE_TTL_SECONDS = CACHE_TTL_DAYS * 24 * 3600
+
+# --- Alokasi Hardware & Thread Pool Konkuren Maksimal (v1.3.6 Turbo Mode) ---
+# Skalabilitas ekstrem hingga 128 workers untuk pemrosesan 250-1000 jurnal
+TURBO_SCRAPE_WORKERS = min(128, (os.cpu_count() or 4) * 8)
+NORMAL_SCRAPE_WORKERS = min(64, (os.cpu_count() or 4) * 4)
+DEEP_SCRAPE_WORKERS = TURBO_SCRAPE_WORKERS
+
+# --- High-Capacity Connection Pooling & Adaptive Timeout (v1.3.6 Speed Acceleration) ---
+HTTP_POOL_CONNECTIONS = 128
+HTTP_POOL_MAXSIZE = 128
+HTTP_TIMEOUT = 5  # Toleransi 5 detik untuk penelusuran portal SINTA / Garuda
+DEEP_SCRAPE_TIMEOUT = (2.0, 3.5)  # (connect: 2.0s, read: 3.5s) timeout diperketat untuk OJS
+FAST_FAIL_TIMEOUT = (2.0, 2.5)    # (connect: 2.0s, read: 2.5s) fast-fail circuit breaker OJS domain
+
+# --- Output Directory & Naming ---
+OUTPUT_DIR = "output"
+OUTPUT_MD_FILENAME = "hasil_pencarian_jsfs.md"
+OUTPUT_CSV_FILENAME = "hasil_pencarian_jsfs.csv"
+OUTPUT_EXCEL_FILENAME = "hasil_pencarian_jsfs.xlsx"
+
+
+def generate_output_filename(keyword: str, ext: str, prefix: str = "JSFS") -> str:
+    """
+    Membuat nama berkas output unik dengan format:
+    JSFS_<keyword_clean>_<YYYYMMDD_HHMMSS>.<ext>
+    Contoh: JSFS_bisnis_20261016_221500.xlsx
+    """
+    clean_kw = re.sub(r"[^\w\s-]", "", keyword or "jurnal").strip()
+    clean_kw = re.sub(r"[-\s]+", "_", clean_kw).lower() or "jurnal"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    clean_ext = ext.lstrip(".")
+    return f"{prefix}_{clean_kw}_{timestamp}.{clean_ext}"

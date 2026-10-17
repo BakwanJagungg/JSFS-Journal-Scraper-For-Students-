@@ -1,0 +1,36 @@
+# =============================================================================
+# JSFS — .gitignore
+# =============================================================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyInstaller & Distribution Executables
+build/
+dist/
+*.exe
+*.pkg
+*.pyz
+*.spec-bak
+
+# Scraper Runtime Cache
+.cache/
+*.log
+
+# Scraper Output Datasets (generated during scraping/testing)
+output/
+dist/output/
+
+# Virtual Environments
+venv/
+env/
+ENV/
+.venv/
+
+# IDE & OS Specific
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
