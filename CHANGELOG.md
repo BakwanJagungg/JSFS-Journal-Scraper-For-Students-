@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-10-18
+
+### Added & Enhanced
+- **Hybrid AI Engine (Ollama REST API + Fallback Regex Legacy v1.3.8)**:
+  - Ekstraksi Focus & Scope dan Author Fees menggunakan model lokal `qwen2.5:3b` via Ollama REST API (`localhost:11434`) dengan format output terstruktur JSON.
+  - Mekanisme **Smart Truncation**: Memilih kalimat-kalimat dengan kata kunci substantif relevan (maksimal 3.000 karakter) dengan menjaga urutan kalimat asli.
+  - **Validasi Ketat Anti-Halusinasi**: Pengecekan angka terhadap teks mentah, validasi nominal `0` hanya bila ada pernyataan eksplisit "gratis/free", pembatasan ringkasan Focus & Scope maksimal 2 kalimat dan 40-60 kata.
+  - **Ketahanan Sistem & Fallback Otomatis**: Caching status Ollama (TTL 60s aktif / 20s non-aktif), Circuit Breaker (5 kegagalan berturut-turut memicu cooldown 60s ke Regex), dan fallback per-jurnal tanpa menghentikan proses scraping.
+- **Pemisahan Biaya Penulis (Author Fees)**:
+  - Memisahkan biaya lama `Biaya APC` menjadi kolom terpisah: `Biaya Submit`, `Biaya Publikasi`, dan `Mata Uang` (`IDR` / `USD`).
+- **Parser & Filter Bulan Terbit (`month_parser.py`)**:
+  - Ekstraksi deterministik jadwal bulan terbit jurnal (1–12) berbasis Regex tanpa beban LLM.
+  - Filter interaktif di GUI untuk memilih jadwal bulan terbit dan opsi menyertakan jurnal tanpa data bulan.
+  - Kolom baru `Bulan Terbit` (mis. `Mar, Sep`) pada output Excel, CSV, dan Markdown.
+- **Transparansi Asal Data (Audit Trail)**:
+  - Kolom baru `Sumber Focus` dan `Sumber APC` (bernilai `AI` / `Regex` / `Kosong`) untuk memverifikasi asal data.
+- **Arsitektur Pipeline 4-Fase Berkinerja Tinggi**:
+  - *Fase 1*: Fast Broad Scraping (128 workers HTTP/Selenium) untuk mengumpulkan teks mentah (`raw_about`, `raw_submissions`) dan metadata awal.
+  - *Fase 2*: Pre-Filter menyaring jurnal berdasarkan kriteria SINTA dan Bulan Terbit sebelum ke mesin AI.
+  - *Fase 3*: AI Enrichment memproses jurnal lolos seleksi dengan thread pool terpisah (1–2 workers).
+  - *Fase 4*: Ekspor Data (.xlsx, .md, .csv).
+- **GUI CustomTkinter Zero Clipping & Responsif (`app_ui.py`)**:
+  - Layout anti-clipping dengan pengukuran teks dinamis (`fit_w`, `FitCheckBox`, `FitSwitch`).
+  - Badge Status Ollama di header kanan atas yang otomatis diperbarui secara asinkronus tiap 30 detik (`● AI Aktif` hijau / `○ Mode Regex` abu-abu).
+  - Dual Progress Bar: baris pertama untuk Scraping Massal (HTTP) dan baris kedua untuk Analisis AI (Ollama).
+  - Pembaruan berkala via thread-safe `queue.Queue` dengan coalescing pesan progres tiap 100 ms sehingga GUI bebas freeze.
+  - Data Table Previewer interaktif v1.4.0 mendukung kolom Submit, Publikasi, Bulan Terbit, dan Sumber.
+- **1-Click AI Setup Manager (`ai_installer.py`)**:
+  - Wizard terintegrasi di dalam GUI untuk mengunduh dan menginstal Ollama (`OllamaSetup.exe`) secara otomatis tanpa perlu membuka browser secara manual.
+  - Unduhan model otomatis (`qwen2.5:3b`) via streaming Ollama REST API `/api/pull` dengan indikator progres layer per layer tanpa mengetik di terminal.
+  - Badge Ollama interaktif yang dapat diklik untuk membuka modal dialog instalasi & verifikasi model secara instan.
+
 ## [1.3.8] - 2026-10-17
 
 ### Added & Enhanced

@@ -1,939 +1,274 @@
-# =============================================================================
-# JSFS — Journal Scraper For Students
-# app_ui.py — Antarmuka Grafis (Desktop GUI) Utama berbasis CustomTkinter v1.3.8
-# =============================================================================
+"""
+app_ui.py — JSFS v1.4.0 (Hybrid AI Engine & CustomTkinter Desktop GUI)
+Antarmuka desktop dengan responsivitas tinggi (Pixel-Perfect, Zero Clipping),
+Badge Ollama real-time, Dual Progress Bar (Scrape & AI), dan 4-Fase Pipeline.
+"""
+from __future__ import annotations
 
 import os
-import sys
 import queue
 import re
-import subprocess
+import sys
 import threading
+import time
 import webbrowser
-from datetime import datetime
-from typing import Optional
-from tkinter import ttk
+from tkinter import filedialog, ttk
+from typing import Optional, List, Dict, Any
+
 import customtkinter as ctk
 
-# Import modul scraper dan konfigurasi
-import scraper_garuda
-import scraper_sinta
+import ai_engine
+import ai_installer
+from month_parser import lolos_filter_bulan, format_bulan_terbit
 import exporter
-import jsfs
-from scraper_garuda import JournalEntry, sanitize_text, scrape_garuda, merge_cross_source_entries
-from scraper_sinta import scrape_sinta, scrape_sinta_selenium
-from exporter import export_markdown, export_csv, export_excel
-from config import (
-    DEFAULT_SINTA_RANKS,
-    OUTPUT_DIR,
-    MAX_RESULTS,
-    TARGET_OPTIONS,
-    INFO_NOT_FOUND,
-)
-from log_redirect import make_queue_console
+# Modul pembaca berkas naskah dengan fallback aman
+try:
+    from doc_reader import (
+        extract_manuscript_metadata as parse_manuscript,
+        calculate_match_score as calculate_manuscript_match,
+    )
+except ImportError:
+    try:
+        from doc_reader import parse_manuscript, calculate_manuscript_match
+    except ImportError:
+        def parse_manuscript(p: str) -> dict:
+            return {"status": "empty", "keywords": [], "dominant_terms": [], "title": ""}
+        def calculate_manuscript_match(meta: dict, j: any) -> dict:
+            return {"score": 0, "level": "Kurang Sesuai", "matched_terms": [], "explanation": ""}
 
-# Konfigurasi Tampilan CustomTkinter
+from scraper_garuda import (
+    JournalEntry,
+    scrape_garuda,
+    merge_cross_source_entries,
+    get_high_capacity_session,
+    INFO_NOT_FOUND,
+    DEAD_LINK_TEXT,
+)
+from scraper_sinta import scrape_sinta, scrape_sinta_selenium
+
+# ───────────────────────── Konstanta Desain ─────────────────────────
+PAD, GAP = 12, 6                      # padding kartu, jarak antar elemen
+BG_CARD = "#262626"
+BLUE, BLUE_H = "#1f6aa5", "#144870"
+GREEN, GREEN_H = "#13a06f", "#0e7a55"
+RED, RED_H = "#c0392b", "#962d22"
+MUTED = "#8a8a8a"
+OK_GREEN = "#22a45d"
+
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
 
-class JSFSApp(ctk.CTk):
+# ───────────────────────── Helper Anti-Clipping ─────────────────────────
+def fit_w(font: ctk.CTkFont, text: str, base: int = 0, margin: int = 16) -> int:
+    """Lebar minimum agar `text` tidak terpotong (Zero Clipping)."""
+    return base + font.measure(text) + margin
+
+
+class FitCheckBox(ctk.CTkCheckBox):
+    def __init__(self, master, text: str, font: ctk.CTkFont, **kw):
+        kw.setdefault("checkbox_width", 20)
+        kw.setdefault("checkbox_height", 20)
+        kw.setdefault("width", fit_w(font, text, kw["checkbox_width"] + 10))
+        super().__init__(master, text=text, font=font, **kw)
+
+
+class FitSwitch(ctk.CTkSwitch):
+    def __init__(self, master, text: str, font: ctk.CTkFont, **kw):
+        kw.setdefault("width", fit_w(font, text, 36 + 10))
+        super().__init__(master, text=text, font=font, **kw)
+
+
+def make_card(parent, title: str, font_h: ctk.CTkFont):
+    """Kartu seragam: judul + body. Kembalikan (card, body, header)."""
+    card = ctk.CTkFrame(parent, corner_radius=10, fg_color=BG_CARD)
+    card.grid_columnconfigure(0, weight=1)
+    card.grid_rowconfigure(1, weight=1)
+    header = ctk.CTkFrame(card, fg_color="transparent")
+    header.grid(row=0, column=0, sticky="ew", padx=PAD, pady=(PAD, GAP))
+    header.grid_columnconfigure(0, weight=1)
+    ctk.CTkLabel(header, text=title, font=font_h, anchor="w").grid(row=0, column=0, sticky="w")
+    body = ctk.CTkFrame(card, fg_color="transparent")
+    body.grid(row=1, column=0, sticky="nsew", padx=PAD, pady=(0, PAD))
+    return card, body, header
+
+
+def fmt_ranges(nums) -> str:
+    nums = sorted(nums)
+    if not nums:
+        return "—"
+    out, start, prev = [], nums[0], nums[0]
+    for n in nums[1:] + [None]:
+        if n is not None and n == prev + 1:
+            prev = n
+            continue
+        out.append(f"S{start}" if start == prev else f"S{start}–S{prev}")
+        start = prev = n
+    return ", ".join(out)
+
+
+# ───────────────────────── Komponen: Filter Bulan Terbit ─────────────────────────
+class MonthFilter(ctk.CTkFrame):
+    NAMES = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
+    COLS = 4                                         # 4 kolom x 3 baris
+
+    def __init__(self, master, font: ctk.CTkFont, **kw):
+        super().__init__(master, fg_color="transparent", **kw)
+        self.vars = [ctk.BooleanVar(value=True) for _ in self.NAMES]
+        self.var_unknown = ctk.BooleanVar(value=True)
+        for c in range(self.COLS):
+            self.grid_columnconfigure(c, weight=1, uniform="mon")
+
+        w = max(fit_w(font, n, 18 + 8) for n in self.NAMES)
+        for i, name in enumerate(self.NAMES):
+            FitCheckBox(self, name, font, variable=self.vars[i], width=w,
+                        checkbox_width=18, checkbox_height=18).grid(
+                row=i // self.COLS, column=i % self.COLS, sticky="w", padx=4, pady=3)
+
+        tools = ctk.CTkFrame(self, fg_color="transparent")
+        tools.grid(row=3, column=0, columnspan=self.COLS, sticky="ew", pady=(GAP, 0))
+        tools.grid_columnconfigure(2, weight=1)
+        small = ctk.CTkFont(size=11)
+        ctk.CTkButton(tools, text="Semua", width=64, height=24, font=small,
+                      command=lambda: self._set_all(True)).grid(row=0, column=0, padx=(0, 4))
+        ctk.CTkButton(tools, text="Kosongkan", width=80, height=24, font=small,
+                      fg_color="#3a3a3a", hover_color="#4a4a4a",
+                      command=lambda: self._set_all(False)).grid(row=0, column=1, padx=(0, 8))
+        self.lbl_count = ctk.CTkLabel(tools, text="12/12 bulan", font=small, text_color=MUTED, anchor="e")
+        self.lbl_count.grid(row=0, column=2, sticky="e")
+
+        FitCheckBox(self, "Sertakan jurnal yang bulannya tidak terdeteksi", small,
+                    variable=self.var_unknown, checkbox_width=18, checkbox_height=18).grid(
+            row=4, column=0, columnspan=self.COLS, sticky="w", padx=4, pady=(GAP, 0))
+
+        for v in self.vars:
+            v.trace_add("write", lambda *_: self._update_count())
+
+    def _set_all(self, flag: bool):
+        for v in self.vars:
+            v.set(flag)
+
+    def _update_count(self):
+        self.lbl_count.configure(text=f"{sum(v.get() for v in self.vars)}/12 bulan")
+
+    def selected_months(self) -> set[int]:
+        return {i + 1 for i, v in enumerate(self.vars) if v.get()}
+
+    def include_unknown(self) -> bool:
+        return bool(self.var_unknown.get())
+
+
+# ───────────────────────── Komponen: Progress Ganda ─────────────────────────
+class DualProgress(ctk.CTkFrame):
+    ROWS = (("Scraping Massal (HTTP)", "scrape", BLUE), ("Analisis AI (Ollama)", "ai", "#e08a1e"))
+
+    def __init__(self, master, font: ctk.CTkFont, **kw):
+        super().__init__(master, fg_color=BG_CARD, corner_radius=10, **kw)
+        self.grid_columnconfigure(1, weight=1)
+        lw = max(font.measure(t) for t, _, _ in self.ROWS) + 20
+        cw = font.measure("9999/9999") + 20
+        self.bars, self.counts = {}, {}
+        for r, (text, key, color) in enumerate(self.ROWS):
+            pady = (PAD, GAP) if r == 0 else (0, PAD)
+            ctk.CTkLabel(self, text=text, font=font, anchor="w", width=lw).grid(
+                row=r, column=0, sticky="w", padx=(PAD, GAP), pady=pady)
+            bar = ctk.CTkProgressBar(self, height=10, progress_color=color)
+            bar.set(0)
+            bar.grid(row=r, column=1, sticky="ew", padx=GAP, pady=pady)
+            cnt = ctk.CTkLabel(self, text="0/0", font=font, anchor="e", width=cw, text_color=MUTED)
+            cnt.grid(row=r, column=2, sticky="e", padx=(GAP, PAD), pady=pady)
+            self.bars[key], self.counts[key] = bar, cnt
+
+    def update_bar(self, key: str, done: int, total: int):
+        if key in self.bars:
+            self.bars[key].set(0 if total <= 0 else min(1.0, done / total))
+            self.counts[key].configure(text=f"{done}/{total}")
+
+    def reset(self):
+        for k in self.bars:
+            self.update_bar(k, 0, 0)
+
+
+# ───────────────────────── Pipeline Backend ─────────────────────────
+def run_scraper(params: dict, on_progress, cancel: threading.Event) -> list[JournalEntry]:
     """
-    Jendela Utama Aplikasi Desktop JSFS v1.3.8.
-    Mendukung tata letak bebas terpotong (Zero Clipping), Focus & Scope extraction,
-    Indikator Kesehatan Server OJS & Transparansi Kontak, Data Table Previewer GUI interaktif,
-    speed acceleration engine (fast-fail circuit breaker), analisis naskah artikel (.docx/.pdf),
-    dan ekspor presisi tinggi (.xlsx, .md, .csv).
+    Fase 1: Fast Broad Scraping (128 workers HTTP/Selenium).
+    Mengumpulkan data mentah (raw_about, raw_submissions, bulan_terbit) tanpa menyentuh LLM.
     """
+    keyword = params["keyword"]
+    target = int(params["target"])
+    sinta_ranks = sorted(list(params["sinta"]))
+    use_garuda = params.get("garuda", True)
+    use_sinta = params.get("sinta_src", True)
+    turbo = params.get("turbo", True)
+    use_selenium = params.get("selenium", False)
 
-    def __init__(self):
-        super().__init__()
+    records: list[JournalEntry] = []
 
-        # Konfigurasi Window Kompak & Zero Clipping (No Vertical Clipping pada 1366x768 & 1920x1080)
-        self.title("JSFS v1.3.8 — Journal Scraper For Students (Pixel-Perfect Alignment & Data Previewer)")
-        self.geometry("900x700")
-        self.minsize(880, 660)
-        self.resizable(False, False)
-
-        # State Management
-        self.log_queue: queue.Queue = queue.Queue()
-        self._is_running: bool = False
-        self._cancel_event = threading.Event()
-        self._manuscript_meta: Optional[dict] = None
-        self._latest_results: list[JournalEntry] = []
-        self._latest_excel_path: Optional[str] = None
-        self._previewer_window: Optional[ctk.CTkToplevel] = None
-
-        # Set Icon jika tersedia
-        self._set_app_icon()
-
-        # Bangun Komponen UI
-        self._build_ui()
-
-        # Mulai polling queue log secara asinkronus (anti-freeze)
-        self._poll_log_queue()
-
-    def _set_app_icon(self):
-        """Memuat ikon aplikasi dari folder assets jika ada."""
-        base_dir = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
-        icon_path = os.path.join(base_dir, "assets", "icon.ico")
-        if os.path.exists(icon_path):
-            try:
-                self.iconbitmap(icon_path)
-            except Exception:
-                pass
-
-    def _build_ui(self):
-        """Membangun tata letak widget antarmuka pengguna v1.3.8 yang padat, simetris & proporsional."""
-        main_container = ctk.CTkFrame(self, fg_color="transparent")
-        main_container.pack(fill="both", expand=True, padx=16, pady=8)
-
-        # ── 1. HEADER SECTION ────────────────────────────────────────────────
-        header_frame = ctk.CTkFrame(main_container, fg_color="transparent")
-        header_frame.pack(fill="x", pady=(0, 4))
-
-        title_label = ctk.CTkLabel(
-            header_frame,
-            text="📚 JSFS v1.3.8 — Journal Scraper For Students",
-            font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
-            text_color="#38bdf8",
+    if use_garuda and not cancel.is_set():
+        g_results = scrape_garuda(
+            keyword=keyword,
+            sinta_ranks=sinta_ranks,
+            deep_detail=True,
+            max_results=target,
+            turbo_mode=turbo,
+            free_only=False,
+            include_unknown_apc=True,
         )
-        title_label.pack(anchor="w")
-
-        subtitle_label = ctk.CTkLabel(
-            header_frame,
-            text="Multi-Tier Focus & Scope Mining • Pixel-Perfect Alignment • Server Health • GUI Data Previewer",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#94a3b8",
-        )
-        subtitle_label.pack(anchor="w")
-
-        # ── 2. INPUT KEYWORD SECTION ─────────────────────────────────────────
-        keyword_card = ctk.CTkFrame(main_container, corner_radius=8)
-        keyword_card.pack(fill="x", pady=(0, 4), padx=2)
-
-        input_row = ctk.CTkFrame(keyword_card, fg_color="transparent")
-        input_row.pack(fill="x", padx=12, pady=5)
-
-        lbl_keyword = ctk.CTkLabel(
-            input_row,
-            text="🔍 Kata Kunci:",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-        )
-        lbl_keyword.pack(side="left", padx=(0, 8))
-
-        self.entry_keyword = ctk.CTkEntry(
-            input_row,
-            placeholder_text="Masukkan topik riset (misal: bisnis, akuntansi, machine learning, consumer behavior...)",
-            font=ctk.CTkFont(family="Segoe UI", size=12),
-            height=32,
-        )
-        self.entry_keyword.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        self.entry_keyword.bind("<Return>", lambda event: self._on_scrape_clicked())
-
-        btn_quick_search = ctk.CTkButton(
-            input_row,
-            text="Cari",
-            width=70,
-            height=32,
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            command=self._on_scrape_clicked,
-        )
-        btn_quick_search.pack(side="right")
-
-        # ── 2B. MANUSCRIPT ANALYSIS SECTION (1 BARIS HORIZONTAL KOMPAK) ──────
-        ms_card = ctk.CTkFrame(main_container, corner_radius=8)
-        ms_card.pack(fill="x", pady=(0, 4), padx=2)
-
-        self.ms_action_row = ctk.CTkFrame(ms_card, fg_color="transparent")
-        self.ms_action_row.pack(fill="x", padx=12, pady=4)
-
-        lbl_ms = ctk.CTkLabel(
-            self.ms_action_row,
-            text="📄 Naskah Ilmiah:",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#38bdf8",
-        )
-        lbl_ms.pack(side="left", padx=(0, 6))
-
-        self.btn_upload_ms = ctk.CTkButton(
-            self.ms_action_row,
-            text="📁 Unggah (.docx/.pdf)",
-            width=130,
-            height=25,
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            command=self._on_upload_manuscript,
-        )
-        self.btn_upload_ms.pack(side="left", padx=(0, 8))
-
-        self.chk_match_scoring = ctk.CTkCheckBox(
-            self.ms_action_row,
-            text="Match Score (0–100%)",
-            font=ctk.CTkFont(size=11, weight="bold"),
-            text_color="#4ade80",
-        )
-        self.chk_match_scoring.pack(side="left", padx=(0, 8))
-
-        self.lbl_ms_status = ctk.CTkLabel(
-            self.ms_action_row,
-            text="Belum ada naskah (Opsional — untuk rekomendasi kesesuaian)",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#94a3b8",
-            anchor="w",
-        )
-        self.lbl_ms_status.pack(side="left", fill="x", expand=True)
-
-        self.btn_clear_ms = ctk.CTkButton(
-            self.ms_action_row,
-            text="❌ Hapus",
-            width=55,
-            height=24,
-            fg_color="#475569",
-            hover_color="#64748b",
-            font=ctk.CTkFont(size=10),
-            command=self._on_clear_manuscript,
-        )
-
-        # ── 3. FILTER & OPTIONS SECTION (Dua Kolom Grid Kompak) ──────────────
-        options_container = ctk.CTkFrame(main_container, fg_color="transparent")
-        options_container.pack(fill="x", pady=(0, 4))
-
-        # --- Kolom Kiri: Sumber Data, Format Output & Kontrol Target ---
-        left_card = ctk.CTkFrame(options_container, corner_radius=8)
-        left_card.pack(side="left", fill="both", expand=True, padx=(0, 4))
-
-        # Sumber Data & Format Output Sejajar
-        top_opt_row = ctk.CTkFrame(left_card, fg_color="transparent")
-        top_opt_row.pack(fill="x", padx=12, pady=(4, 2))
-
-        lbl_source = ctk.CTkLabel(
-            top_opt_row,
-            text="📡 Sumber:",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-        )
-        lbl_source.pack(side="left", padx=(0, 4))
-
-        self.chk_garuda = ctk.CTkCheckBox(top_opt_row, text="Garuda", font=ctk.CTkFont(size=11))
-        self.chk_garuda.select()
-        self.chk_garuda.pack(side="left", padx=(0, 8))
-
-        self.chk_sinta = ctk.CTkCheckBox(top_opt_row, text="SINTA", font=ctk.CTkFont(size=11))
-        self.chk_sinta.select()
-        self.chk_sinta.pack(side="left", padx=(0, 12))
-
-        lbl_format = ctk.CTkLabel(
-            top_opt_row,
-            text="💾 Format:",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-        )
-        lbl_format.pack(side="left", padx=(0, 4))
-
-        self.chk_fmt_md = ctk.CTkCheckBox(top_opt_row, text=".md", font=ctk.CTkFont(size=11))
-        self.chk_fmt_md.select()
-        self.chk_fmt_md.pack(side="left", padx=(0, 6))
-
-        self.chk_fmt_excel = ctk.CTkCheckBox(top_opt_row, text=".xlsx", font=ctk.CTkFont(size=11))
-        self.chk_fmt_excel.select()
-        self.chk_fmt_excel.pack(side="left", padx=(0, 6))
-
-        self.chk_fmt_csv = ctk.CTkCheckBox(top_opt_row, text=".csv", font=ctk.CTkFont(size=11))
-        self.chk_fmt_csv.pack(side="left")
-
-        # Kontrol Beban: Target Jumlah Jurnal (Hingga 1000 atau Custom)
-        target_row = ctk.CTkFrame(left_card, fg_color="transparent")
-        target_row.pack(fill="x", padx=12, pady=(2, 2))
-
-        lbl_target = ctk.CTkLabel(
-            target_row,
-            text="🎯 Target Jurnal:",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-        )
-        lbl_target.pack(side="left", padx=(0, 6))
-
-        self.combo_target = ctk.CTkComboBox(
-            target_row,
-            values=["10", "50", "100", "250", "500", "1000"],
-            width=80,
-            height=24,
-            font=ctk.CTkFont(size=11),
-        )
-        self.combo_target.set("50")
-        self.combo_target.pack(side="left")
-
-        lbl_target_hint = ctk.CTkLabel(
-            target_row,
-            text="(Maks. 1000 / custom)",
-            font=ctk.CTkFont(size=10),
-            text_color="#94a3b8",
-        )
-        lbl_target_hint.pack(side="left", padx=(6, 0))
-
-        # Filter Rentang Biaya Publikasi (APC)
-        apc_card_row = ctk.CTkFrame(left_card, fg_color="transparent")
-        apc_card_row.pack(fill="x", padx=12, pady=(2, 2))
-
-        self.chk_apc_free_only = ctk.CTkCheckBox(
-            apc_card_row,
-            text="💰 Hanya Gratis (Rp 0)",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#4ade80",
-            command=self._on_free_only_toggled,
-        )
-        self.chk_apc_free_only.pack(side="left", padx=(0, 12))
-
-        self.chk_include_unknown_apc = ctk.CTkCheckBox(
-            apc_card_row,
-            text="Sertakan N/A",
-            font=ctk.CTkFont(family="Segoe UI", size=10),
-            text_color="#38bdf8",
-        )
-        self.chk_include_unknown_apc.select()
-        self.chk_include_unknown_apc.pack(side="left")
-
-        price_range_row = ctk.CTkFrame(left_card, fg_color="transparent")
-        price_range_row.pack(fill="x", padx=12, pady=(2, 4))
-
-        lbl_min_apc = ctk.CTkLabel(price_range_row, text="Min (Rp):", font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"))
-        lbl_min_apc.pack(side="left", padx=(0, 4))
-        self.entry_min_apc = ctk.CTkEntry(price_range_row, width=80, height=24, font=ctk.CTkFont(size=10))
-        self.entry_min_apc.insert(0, "0")
-        self.entry_min_apc.pack(side="left", padx=(0, 10))
-
-        lbl_max_apc = ctk.CTkLabel(price_range_row, text="Max (Rp):", font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"))
-        lbl_max_apc.pack(side="left", padx=(0, 4))
-        self.entry_max_apc = ctk.CTkEntry(price_range_row, width=95, height=24, font=ctk.CTkFont(size=10))
-        self.entry_max_apc.insert(0, "15.000.000")
-        self.entry_max_apc.pack(side="left")
-
-        # --- Kolom Kanan: Filter Peringkat SINTA & Mode Detail OJS ---
-        right_card = ctk.CTkFrame(options_container, corner_radius=8)
-        right_card.pack(side="right", fill="both", expand=True, padx=(4, 0))
-
-        rank_header_row = ctk.CTkFrame(right_card, fg_color="transparent")
-        rank_header_row.pack(fill="x", padx=12, pady=(4, 1))
-
-        lbl_sinta = ctk.CTkLabel(
-            rank_header_row,
-            text="📊 Peringkat SINTA:",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-        )
-        lbl_sinta.pack(side="left")
-
-        btn_preset_default = ctk.CTkButton(
-            rank_header_row,
-            text="S3–S6",
-            width=44,
-            height=18,
-            font=ctk.CTkFont(size=10),
-            command=self._preset_s3_s6,
-        )
-        btn_preset_default.pack(side="right", padx=(4, 0))
-
-        btn_preset_all = ctk.CTkButton(
-            rank_header_row,
-            text="Semua",
-            width=44,
-            height=18,
-            font=ctk.CTkFont(size=10),
-            command=self._preset_all_ranks,
-        )
-        btn_preset_all.pack(side="right")
-
-        # Grid Checkbox SINTA 1-6 (Symmetric 2-Column Pixel-Perfect Layout)
-        ranks_grid = ctk.CTkFrame(right_card, fg_color="transparent")
-        ranks_grid.pack(fill="x", padx=10, pady=(2, 3))
-        ranks_grid.grid_columnconfigure((0, 1), weight=1)
-
-        # Kolom 1: Sinta 1, Sinta 2, Sinta 3
-        self.chk_s1 = ctk.CTkCheckBox(ranks_grid, text="Sinta 1", font=ctk.CTkFont(family="Segoe UI", size=11))
-        self.chk_s1.grid(row=0, column=0, sticky="w", padx=(10, 10), pady=(3, 3))
-
-        self.chk_s2 = ctk.CTkCheckBox(ranks_grid, text="Sinta 2", font=ctk.CTkFont(family="Segoe UI", size=11))
-        self.chk_s2.grid(row=1, column=0, sticky="w", padx=(10, 10), pady=(3, 3))
-
-        self.chk_s3 = ctk.CTkCheckBox(ranks_grid, text="Sinta 3", font=ctk.CTkFont(family="Segoe UI", size=11))
-        self.chk_s3.select()
-        self.chk_s3.grid(row=2, column=0, sticky="w", padx=(10, 10), pady=(3, 3))
-
-        # Kolom 2: Sinta 4, Sinta 5, Sinta 6
-        self.chk_s4 = ctk.CTkCheckBox(ranks_grid, text="Sinta 4", font=ctk.CTkFont(family="Segoe UI", size=11))
-        self.chk_s4.select()
-        self.chk_s4.grid(row=0, column=1, sticky="w", padx=(10, 10), pady=(3, 3))
-
-        self.chk_s5 = ctk.CTkCheckBox(ranks_grid, text="Sinta 5", font=ctk.CTkFont(family="Segoe UI", size=11))
-        self.chk_s5.select()
-        self.chk_s5.grid(row=1, column=1, sticky="w", padx=(10, 10), pady=(3, 3))
-
-        self.chk_s6 = ctk.CTkCheckBox(ranks_grid, text="Sinta 6", font=ctk.CTkFont(family="Segoe UI", size=11))
-        self.chk_s6.select()
-        self.chk_s6.grid(row=2, column=1, sticky="w", padx=(10, 10), pady=(3, 3))
-
-        # Sakelar Hardware Turbo Mode (Kecepatan Maksimal) & OJS Mode
-        modes_row = ctk.CTkFrame(right_card, fg_color="transparent")
-        modes_row.pack(fill="x", padx=10, pady=(2, 2))
-
-        self.chk_turbo_mode = ctk.CTkCheckBox(
-            modes_row,
-            text="⚡ Turbo Mode",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#f59e0b",
-        )
-        self.chk_turbo_mode.select()
-        self.chk_turbo_mode.pack(side="left", padx=(10, 8))
-
-        self.chk_deep_detail = ctk.CTkCheckBox(
-            modes_row,
-            text="🔍 Mode Detail OJS",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#38bdf8",
-        )
-        self.chk_deep_detail.select()
-        self.chk_deep_detail.pack(side="left", padx=(0, 10))
-
-        self.chk_selenium = ctk.CTkCheckBox(
-            right_card,
-            text="Gunakan Selenium (fallback Cloudflare)",
-            font=ctk.CTkFont(family="Segoe UI", size=10),
-        )
-        self.chk_selenium.pack(anchor="w", padx=(20, 10), pady=(1, 3))
-
-        # ── 4. LOG / PROGRESS MONITOR SECTION ────────────────────────────────
-        log_header_frame = ctk.CTkFrame(main_container, fg_color="transparent")
-        log_header_frame.pack(fill="x", pady=(1, 2))
-
-        lbl_log = ctk.CTkLabel(
-            log_header_frame,
-            text="📜 Pemantauan Proses & Riwayat Log:",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-        )
-        lbl_log.pack(side="left")
-
-        btn_clear_log = ctk.CTkButton(
-            log_header_frame,
-            text="🧹 Bersihkan Log",
-            width=85,
-            height=18,
-            font=ctk.CTkFont(size=10),
-            fg_color="#334155",
-            hover_color="#475569",
-            command=self._clear_log,
-        )
-        btn_clear_log.pack(side="right")
-
-        self.txt_log = ctk.CTkTextbox(
-            main_container,
-            height=160,
-            font=ctk.CTkFont(family="Consolas", size=11),
-            wrap="word",
-        )
-        self.txt_log.pack(fill="both", expand=True, pady=(0, 4))
-        self.txt_log.configure(state="disabled")
-
-        # Pesan awal
-        self._log_ui("Selamat datang di JSFS Desktop v1.3.8 (Multi-Tier Focus & Scope Mining, Pixel-Perfect Layout, Data Previewer).")
-        self._log_ui("Siap mencari jurnal terakreditasi SINTA & Garuda dengan direct concurrent HTTP dan presisi data tingkat tinggi.")
-
-        # ── 5. MAIN ACTION BUTTONS ROW ───────────────────────────────────────
-        action_btn_row = ctk.CTkFrame(main_container, fg_color="transparent")
-        action_btn_row.pack(fill="x", pady=(2, 4))
-
-        self.btn_scrape = ctk.CTkButton(
-            action_btn_row,
-            text="🚀  MULAI SCRAPING",
-            height=40,
-            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-            fg_color="#0284c7",
-            hover_color="#0369a1",
-            command=self._on_scrape_clicked,
-        )
-        self.btn_scrape.pack(side="left", fill="x", expand=True, padx=(0, 8))
-
-        self.btn_preview = ctk.CTkButton(
-            action_btn_row,
-            text="👁️  PREVIEW HASIL DATA",
-            height=40,
-            width=210,
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            fg_color="#059669",
-            hover_color="#047857",
-            command=self._open_data_previewer,
-            state="disabled",
-        )
-        self.btn_preview.pack(side="right")
-
-        # ── 6. FOOTER SECTION ────────────────────────────────────────────────
-        footer_frame = ctk.CTkFrame(main_container, fg_color="transparent")
-        footer_frame.pack(fill="x")
-
-        self.lbl_output_path = ctk.CTkLabel(
-            footer_frame,
-            text=f"Output disimpan di folder: {OUTPUT_DIR}/ (Format: JSFS_<keyword>_<timestamp>)",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color="#94a3b8",
-        )
-        self.lbl_output_path.pack(side="left")
-
-        self.btn_open_folder = ctk.CTkButton(
-            footer_frame,
-            text="📂 Buka Folder Output",
-            width=135,
-            height=26,
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            command=self._open_output_folder,
-        )
-        self.btn_open_folder.pack(side="right")
-
-    # ── LOGIKA ANALISIS NASKAH ARTIKEL ───────────────────────────────────────
-    def _on_upload_manuscript(self):
-        """Membuka dialog pemilihan naskah .docx / .pdf dan mengekstrak metadata."""
-        from tkinter import filedialog
-        import doc_reader
-
-        filetypes = [
-            ("Dokumen Ilmiah (*.docx, *.pdf)", "*.docx;*.pdf"),
-            ("Word Document (*.docx)", "*.docx"),
-            ("PDF Document (*.pdf)", "*.pdf"),
-            ("Semua Berkas (*.*)", "*.*"),
-        ]
-        file_path = filedialog.askopenfilename(
-            title="Pilih Berkas Naskah Artikel Ilmiah",
-            filetypes=filetypes,
-        )
-        if not file_path:
-            return
-
-        try:
-            meta = doc_reader.extract_manuscript_metadata(file_path)
-            self._manuscript_meta = meta
-            self.chk_match_scoring.select()
-            self.btn_clear_ms.pack(side="right")
-
-            fname = os.path.basename(file_path)
-            title_snip = (meta.get("title") or "Naskah")[:45]
-            kw_snip = ", ".join(meta.get("keywords", [])[:3])
-            status_text = f"✅ {fname} • Judul: {title_snip}... | Keywords: {kw_snip}" if kw_snip else f"✅ {fname} • Judul: {title_snip}..."
-            self.lbl_ms_status.configure(text=status_text, text_color="#4ade80")
-
-            # Isi otomatis keyword jika kotak keyword kosong
-            if not self.entry_keyword.get().strip() and meta.get("keywords"):
-                self.entry_keyword.insert(0, ", ".join(meta["keywords"][:3]))
-
-            self.log_queue.put(
-                f"[bold green]📄 Naskah Berhasil Dianalisis:[/bold green] {fname}\n"
-                f"   [dim]Judul   : {meta.get('title')}[/dim]\n"
-                f"   [dim]Keywords: {', '.join(meta.get('keywords', []))}[/dim]\n"
-                f"   [dim]Istilah : {', '.join(meta.get('dominant_terms', [])[:6])}[/dim]"
-            )
-        except Exception as e:
-            self.lbl_ms_status.configure(text=f"❌ Gagal membaca naskah: {e}", text_color="#f87171")
-            self._manuscript_meta = None
-
-    def _on_clear_manuscript(self):
-        """Mereset berkas naskah yang diunggah."""
-        self._manuscript_meta = None
-        self.lbl_ms_status.configure(
-            text="Belum ada naskah diunggah (Opsional — untuk rekomendasi kesesuaian otomatis)",
-            text_color="#94a3b8",
-        )
-        self.chk_match_scoring.deselect()
-        self.btn_clear_ms.pack_forget()
-        self.log_queue.put("[dim]🗑️ Berkas naskah telah dihapus dari antarmuka.[/dim]")
-
-    # ── LOGIKA TOGGLE & PRESET ───────────────────────────────────────────────
-    def _on_free_only_toggled(self):
-        """Atur status input min/max ketika 'Hanya Gratis' dicentang."""
-        if self.chk_apc_free_only.get():
-            self.entry_min_apc.configure(state="disabled")
-            self.entry_max_apc.configure(state="disabled")
-        else:
-            self.entry_min_apc.configure(state="normal")
-            self.entry_max_apc.configure(state="normal")
-
-    def _preset_all_ranks(self):
-        """Memilih seluruh peringkat Sinta 1 sampai 6."""
-        for chk in [self.chk_s1, self.chk_s2, self.chk_s3, self.chk_s4, self.chk_s5, self.chk_s6]:
-            chk.select()
-
-    def _preset_s3_s6(self):
-        """Mengatur ke preset mahasiswa: Sinta 3 hingga 6 terpilih, Sinta 1 & 2 tidak."""
-        self.chk_s1.deselect()
-        self.chk_s2.deselect()
-        self.chk_s3.select()
-        self.chk_s4.select()
-        self.chk_s5.select()
-        self.chk_s6.select()
-
-    # ── POLLING DAN UPDATE LOG ───────────────────────────────────────────────
-    def _poll_log_queue(self):
-        """
-        Polling antrean log (log_queue) setiap 100ms di Main UI Thread.
-        Menyisipkan pesan ke widget Textbox secara aman tanpa freeze.
-        """
-        try:
-            while True:
-                msg = self.log_queue.get_nowait()
-                timestamp = datetime.now().strftime("%H:%M:%S")
-                self.txt_log.configure(state="normal")
-                self.txt_log.insert("end", f"[{timestamp}] {msg}\n")
-                self.txt_log.see("end")
-                self.txt_log.configure(state="disabled")
-        except queue.Empty:
-            pass
-        finally:
-            self.after(100, self._poll_log_queue)
-
-    def _log_ui(self, msg: str):
-        """Menambahkan pesan log langsung dari thread antarmuka pengguna."""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        self.txt_log.configure(state="normal")
-        self.txt_log.insert("end", f"[{timestamp}] {msg}\n")
-        self.txt_log.see("end")
-        self.txt_log.configure(state="disabled")
-
-    def _clear_log(self):
-        """Membersihkan seluruh teks di jendela log."""
-        self.txt_log.configure(state="normal")
-        self.txt_log.delete("1.0", "end")
-        self.txt_log.configure(state="disabled")
-
-    # ── HELPER PENGAMBILAN FILTER DARI UI ────────────────────────────────────
-    def _get_selected_ranks(self) -> list[int]:
-        """Mengembalikan list peringkat Sinta yang dicentang pengguna."""
-        ranks = []
-        rank_map = {
-            1: self.chk_s1,
-            2: self.chk_s2,
-            3: self.chk_s3,
-            4: self.chk_s4,
-            5: self.chk_s5,
-            6: self.chk_s6,
-        }
-        for rank, chk in rank_map.items():
-            if chk.get():
-                ranks.append(rank)
-        return ranks if ranks else DEFAULT_SINTA_RANKS
-
-    def _get_selected_formats(self) -> list[str]:
-        """Mengembalikan list format berkas output yang dicentang."""
-        fmts = []
-        if self.chk_fmt_md.get():
-            fmts.append("md")
-        if self.chk_fmt_excel.get():
-            fmts.append("excel")
-        if self.chk_fmt_csv.get():
-            fmts.append("csv")
-        return fmts if fmts else ["md"]
-
-    # ── EKSEKUSI SCRAPING & THREADING ────────────────────────────────────────
-    def _on_scrape_clicked(self):
-        """Handler saat tombol Mulai Scraping diklik."""
-        if self._is_running:
-            return
-
-        keyword = self.entry_keyword.get().strip()
-        if not keyword:
-            self._log_ui("⚠️  Kata kunci (keyword) pencarian tidak boleh kosong.")
-            return
-
-        use_garuda = bool(self.chk_garuda.get())
-        use_sinta = bool(self.chk_sinta.get())
-        if not use_garuda and not use_sinta:
-            self._log_ui("⚠️  Pilih minimal satu sumber pencarian (Garuda atau SINTA).")
-            return
-
-        # Target hasil dari UI (Dinamis hingga 1000)
-        try:
-            raw_target = self.combo_target.get().strip()
-            target_limit = int(re.sub(r"\D", "", raw_target))
-            target_limit = max(1, min(1000, target_limit))
-        except (ValueError, Exception):
-            target_limit = 50
-
-        # Ambil parameter filter APC
-        free_only = bool(self.chk_apc_free_only.get())
-        include_unknown = bool(self.chk_include_unknown_apc.get())
-        try:
-            min_apc = int(re.sub(r"\D", "", self.entry_min_apc.get() or "0"))
-        except ValueError:
-            min_apc = 0
-
-        try:
-            max_apc = int(re.sub(r"\D", "", self.entry_max_apc.get() or "15000000"))
-        except ValueError:
-            max_apc = 15000000
-
-        deep_detail = bool(self.chk_deep_detail.get())
-        turbo_mode = bool(self.chk_turbo_mode.get())
-
-        # Kunci tombol dan tandai status aplikasi berjalan
-        self._is_running = True
-        self._cancel_event.clear()
-        self.btn_scrape.configure(
-            state="disabled",
-            text="⏳ Scraping sedang berjalan... Mohon tunggu...",
-            fg_color="#475569",
-        )
-
-        # Terapkan Monkey-Patching rich.Console di modul scraper agar log diarahkan ke queue
-        queue_console = make_queue_console(self.log_queue)
-        scraper_garuda.console = queue_console
-        scraper_sinta.console = queue_console
-        exporter.console = queue_console
-        jsfs.console = queue_console
-
-        params = {
-            "keyword": keyword,
-            "use_garuda": use_garuda,
-            "use_sinta": use_sinta,
-            "sinta_ranks": self._get_selected_ranks(),
-            "max_results": target_limit,
-            "deep_detail": deep_detail,
-            "turbo_mode": turbo_mode,
-            "use_selenium": bool(self.chk_selenium.get()),
-            "formats": self._get_selected_formats(),
-            "free_only": free_only,
-            "include_unknown_apc": include_unknown,
-            "min_apc": min_apc,
-            "max_apc": max_apc,
-        }
-
-        # Jalankan di Background Worker Thread terpisah (MUTLAK ANTI-FREEZE)
-        thread = threading.Thread(
-            target=self._scraping_task,
-            args=(params,),
-            daemon=True,
-        )
-        thread.start()
-
-    def _scraping_task(self, params: dict):
-        """
-        Logika scraping yang berjalan di latar belakang (background thread).
-        """
-        all_results: list[JournalEntry] = []
-        keyword = params["keyword"]
-        ranks = params["sinta_ranks"]
-        target_limit = params["max_results"]
-        deep_mode = params["deep_detail"]
-        turbo_mode = params.get("turbo_mode", True)
-
-        try:
-            self.log_queue.put(f"🚀 Memulai scraping untuk keyword: '{keyword}'...")
-            if turbo_mode:
-                self.log_queue.put("⚡ HARDWARE TURBO MODE AKTIF: Max throughput paralelisme & high-capacity connection pool!")
-            self.log_queue.put(f"🎯 Target: {target_limit} jurnal | Mode Detail OJS: {'Aktif (Quad-Pass)' if deep_mode else 'Mati (Mode Cepat)'}")
-            self.log_queue.put(f"📊 Target peringkat SINTA: {ranks}")
-            if params["free_only"]:
-                unk_note = " (termasuk belum teridentifikasi)" if params["include_unknown_apc"] else ""
-                self.log_queue.put(f"💰 Filter APC: Hanya Jurnal Gratis (Rp 0){unk_note}")
-            else:
-                self.log_queue.put(f"💰 Filter Rentang APC: Rp {params['min_apc']:,} s.d. Rp {params['max_apc']:,}".replace(",", "."))
-
-            # 1. Scraping Portal Garuda
-            if params["use_garuda"]:
-                self.log_queue.put("📡 Menghubungi Portal Garuda...")
-                garuda_results = scrape_garuda(
-                    keyword,
-                    ranks,
-                    deep_detail=deep_mode,
-                    max_results=target_limit,
-                    turbo_mode=turbo_mode,
-                    free_only=params["free_only"],
-                    include_unknown_apc=params["include_unknown_apc"],
-                )
-                all_results.extend(garuda_results)
-
-            # 2. Scraping Direktori SINTA
-            if params["use_sinta"]:
-                self.log_queue.put("📡 Menghubungi Direktori SINTA...")
-                if params["use_selenium"]:
-                    sinta_results = scrape_sinta_selenium(
-                        keyword,
-                        ranks,
-                        deep_detail=deep_mode,
-                        max_results=target_limit,
-                        turbo_mode=turbo_mode,
-                        free_only=params["free_only"],
-                        include_unknown_apc=params["include_unknown_apc"],
-                    )
-                else:
-                    sinta_results = scrape_sinta(
-                        keyword,
-                        ranks,
-                        deep_detail=deep_mode,
-                        max_results=target_limit,
-                        turbo_mode=turbo_mode,
-                        free_only=params["free_only"],
-                        include_unknown_apc=params["include_unknown_apc"],
-                    )
-                all_results.extend(sinta_results)
-
-            # 3. Deduplikasi & Penggabungan Data Lintas Sumber (Cross-Source Fallback Merging)
-            unique_results = merge_cross_source_entries(all_results)
-            self.log_queue.put(f"📦 Total jurnal unik terhimpun sebelum filter APC: {len(unique_results)}")
-
-            # 4. Filter Biaya APC (Hanya Gratis, Rentang Harga, dan Opsi Sertakan N/A)
-            filtered_results: list[JournalEntry] = []
-            free_only = params["free_only"]
-            include_unknown = params["include_unknown_apc"]
-            min_apc = params["min_apc"]
-            max_apc = params["max_apc"]
-
-            for j in unique_results:
-                apc_low = j.apc_status.lower()
-                is_free = (j.apc_amount == 0) or ("gratis" in apc_low) or ("rp 0" in apc_low) or ("free" in apc_low)
-                is_unknown = (j.apc_amount is None) or (j.apc_status == INFO_NOT_FOUND)
-
-                if free_only:
-                    if is_free:
-                        filtered_results.append(j)
-                    elif is_unknown and include_unknown:
-                        filtered_results.append(j)
-                else:
-                    # Filter rentang harga
-                    if j.apc_amount is not None:
-                        if min_apc <= j.apc_amount <= max_apc:
-                            filtered_results.append(j)
-                    elif is_free:
-                        if min_apc == 0:
-                            filtered_results.append(j)
-                    else:
-                        # Jurnal tanpa info tarif tertera di situs: sertakan jika opsi include_unknown aktif atau min_apc adalah 0
-                        if include_unknown or min_apc == 0:
-                            filtered_results.append(j)
-
-            # Batasi sesuai target kuota jika melebihi
-            if len(filtered_results) > target_limit:
-                filtered_results = filtered_results[:target_limit]
-
-            self.log_queue.put(f"🎯 Total jurnal lolos kriteria akhir: {len(filtered_results)}")
-
-            # 4B. Evaluasi Kesesuaian Naskah Ilmiah (Match Score 0–100%) jika naskah dimuat
-            if self._manuscript_meta and self.chk_match_scoring.get():
-                import doc_reader
-                self.log_queue.put(f"\n[bold cyan]🎯 Menghitung Match Score Kesesuaian Naskah terhadap {len(filtered_results)} Jurnal...[/bold cyan]")
-                for j in filtered_results:
-                    res_m = doc_reader.calculate_match_score(self._manuscript_meta, j)
-                    j.match_score = res_m["score"]
-                    j.kesesuaian_naskah = res_m["level"]
-
-                # Urutkan berdasarkan skor kesesuaian tertinggi
-                filtered_results.sort(key=lambda x: getattr(x, "match_score", 0), reverse=True)
-
-                c_sangat = len([j for j in filtered_results if j.kesesuaian_naskah == "Sangat Sesuai"])
-                c_sesuai = len([j for j in filtered_results if j.kesesuaian_naskah == "Sesuai"])
-                c_kurang = len([j for j in filtered_results if j.kesesuaian_naskah == "Kurang Sesuai"])
-                self.log_queue.put(
-                    f"[bold green]✓ Kompatibilitas Naskah:[/bold green] "
-                    f"[bold green]{c_sangat} Sangat Sesuai[/bold green], "
-                    f"[bold blue]{c_sesuai} Sesuai[/bold blue], "
-                    f"[dim]{c_kurang} Kurang Sesuai[/dim]"
-                )
-
-            # 5. Simpan ke berkas output unik (dengan timestamp)
-            exported_files = []
-            if "md" in params["formats"]:
-                path_md = export_markdown(filtered_results, keyword, ranks)
-                exported_files.append(path_md)
-
-            if "csv" in params["formats"]:
-                path_csv = export_csv(filtered_results, keyword)
-                exported_files.append(path_csv)
-
-            path_excel = None
-            if "excel" in params["formats"]:
-                path_excel = export_excel(filtered_results, keyword)
-                exported_files.append(path_excel)
-
-            # Simpan hasil scraping terakhir untuk Data Table Previewer
-            self._latest_results = filtered_results
-            self._latest_excel_path = path_excel
-
-            # 6. Notifikasi akhir
-            if filtered_results:
-                self.log_queue.put(f"✅ Sukses! Ditemukan {len(filtered_results)} jurnal relevan.")
-                self.log_queue.put("💡 Klik tombol '👁️ PREVIEW HASIL DATA' untuk melihat & memfilter tabel secara interaktif di GUI!")
-            else:
-                self.log_queue.put("ℹ️  Pencarian selesai, namun tidak ada jurnal yang cocok dengan kriteria.")
-
-            for fpath in exported_files:
-                self.log_queue.put(f"💾 Berkas tersimpan → {fpath}")
-
-        except Exception as e:
-            self.log_queue.put(f"❌ Terjadi kesalahan saat scraping: {str(e)}")
-        finally:
-            self.after(0, self._on_scraping_done)
-
-    def _on_scraping_done(self):
-        """Mengembalikan kondisi tombol dan status aplikasi ke kondisi idle."""
-        self._is_running = False
-        self.btn_scrape.configure(
-            state="normal",
-            text="🚀  MULAI SCRAPING",
-            fg_color="#0284c7",
-        )
-        if self._latest_results:
-            self.btn_preview.configure(
-                state="normal",
-                text=f"👁️  PREVIEW HASIL ({len(self._latest_results)})",
-                fg_color="#059669",
+        records.extend(g_results)
+        on_progress(len(records), target)
+
+    if use_sinta and not cancel.is_set():
+        if use_selenium:
+            s_results = scrape_sinta_selenium(
+                keyword=keyword,
+                sinta_ranks=sinta_ranks,
+                deep_detail=True,
+                max_results=target,
+                turbo_mode=turbo,
+                free_only=False,
+                include_unknown_apc=True,
             )
         else:
-            self.btn_preview.configure(
-                state="disabled",
-                text="👁️  PREVIEW HASIL DATA",
-                fg_color="#475569",
+            s_results = scrape_sinta(
+                keyword=keyword,
+                sinta_ranks=sinta_ranks,
+                deep_detail=True,
+                max_results=target,
+                turbo_mode=turbo,
+                free_only=False,
+                include_unknown_apc=True,
             )
+        records.extend(s_results)
+        on_progress(len(records), target)
 
-    def _open_data_previewer(self):
-        """Membuka jendela interaktif Data Table Previewer untuk melihat hasil scraping."""
-        if not self._latest_results:
-            self._log_ui("⚠️ Belum ada hasil scraping untuk ditampilkan. Silakan jalankan scraping terlebih dahulu.")
-            return
+    if use_garuda and use_sinta:
+        records = merge_cross_source_entries(records)
 
-        if self._previewer_window is not None and self._previewer_window.winfo_exists():
-            self._previewer_window.update_data(self._latest_results, self._latest_excel_path)
-            self._previewer_window.lift()
-            self._previewer_window.focus()
-            return
-
-        self._previewer_window = JSFSDataPreviewer(
-            master=self,
-            journals=self._latest_results,
-            excel_path=self._latest_excel_path,
-        )
-
-    def _open_output_folder(self):
-        """Membuka folder output secara langsung di Windows File Explorer."""
-        out_path = os.path.abspath(OUTPUT_DIR)
-        os.makedirs(out_path, exist_ok=True)
-        try:
-            os.startfile(out_path)
-        except Exception:
-            subprocess.Popen(f'explorer "{out_path}"')
+    on_progress(len(records), target)
+    return records
 
 
+# ───────────────────────── Data Previewer Interaktif ─────────────────────────
 class JSFSDataPreviewer(ctk.CTkToplevel):
     """
-    Jendela Pop-up Interaktif Data Table Previewer (v1.3.8).
-    Memungkinkan pengguna melihat, mencari, memfilter, membaca Focus & Scope,
-    dan membuka URL OJS langsung dari aplikasi tanpa perlu Microsoft Excel.
+    Jendela Pop-up Interaktif Data Table Previewer v1.4.0.
+    Menampilkan data terstruktur dengan kolom Submit, Publikasi, Bulan Terbit, dan Sumber (AI/Regex).
     """
 
     def __init__(self, master, journals: list[JournalEntry], excel_path: Optional[str] = None):
         super().__init__(master)
 
-        self.title("👁️ JSFS Data Table Previewer v1.3.8 — Hasil Scraping Jurnal")
+        self.title("👁️ JSFS Data Table Previewer v1.4.0 — Hasil Scraping Jurnal")
         self.geometry("1180x720")
         self.minsize(980, 600)
 
         self._all_journals: list[JournalEntry] = list(journals)
         self._filtered_journals: list[JournalEntry] = list(journals)
         self._excel_path: Optional[str] = excel_path
-        self._selected_journal: Optional[JournalEntry] = None
 
         self._build_previewer_ui()
         self._apply_filters()
-
         self.after(100, self.lift)
 
     def _build_previewer_ui(self):
@@ -946,7 +281,7 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
 
         title_lbl = ctk.CTkLabel(
             header_bar,
-            text="📊 Data Table Previewer",
+            text="📊 Data Table Previewer v1.4.0",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color="#38bdf8",
         )
@@ -954,7 +289,7 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
 
         self.lbl_stats = ctk.CTkLabel(
             header_bar,
-            text=f"Total: {len(self._all_journals)} jurnal | Dobel-klik baris untuk membuka OJS di Web Browser",
+            text=f"Total: {len(self._all_journals)} jurnal | Dobel-klik baris untuk membuka situs OJS",
             font=ctk.CTkFont(family="Segoe UI", size=11),
             text_color="#94a3b8",
         )
@@ -984,29 +319,23 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
             btn_open_excel.pack(side="right")
 
         # 2. Filter & Search Controls Card
-        filter_card = ctk.CTkFrame(container, corner_radius=8)
+        filter_card = ctk.CTkFrame(container, corner_radius=8, fg_color=BG_CARD)
         filter_card.pack(fill="x", pady=(0, 8), padx=2)
 
         filter_row = ctk.CTkFrame(filter_card, fg_color="transparent")
         filter_row.pack(fill="x", padx=10, pady=6)
 
-        lbl_s = ctk.CTkLabel(
-            filter_row,
-            text="🔍 Cari:",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-        )
-        lbl_s.pack(side="left", padx=(0, 6))
+        ctk.CTkLabel(filter_row, text="🔍 Cari:", font=ctk.CTkFont(size=11, weight="bold")).pack(side="left", padx=(0, 6))
 
         self.entry_filter = ctk.CTkEntry(
             filter_row,
-            placeholder_text="Ketik nama jurnal, topik, instansi, focus & scope, atau kontak...",
-            font=ctk.CTkFont(family="Segoe UI", size=11),
+            placeholder_text="Ketik nama jurnal, topik, penerbit, focus & scope...",
+            font=ctk.CTkFont(size=11),
             height=28,
         )
         self.entry_filter.pack(side="left", fill="x", expand=True, padx=(0, 8))
         self.entry_filter.bind("<KeyRelease>", lambda e: self._apply_filters())
 
-        # Dropdown SINTA
         self.combo_sinta = ctk.CTkComboBox(
             filter_row,
             values=["Semua SINTA", "S1", "S2", "S3", "S4", "S5", "S6"],
@@ -1018,37 +347,24 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
         self.combo_sinta.set("Semua SINTA")
         self.combo_sinta.pack(side="left", padx=(0, 6))
 
-        # Dropdown APC
-        self.combo_apc = ctk.CTkComboBox(
+        self.combo_src = ctk.CTkComboBox(
             filter_row,
-            values=["Semua Biaya", "Hanya Gratis (Rp 0)", "Berbayar"],
-            width=140,
-            height=28,
-            font=ctk.CTkFont(size=11),
-            command=lambda val: self._apply_filters(),
-        )
-        self.combo_apc.set("Semua Biaya")
-        self.combo_apc.pack(side="left", padx=(0, 6))
-
-        # Dropdown Status Server
-        self.combo_server = ctk.CTkComboBox(
-            filter_row,
-            values=["Semua Server", "Sangat Aktif", "Aktif", "SSL Warning", "Non-Aktif"],
+            values=["Semua Sumber", "Hanya AI", "Hanya Regex"],
             width=120,
             height=28,
             font=ctk.CTkFont(size=11),
             command=lambda val: self._apply_filters(),
         )
-        self.combo_server.set("Semua Server")
-        self.combo_server.pack(side="left", padx=(0, 6))
+        self.combo_src.set("Semua Sumber")
+        self.combo_src.pack(side="left", padx=(0, 6))
 
         btn_reset = ctk.CTkButton(
             filter_row,
             text="🔄 Reset",
             width=70,
             height=28,
-            fg_color="#334155",
-            hover_color="#475569",
+            fg_color="#3a3a3a",
+            hover_color="#4a4a4a",
             command=self._reset_filters,
         )
         btn_reset.pack(side="left", padx=(0, 6))
@@ -1056,7 +372,7 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
         self.lbl_count_match = ctk.CTkLabel(
             filter_row,
             text="0 Jurnal",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            font=ctk.CTkFont(size=11, weight="bold"),
             text_color="#38bdf8",
         )
         self.lbl_count_match.pack(side="right")
@@ -1069,32 +385,24 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
         style.theme_use("clam")
         style.configure(
             "JSFS.Treeview",
-            background="#0f172a",
+            background="#1e1e1e",
             foreground="#f8fafc",
             rowheight=26,
-            fieldbackground="#0f172a",
+            fieldbackground="#1e1e1e",
             font=("Segoe UI", 10),
             borderwidth=0,
         )
         style.configure(
             "JSFS.Treeview.Heading",
-            background="#1e293b",
+            background="#2d3748",
             foreground="#38bdf8",
             relief="flat",
             font=("Segoe UI", 10, "bold"),
             padding=4,
         )
-        style.map(
-            "JSFS.Treeview",
-            background=[("selected", "#0284c7")],
-            foreground=[("selected", "#ffffff")],
-        )
-        style.map(
-            "JSFS.Treeview.Heading",
-            background=[("active", "#334155")],
-        )
+        style.map("JSFS.Treeview", background=[("selected", "#0284c7")], foreground=[("selected", "#ffffff")])
 
-        cols = ("no", "title", "sinta", "apc", "server", "transparency", "freq", "contact", "scope")
+        cols = ("no", "title", "sinta", "submit", "pub", "cur", "month", "src_focus", "src_apc", "scope")
         self.tree = ttk.Treeview(
             tree_container,
             columns=cols,
@@ -1106,21 +414,23 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
         self.tree.heading("no", text="#")
         self.tree.heading("title", text="Nama Jurnal")
         self.tree.heading("sinta", text="SINTA")
-        self.tree.heading("apc", text="Biaya APC")
-        self.tree.heading("server", text="Status Server")
-        self.tree.heading("transparency", text="Transparansi")
-        self.tree.heading("freq", text="Frekuensi")
-        self.tree.heading("contact", text="Kontak (Email / WA)")
+        self.tree.heading("submit", text="Biaya Submit")
+        self.tree.heading("pub", text="Biaya Publikasi")
+        self.tree.heading("cur", text="Mata Uang")
+        self.tree.heading("month", text="Bulan Terbit")
+        self.tree.heading("src_focus", text="Sumber Focus")
+        self.tree.heading("src_apc", text="Sumber APC")
         self.tree.heading("scope", text="Focus & Scope (Ringkasan)")
 
         self.tree.column("no", width=36, anchor="center")
-        self.tree.column("title", width=260, anchor="w")
+        self.tree.column("title", width=240, anchor="w")
         self.tree.column("sinta", width=65, anchor="center")
-        self.tree.column("apc", width=115, anchor="center")
-        self.tree.column("server", width=130, anchor="center")
-        self.tree.column("transparency", width=125, anchor="center")
-        self.tree.column("freq", width=80, anchor="center")
-        self.tree.column("contact", width=160, anchor="w")
+        self.tree.column("submit", width=105, anchor="center")
+        self.tree.column("pub", width=115, anchor="center")
+        self.tree.column("cur", width=75, anchor="center")
+        self.tree.column("month", width=95, anchor="center")
+        self.tree.column("src_focus", width=95, anchor="center")
+        self.tree.column("src_apc", width=95, anchor="center")
         self.tree.column("scope", width=250, anchor="w")
 
         v_scroll = ttk.Scrollbar(tree_container, orient="vertical", command=self.tree.yview)
@@ -1135,7 +445,7 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
         self.tree.bind("<Double-1>", self._on_tree_double_click)
 
         # 4. Bottom Detail & Full Focus & Scope Panel
-        detail_card = ctk.CTkFrame(container, corner_radius=8)
+        detail_card = ctk.CTkFrame(container, corner_radius=8, fg_color=BG_CARD)
         detail_card.pack(fill="x", padx=2)
 
         detail_top = ctk.CTkFrame(detail_card, fg_color="transparent")
@@ -1144,184 +454,978 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
         self.lbl_detail_title = ctk.CTkLabel(
             detail_top,
             text="Pilih jurnal dari tabel di atas untuk melihat detail lengkap & Focus & Scope.",
-            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            font=ctk.CTkFont(size=12, weight="bold"),
             text_color="#f8fafc",
             anchor="w",
         )
         self.lbl_detail_title.pack(side="left", fill="x", expand=True)
 
-        self.btn_open_url = ctk.CTkButton(
+        self.btn_open_ojs = ctk.CTkButton(
             detail_top,
-            text="🌐 Buka OJS di Browser",
-            width=150,
+            text="🌐 Buka Situs OJS",
+            width=130,
             height=28,
             font=ctk.CTkFont(size=11, weight="bold"),
-            fg_color="#0284c7",
-            hover_color="#0369a1",
-            command=self._open_selected_url,
+            fg_color=BLUE,
+            hover_color=BLUE_H,
             state="disabled",
+            command=self._open_selected_ojs,
         )
-        self.btn_open_url.pack(side="right")
+        self.btn_open_ojs.pack(side="right")
 
-        self.detail_badges_row = ctk.CTkFrame(detail_card, fg_color="transparent")
-        self.detail_badges_row.pack(fill="x", padx=12, pady=(0, 4))
-
-        self.lbl_detail_meta = ctk.CTkLabel(
-            self.detail_badges_row,
-            text="Penerbit: - | Frekuensi: - | Kontak: -",
-            font=ctk.CTkFont(family="Segoe UI", size=10),
-            text_color="#94a3b8",
-            anchor="w",
-        )
-        self.lbl_detail_meta.pack(anchor="w")
-
-        scope_box_frame = ctk.CTkFrame(detail_card, fg_color="transparent")
-        scope_box_frame.pack(fill="x", padx=12, pady=(0, 8))
-
-        lbl_scope_heading = ctk.CTkLabel(
-            scope_box_frame,
-            text="🎯 Focus & Scope (Ruang Lingkup Penelitian):",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            text_color="#38bdf8",
-        )
-        lbl_scope_heading.pack(anchor="w", pady=(0, 2))
-
-        self.txt_detail_scope = ctk.CTkTextbox(
-            scope_box_frame,
-            height=60,
+        self.detail_textbox = ctk.CTkTextbox(
+            detail_card,
+            height=90,
             font=ctk.CTkFont(family="Segoe UI", size=11),
             wrap="word",
         )
-        self.txt_detail_scope.pack(fill="x")
-        self.txt_detail_scope.insert("1.0", "-")
-        self.txt_detail_scope.configure(state="disabled")
+        self.detail_textbox.pack(fill="x", padx=12, pady=(4, 10))
+        self.detail_textbox.insert("1.0", "Informasi rinci Focus & Scope serta Author Fees akan tampil di sini.")
+        self.detail_textbox.configure(state="disabled")
+
+    def _open_excel_file(self):
+        if self._excel_path and os.path.exists(self._excel_path):
+            try:
+                os.startfile(os.path.abspath(self._excel_path))
+            except Exception:
+                pass
 
     def _reset_filters(self):
         self.entry_filter.delete(0, "end")
         self.combo_sinta.set("Semua SINTA")
-        self.combo_apc.set("Semua Biaya")
-        self.combo_server.set("Semua Server")
+        self.combo_src.set("Semua Sumber")
         self._apply_filters()
 
     def _apply_filters(self):
         query = self.entry_filter.get().strip().lower()
-        filter_sinta = self.combo_sinta.get().strip()
-        filter_apc = self.combo_apc.get().strip()
-        filter_server = self.combo_server.get().strip()
+        sinta_filter = self.combo_sinta.get()
+        src_filter = self.combo_src.get()
 
-        matched = []
+        filtered = []
         for j in self._all_journals:
-            if filter_sinta != "Semua SINTA":
-                if filter_sinta.lower() not in j.peringkat.lower().replace(" ", ""):
+            # SINTA
+            if sinta_filter != "Semua SINTA":
+                if sinta_filter not in j.peringkat_sinta.replace("Sinta ", "S"):
                     continue
-
-            if filter_apc == "Hanya Gratis (Rp 0)":
-                apc_low = j.apc_status.lower()
-                is_free = (j.apc_amount == 0) or ("gratis" in apc_low) or ("rp 0" in apc_low) or ("free" in apc_low)
-                if not is_free:
+            # Sumber
+            if src_filter == "Hanya AI":
+                if getattr(j, "sumber_focus", "") != "AI" and getattr(j, "sumber_apc", "") != "AI":
                     continue
-            elif filter_apc == "Berbayar":
-                apc_low = j.apc_status.lower()
-                is_free = (j.apc_amount == 0) or ("gratis" in apc_low) or ("rp 0" in apc_low) or ("free" in apc_low)
-                if is_free or (j.apc_amount is None and j.apc_status == INFO_NOT_FOUND):
+            elif src_filter == "Hanya Regex":
+                if getattr(j, "sumber_focus", "") == "AI" or getattr(j, "sumber_apc", "") == "AI":
                     continue
-
-            if filter_server != "Semua Server":
-                if filter_server.lower() not in j.status_server.lower():
-                    continue
-
+            # Query
             if query:
-                haystack = f"{j.nama} {j.penerbit} {j.focus_scope} {j.email} {j.telepon} {j.peringkat} {j.link}".lower()
-                if query not in haystack:
+                combined_txt = f"{j.nama_jurnal} {j.penerbit} {j.bidang} {j.focus_scope} {j.email} {j.telepon}".lower()
+                if query not in combined_txt:
                     continue
+            filtered.append(j)
 
-            matched.append(j)
-
-        self._filtered_journals = matched
+        self._filtered_journals = filtered
+        self.lbl_count_match.configure(text=f"{len(filtered)} Jurnal")
         self._populate_tree()
 
     def _populate_tree(self):
         for item in self.tree.get_children():
             self.tree.delete(item)
 
-        for idx, j in enumerate(self._filtered_journals, start=1):
-            contact_str = j.email if j.email != INFO_NOT_FOUND else j.telepon
-            short_scope = j.focus_scope.replace("\n", " ") if j.focus_scope != INFO_NOT_FOUND else "-"
-            if len(short_scope) > 75:
-                short_scope = short_scope[:72] + "..."
+        for i, j in enumerate(self._filtered_journals, 1):
+            cur = getattr(j, "mata_uang", None) or "—"
+            b_sub = exporter._format_amount(getattr(j, "biaya_submit", None), getattr(j, "mata_uang", None))
+            b_pub_num = getattr(j, "biaya_publikasi", None)
+            if b_pub_num is None and getattr(j, "apc_amount", None) is not None:
+                b_pub_num = getattr(j, "apc_amount", None)
+            b_pub = exporter._format_amount(b_pub_num, getattr(j, "mata_uang", None))
+
+            bulan = format_bulan_terbit(getattr(j, "bulan_terbit", []))
+            s_focus = getattr(j, "sumber_focus", "Regex") or "Regex"
+            s_apc = getattr(j, "sumber_apc", "Regex") or "Regex"
+            scope_snip = (getattr(j, "focus_scope", "") or "—")[:120]
 
             self.tree.insert(
                 "",
                 "end",
-                iid=str(idx - 1),
+                iid=str(i - 1),
                 values=(
-                    idx,
-                    j.nama,
-                    j.peringkat,
-                    j.apc_status,
-                    j.status_server,
-                    j.transparansi_kontak,
-                    j.frekuensi,
-                    contact_str,
-                    short_scope,
+                    str(i),
+                    j.nama_jurnal,
+                    j.peringkat_sinta,
+                    b_sub,
+                    b_pub,
+                    cur,
+                    bulan,
+                    s_focus,
+                    s_apc,
+                    scope_snip,
                 ),
             )
 
-        self.lbl_count_match.configure(text=f"{len(self._filtered_journals)} / {len(self._all_journals)} Jurnal")
-
     def _on_tree_select(self, event):
-        selected = self.tree.selection()
-        if not selected:
+        sel = self.tree.selection()
+        if not sel:
             return
-        idx = int(selected[0])
-        if 0 <= idx < len(self._filtered_journals):
+        idx = int(sel[0])
+        if idx < len(self._filtered_journals):
             j = self._filtered_journals[idx]
-            self._selected_journal = j
-            self.lbl_detail_title.configure(text=f"📚 {j.nama} ({j.peringkat})")
-            meta_txt = (
-                f"🏛️ Penerbit: {j.penerbit} | 🔄 Frekuensi: {j.frekuensi} | "
-                f"💰 Biaya: {j.apc_status} | 🌐 Server: {j.status_server} | "
-                f"🛡️ Transparansi: {j.transparansi_kontak}\n"
-                f"📧 Email: {j.email} | 📞 WA/Telp: {j.telepon}"
+            self.lbl_detail_title.configure(text=f"📑 {j.nama_jurnal} ({j.peringkat_sinta}) • {j.penerbit}")
+            self.btn_open_ojs.configure(state="normal" if (j.link_ojs and j.link_ojs.startswith("http")) else "disabled")
+
+            b_sub = exporter._format_amount(getattr(j, "biaya_submit", None), getattr(j, "mata_uang", None))
+            b_pub_num = getattr(j, "biaya_publikasi", None)
+            if b_pub_num is None and getattr(j, "apc_amount", None) is not None:
+                b_pub_num = getattr(j, "apc_amount", None)
+            b_pub = exporter._format_amount(b_pub_num, getattr(j, "mata_uang", None))
+            bulan = format_bulan_terbit(getattr(j, "bulan_terbit", []))
+            s_focus = getattr(j, "sumber_focus", "Regex") or "Regex"
+            s_apc = getattr(j, "sumber_apc", "Regex") or "Regex"
+
+            txt = (
+                f"• Focus & Scope [{s_focus}]: {getattr(j, 'focus_scope', INFO_NOT_FOUND)}\n"
+                f"• Biaya Penulis [{s_apc}]: Submit: {b_sub} | Publikasi: {b_pub} | Mata Uang: {getattr(j, 'mata_uang', 'IDR') or 'IDR'}\n"
+                f"• Jadwal Bulan Terbit: {bulan} | Frekuensi: {getattr(j, 'frekuensi', INFO_NOT_FOUND)}\n"
+                f"• Kontak: Email: {getattr(j, 'email', INFO_NOT_FOUND)} | Telepon/WA: {getattr(j, 'telepon', INFO_NOT_FOUND)} | Server: {getattr(j, 'status_server', 'Aktif')}\n"
+                f"• Link Website: {j.link_ojs or INFO_NOT_FOUND}"
             )
-            self.lbl_detail_meta.configure(text=meta_txt)
+            self.detail_textbox.configure(state="normal")
+            self.detail_textbox.delete("1.0", "end")
+            self.detail_textbox.insert("1.0", txt)
+            self.detail_textbox.configure(state="disabled")
 
-            self.txt_detail_scope.configure(state="normal")
-            self.txt_detail_scope.delete("1.0", "end")
-            self.txt_detail_scope.insert("1.0", j.focus_scope if j.focus_scope else INFO_NOT_FOUND)
-            self.txt_detail_scope.configure(state="disabled")
-
-            self.btn_open_url.configure(state="normal")
+    def _open_selected_ojs(self):
+        sel = self.tree.selection()
+        if not sel:
+            return
+        idx = int(sel[0])
+        if idx < len(self._filtered_journals):
+            j = self._filtered_journals[idx]
+            if j.link_ojs and j.link_ojs.startswith("http"):
+                webbrowser.open(j.link_ojs)
 
     def _on_tree_double_click(self, event):
-        self._open_selected_url()
-
-    def _open_selected_url(self):
-        if self._selected_journal and self._selected_journal.link:
-            webbrowser.open(self._selected_journal.link)
-
-    def _open_excel_file(self):
-        if self._excel_path and os.path.exists(self._excel_path):
-            try:
-                os.startfile(self._excel_path)
-            except Exception:
-                subprocess.Popen(f'explorer "{os.path.abspath(self._excel_path)}"')
+        self._open_selected_ojs()
 
     def update_data(self, journals: list[JournalEntry], excel_path: Optional[str] = None):
         self._all_journals = list(journals)
-        self._filtered_journals = list(journals)
         self._excel_path = excel_path
-        self.lbl_stats.configure(
-            text=f"Total: {len(self._all_journals)} jurnal | Dobel-klik baris untuk membuka OJS di Web Browser"
-        )
         self._apply_filters()
 
 
-def main():
-    """Fungsi entry point untuk menjalankan antarmuka grafis JSFS v1.3.8."""
-    app = JSFSApp()
-    app.mainloop()
+# ───────────────────────── 1-Click AI Setup Manager ─────────────────────────
+class AISetupDialog(ctk.CTkToplevel):
+    """
+    Jendela Popup 1-Click AI Setup Manager.
+    Mengunduh & memasang Ollama serta model AI lokal (qwen2.5:3b)
+    secara otomatis dari dalam GUI.
+    """
+    def __init__(self, parent: "JSFSApp"):
+        super().__init__(parent)
+        self.parent_app = parent
+        self.title("⚙️ 1-Click AI Setup Manager — JSFS v1.4.0")
+        self.geometry("580x520")
+        self.minsize(540, 480)
+        self.resizable(False, False)
+        self.transient(parent)
+        self.grab_set()
+
+        self.cancel_evt = threading.Event()
+        self._is_busy = False
+        self._poll_active = True
+
+        self._build_ui()
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.after(300, self._start_poll_loop)
+
+    def _build_ui(self):
+        self.grid_columnconfigure(0, weight=1)
+        self.configure(fg_color="#181818")
+
+        f_pad = 16
+        # Header
+        hdr = ctk.CTkFrame(self, fg_color="transparent")
+        hdr.grid(row=0, column=0, sticky="ew", padx=f_pad, pady=(16, 8))
+        hdr.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            hdr,
+            text="🤖 1-Click AI Setup Manager",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color="#38bdf8",
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w")
+
+        ctk.CTkLabel(
+            hdr,
+            text="JSFS membutuhkan Ollama & Model Qwen2.5 3B (Total ~2.2 GB)\nuntuk ekstraksi cerdas Focus & Scope dan Biaya Penulis (APC).",
+            font=ctk.CTkFont(size=11),
+            text_color="#a0a0a0",
+            justify="left",
+            anchor="w",
+        ).grid(row=1, column=0, sticky="w", pady=(4, 0))
+
+        # Status Card
+        sc = ctk.CTkFrame(self, fg_color="#242424", corner_radius=10)
+        sc.grid(row=1, column=0, sticky="ew", padx=f_pad, pady=8)
+        sc.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(sc, text="Status Ollama:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#d0d0d0").grid(row=0, column=0, sticky="w", padx=12, pady=(10, 4))
+        self.lbl_ollama_status = ctk.CTkLabel(sc, text="Memeriksa...", font=ctk.CTkFont(size=12), text_color="#eab308")
+        self.lbl_ollama_status.grid(row=0, column=1, sticky="w", padx=12, pady=(10, 4))
+
+        ctk.CTkLabel(sc, text="Status Model (qwen2.5:3b):", font=ctk.CTkFont(size=12, weight="bold"), text_color="#d0d0d0").grid(row=1, column=0, sticky="w", padx=12, pady=(4, 10))
+        self.lbl_model_status = ctk.CTkLabel(sc, text="Memeriksa...", font=ctk.CTkFont(size=12), text_color="#eab308")
+        self.lbl_model_status.grid(row=1, column=1, sticky="w", padx=12, pady=(4, 10))
+
+        # Action Buttons Frame
+        btn_frame = ctk.CTkFrame(self, fg_color="#242424", corner_radius=10)
+        btn_frame.grid(row=2, column=0, sticky="ew", padx=f_pad, pady=8)
+        btn_frame.grid_columnconfigure(0, weight=1)
+
+        self.btn_download_ollama = ctk.CTkButton(
+            btn_frame,
+            text="1. Unduh & Pasang Ollama (~65 MB)",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            height=38,
+            corner_radius=8,
+            fg_color="#1f6aa5",
+            hover_color="#144870",
+            command=self._on_click_download_ollama,
+        )
+        self.btn_download_ollama.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 6))
+
+        self.btn_pull_model = ctk.CTkButton(
+            btn_frame,
+            text="2. Unduh Model AI (qwen2.5:3b) (~2.0 GB)",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            height=38,
+            corner_radius=8,
+            fg_color="#13a06f",
+            hover_color="#0e7a55",
+            state="disabled",
+            command=self._on_click_pull_model,
+        )
+        self.btn_pull_model.grid(row=1, column=0, sticky="ew", padx=12, pady=(6, 12))
+
+        # Progress Frame
+        p_frame = ctk.CTkFrame(self, fg_color="#242424", corner_radius=10)
+        p_frame.grid(row=3, column=0, sticky="ew", padx=f_pad, pady=8)
+        p_frame.grid_columnconfigure(0, weight=1)
+
+        self.lbl_progress = ctk.CTkLabel(
+            p_frame,
+            text="Status: Menunggu instruksi pengguna.",
+            font=ctk.CTkFont(size=11),
+            text_color="#38bdf8",
+            anchor="w",
+        )
+        self.lbl_progress.grid(row=0, column=0, sticky="w", padx=12, pady=(10, 4))
+
+        self.prog_bar = ctk.CTkProgressBar(p_frame, height=12, corner_radius=6, progress_color="#38bdf8")
+        self.prog_bar.grid(row=1, column=0, sticky="ew", padx=12, pady=(4, 10))
+        self.prog_bar.set(0.0)
+
+        # Bottom Bar
+        btm = ctk.CTkFrame(self, fg_color="transparent")
+        btm.grid(row=4, column=0, sticky="ew", padx=f_pad, pady=(8, 16))
+        btm.grid_columnconfigure(0, weight=1)
+
+        self.btn_cancel = ctk.CTkButton(
+            btm,
+            text="Batal Unduhan",
+            font=ctk.CTkFont(size=12),
+            height=32,
+            width=120,
+            corner_radius=6,
+            fg_color="#c0392b",
+            hover_color="#962d22",
+            state="disabled",
+            command=self._on_cancel,
+        )
+        self.btn_cancel.grid(row=0, column=0, sticky="w")
+
+        self.btn_close = ctk.CTkButton(
+            btm,
+            text="Tutup",
+            font=ctk.CTkFont(size=12),
+            height=32,
+            width=100,
+            corner_radius=6,
+            fg_color="#4a4a4a",
+            hover_color="#5a5a5a",
+            command=self._on_close,
+        )
+        self.btn_close.grid(row=0, column=1, sticky="e")
+
+    def _start_poll_loop(self):
+        if not self._poll_active or not self.winfo_exists():
+            return
+        if not self._is_busy:
+            threading.Thread(target=self._worker_poll_status, daemon=True).start()
+        self.after(2000, self._start_poll_loop)
+
+    def _worker_poll_status(self):
+        try:
+            running = ai_installer.is_ollama_running(timeout=1.5)
+            model_ok = ai_installer.is_model_installed(ai_installer.DEFAULT_MODEL, timeout=1.5) if running else False
+            exe_found = ai_installer.find_ollama_executable() is not None
+            if self.winfo_exists():
+                self.after(0, lambda: self._apply_poll_status(running, model_ok, exe_found))
+        except Exception:
+            pass
+
+    def _apply_poll_status(self, running: bool, model_ok: bool, exe_found: bool):
+        if not self.winfo_exists() or self._is_busy:
+            return
+
+        if running:
+            self.lbl_ollama_status.configure(text="● Aktif (localhost:11434)", text_color="#10b981")
+            self.btn_download_ollama.configure(text="✓ Ollama Sudah Aktif", state="disabled", fg_color="#374151")
+        else:
+            if exe_found:
+                self.lbl_ollama_status.configure(text="○ Terpasang (Belum Berjalan)", text_color="#f59e0b")
+                self.btn_download_ollama.configure(text="1. Jalankan Layanan Ollama", state="normal", fg_color="#1f6aa5")
+            else:
+                self.lbl_ollama_status.configure(text="○ Belum Terpasang", text_color="#ef4444")
+                self.btn_download_ollama.configure(text="1. Unduh & Pasang Ollama (~65 MB)", state="normal", fg_color="#1f6aa5")
+
+        if model_ok:
+            self.lbl_model_status.configure(text="● Terpasang & Siap", text_color="#10b981")
+            self.btn_pull_model.configure(text="✓ Model Qwen2.5:3b Siap", state="disabled", fg_color="#374151")
+            if running:
+                self.lbl_progress.configure(text="✅ AI Engine siap 100%! Anda dapat langsung menggunakan fitur AI.")
+                self.prog_bar.set(1.0)
+                self.parent_app._apply_badge(True)
+        else:
+            self.lbl_model_status.configure(text="○ Belum Terpasang", text_color="#ef4444" if running else "#a0a0a0")
+            if running:
+                self.btn_pull_model.configure(text="2. Unduh Model AI (qwen2.5:3b) (~2.0 GB)", state="normal", fg_color="#13a06f")
+            else:
+                self.btn_pull_model.configure(text="2. Unduh Model AI (Membutuhkan Ollama)", state="disabled", fg_color="#374151")
+
+    def _on_click_download_ollama(self):
+        if self._is_busy:
+            return
+        if not ai_installer.is_ollama_running() and ai_installer.find_ollama_executable():
+            self.lbl_progress.configure(text="Meluncurkan layanan Ollama di latar belakang...")
+            ok = ai_installer.launch_ollama_service()
+            if ok:
+                self.lbl_progress.configure(text="Layanan Ollama sedang diinisiasi. Mohon tunggu beberapa detik...")
+                self.after(2000, lambda: threading.Thread(target=self._worker_poll_status, daemon=True).start())
+                return
+
+        self._is_busy = True
+        self.cancel_evt.clear()
+        self.btn_download_ollama.configure(state="disabled")
+        self.btn_pull_model.configure(state="disabled")
+        self.btn_cancel.configure(state="normal")
+        self.prog_bar.set(0.0)
+        self.lbl_progress.configure(text="Mempersiapkan unduhan installer Ollama...")
+
+        threading.Thread(
+            target=lambda: ai_installer.download_and_install_ollama(
+                progress_cb=self._safe_progress,
+                done_cb=self._on_download_ollama_done,
+                cancel_evt=self.cancel_evt,
+            ),
+            daemon=True,
+        ).start()
+
+    def _on_download_ollama_done(self, success: bool, message: str):
+        def _ui():
+            self._is_busy = False
+            self.btn_cancel.configure(state="disabled")
+            self.lbl_progress.configure(text=message)
+            if success:
+                self.prog_bar.set(1.0)
+            threading.Thread(target=self._worker_poll_status, daemon=True).start()
+        if self.winfo_exists():
+            self.after(0, _ui)
+
+    def _on_click_pull_model(self):
+        if self._is_busy:
+            return
+        self._is_busy = True
+        self.cancel_evt.clear()
+        self.btn_download_ollama.configure(state="disabled")
+        self.btn_pull_model.configure(state="disabled")
+        self.btn_cancel.configure(state="normal")
+        self.prog_bar.set(0.0)
+        self.lbl_progress.configure(text=f"Mempersiapkan pull model {ai_installer.DEFAULT_MODEL}...")
+
+        threading.Thread(
+            target=lambda: ai_installer.pull_model(
+                model_name=ai_installer.DEFAULT_MODEL,
+                progress_cb=self._safe_progress,
+                done_cb=self._on_pull_model_done,
+                cancel_evt=self.cancel_evt,
+            ),
+            daemon=True,
+        ).start()
+
+    def _on_pull_model_done(self, success: bool, message: str):
+        def _ui():
+            self._is_busy = False
+            self.btn_cancel.configure(state="disabled")
+            self.lbl_progress.configure(text=message)
+            if success:
+                self.prog_bar.set(1.0)
+                self.parent_app._apply_badge(True)
+            threading.Thread(target=self._worker_poll_status, daemon=True).start()
+        if self.winfo_exists():
+            self.after(0, _ui)
+
+    def _safe_progress(self, current: int, total: int, pct: float, msg: str):
+        if not self.winfo_exists():
+            return
+        fraction = max(0.0, min(1.0, pct / 100.0))
+        self.after(0, lambda: self._apply_progress(fraction, msg))
+
+    def _apply_progress(self, fraction: float, msg: str):
+        if self.winfo_exists():
+            self.prog_bar.set(fraction)
+            self.lbl_progress.configure(text=msg)
+
+    def _on_cancel(self):
+        self.cancel_evt.set()
+        self.lbl_progress.configure(text="Membatalkan proses unduhan...")
+        self.btn_cancel.configure(state="disabled")
+
+    def _on_close(self):
+        self._poll_active = False
+        self.cancel_evt.set()
+        self.grab_release()
+        self.destroy()
+
+
+# ───────────────────────── Aplikasi Utama ─────────────────────────
+class JSFSApp(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+        self.title("JSFS v1.4.0 — Journal Scraper For Students (Hybrid AI Engine)")
+        self.geometry("1040x860")
+        self.minsize(980, 640)                                  # Zero Clipping aturan #3
+
+        self.ui_q: queue.Queue = queue.Queue()
+        self.cancel_evt = threading.Event()
+        self._worker: threading.Thread | None = None
+        self._ai_auto_off = False
+        self.manuscript_path: str | None = None
+        self._latest_results: list[JournalEntry] = []
+        self._latest_excel_path: str | None = None
+        self._previewer_window: Optional[JSFSDataPreviewer] = None
+        self._ai_setup_dialog: Optional[AISetupDialog] = None
+
+        # Grid Window: baris 1 (body) fleksibel, baris 0 & 2 dipatok
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
+
+        self._build_fonts()
+        self._build_header()
+        self._build_body()
+        self._build_actionbar()
+
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.after(100, self._poll_queue)            # pompa pesan thread -> GUI (100 ms)
+        self.after(300, self._refresh_badge)         # cek status Ollama (loop 30 dtk)
+
+    # ── fonts ──
+    def _build_fonts(self):
+        self.f_title = ctk.CTkFont(size=20, weight="bold")
+        self.f_h = ctk.CTkFont(size=13, weight="bold")
+        self.f_n = ctk.CTkFont(size=12)
+        self.f_s = ctk.CTkFont(size=11)
+        self.f_mono = ctk.CTkFont(family="Consolas", size=12)
+        self.f_btn = ctk.CTkFont(size=14, weight="bold")
+
+    # ── header + badge Ollama ──
+    def _build_header(self):
+        hdr = ctk.CTkFrame(self, fg_color="transparent")
+        hdr.grid(row=0, column=0, sticky="ew", padx=PAD + 4, pady=(PAD, GAP))
+        hdr.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(hdr, text="JSFS v1.4.0 — Journal Scraper For Students",
+                     font=self.f_title, text_color="#38bdf8", anchor="w").grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(hdr, text="Hybrid AI Engine • Focus & Scope Mining • Server Health • Publication Month",
+                     font=self.f_s, text_color=MUTED, anchor="w").grid(row=1, column=0, sticky="w", pady=(2, 0))
+
+        texts = (f"●  AI Aktif · {ai_engine.MODEL}", "○  Mode Regex (Klik untuk Setup)")
+        self.badge = ctk.CTkButton(
+            hdr,
+            text=texts[1],
+            font=self.f_s,
+            height=28,
+            corner_radius=14,
+            fg_color="#4a4a4a",
+            hover_color="#5a5a5a",
+            text_color="#d0d0d0",
+            cursor="hand2",
+            width=max(fit_w(self.f_s, t, 0, 28) for t in texts) + 16,
+            command=self._open_ai_setup_manager,
+        )
+        self.badge.grid(row=0, column=1, rowspan=2, sticky="e", padx=(GAP, 0))
+
+    # ── body (scrollable: Zero Clipping aturan #4) ──
+    def _build_body(self):
+        body = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        body.grid(row=1, column=0, sticky="nsew", padx=PAD, pady=0)
+        body.grid_columnconfigure(0, weight=1)
+        self.body = body
+
+        # Baris 0: kata kunci
+        kw = ctk.CTkFrame(body, fg_color=BG_CARD, corner_radius=10)
+        kw.grid(row=0, column=0, sticky="ew", pady=(0, GAP + 2))
+        kw.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(kw, text="Kata Kunci:", font=self.f_h).grid(row=0, column=0, padx=(PAD, GAP), pady=PAD)
+        self.entry_kw = ctk.CTkEntry(kw, height=34, font=self.f_n,
+                                     placeholder_text="Topik riset (mis. bisnis, akuntansi, machine learning, manajemen)")
+        self.entry_kw.grid(row=0, column=1, sticky="ew", pady=PAD)
+        self.entry_kw.bind("<Return>", lambda _e: self._on_start())
+        ctk.CTkButton(kw, text="Cari", width=76, height=34, font=self.f_h,
+                      command=self._on_start).grid(row=0, column=2, padx=(GAP, PAD), pady=PAD)
+
+        # Baris 1: naskah
+        ms = ctk.CTkFrame(body, fg_color=BG_CARD, corner_radius=10)
+        ms.grid(row=1, column=0, sticky="ew", pady=(0, GAP + 2))
+        ms.grid_columnconfigure(3, weight=1)
+        ctk.CTkLabel(ms, text="Naskah Ilmiah:", font=self.f_h, text_color="#38bdf8").grid(
+            row=0, column=0, padx=(PAD, GAP), pady=PAD)
+        ctk.CTkButton(ms, text="Unggah (.docx/.pdf)", height=32, font=self.f_n,
+                      width=fit_w(self.f_n, "Unggah (.docx/.pdf)", 0, 28),
+                      command=self._on_upload).grid(row=0, column=1, padx=GAP, pady=PAD)
+        self.var_match = ctk.BooleanVar(value=False)
+        FitCheckBox(ms, "Match Score (0–100%)", self.f_h, variable=self.var_match).grid(
+            row=0, column=2, padx=GAP, pady=PAD)
+        self.lbl_ms = ctk.CTkLabel(ms, text="Belum ada naskah (opsional)", font=self.f_s,
+                                   text_color=MUTED, anchor="w")
+        self.lbl_ms.grid(row=0, column=3, sticky="ew", padx=(GAP, PAD))
+
+        # Baris 2: kartu 2x2 (kolom 3:2 seragam)
+        grid = ctk.CTkFrame(body, fg_color="transparent")
+        grid.grid(row=2, column=0, sticky="nsew", pady=(0, GAP + 2))
+        grid.grid_columnconfigure(0, weight=3, uniform="cards")
+        grid.grid_columnconfigure(1, weight=2, uniform="cards")
+        for r in (0, 1):
+            grid.grid_rowconfigure(r, weight=1)
+        self._card_source(grid).grid(row=0, column=0, sticky="nsew", padx=(0, GAP), pady=(0, GAP))
+        self._card_sinta(grid).grid(row=0, column=1, sticky="nsew", padx=(GAP, 0), pady=(0, GAP))
+        self._card_month(grid).grid(row=1, column=0, sticky="nsew", padx=(0, GAP), pady=(GAP, 0))
+        self._card_ai(grid).grid(row=1, column=1, sticky="nsew", padx=(GAP, 0), pady=(GAP, 0))
+
+        # Baris 3: progress ganda
+        self.progress = DualProgress(body, self.f_n)
+        self.progress.grid(row=3, column=0, sticky="ew", pady=(0, GAP + 2))
+
+        # Baris 4-5: log
+        lh = ctk.CTkFrame(body, fg_color="transparent")
+        lh.grid(row=4, column=0, sticky="ew")
+        lh.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(lh, text="Pemantauan Proses & Riwayat Log:", font=self.f_h, anchor="w").grid(
+            row=0, column=0, sticky="w")
+        ctk.CTkButton(lh, text="Bersihkan Log", width=fit_w(self.f_s, "Bersihkan Log", 0, 24), height=24,
+                      font=self.f_s, fg_color="#3a3a3a", hover_color="#4a4a4a",
+                      command=self._clear_log).grid(row=0, column=1, sticky="e")
+        self.log_box = ctk.CTkTextbox(body, height=190, font=self.f_mono, wrap="word", state="disabled")
+        self.log_box.grid(row=5, column=0, sticky="nsew", pady=(GAP, PAD))
+        self.log("Selamat datang di JSFS v1.4.0 (Hybrid AI Engine).")
+
+    # ── kartu-kartu ──
+    def _row(self, parent, label: str, label_w: int):
+        f = ctk.CTkFrame(parent, fg_color="transparent")
+        f.pack(fill="x", pady=3)
+        ctk.CTkLabel(f, text=label, font=self.f_h, anchor="w", width=label_w).pack(side="left")
+        return f
+
+    def _card_source(self, parent):
+        card, body, _ = make_card(parent, "Sumber, Output & Biaya", self.f_h)
+        lw = max(fit_w(self.f_h, t, 0, 12) for t in ("Sumber:", "Format:", "Target Jurnal:", "Biaya (Rp):"))
+        self.var_garuda, self.var_sinta_src = ctk.BooleanVar(value=True), ctk.BooleanVar(value=True)
+        r = self._row(body, "Sumber:", lw)
+        FitCheckBox(r, "Garuda", self.f_n, variable=self.var_garuda).pack(side="left", padx=(0, 10))
+        FitCheckBox(r, "SINTA", self.f_n, variable=self.var_sinta_src).pack(side="left")
+
+        self.var_md, self.var_xlsx, self.var_csv = (ctk.BooleanVar(value=True), ctk.BooleanVar(value=True),
+                                                    ctk.BooleanVar(value=False))
+        r = self._row(body, "Format:", lw)
+        for text, var in ((".md", self.var_md), (".xlsx", self.var_xlsx), (".csv", self.var_csv)):
+            FitCheckBox(r, text, self.f_n, variable=var).pack(side="left", padx=(0, 10))
+
+        r = self._row(body, "Target Jurnal:", lw)
+        self.cmb_target = ctk.CTkComboBox(r, values=["10", "25", "50", "100", "250", "500", "1000"],
+                                          width=92, height=30, font=self.f_n)
+        self.cmb_target.set("50")
+        self.cmb_target.pack(side="left")
+        ctk.CTkLabel(r, text="(maks. 1000 / custom)", font=self.f_s, text_color=MUTED).pack(side="left", padx=GAP + 2)
+
+        self.var_free, self.var_na = ctk.BooleanVar(value=False), ctk.BooleanVar(value=True)
+        r = self._row(body, "Biaya (Rp):", lw)
+        FitCheckBox(r, "Hanya Gratis (Rp 0)", self.f_n, variable=self.var_free).pack(side="left", padx=(0, 10))
+        FitCheckBox(r, "Sertakan N/A", self.f_n, variable=self.var_na).pack(side="left")
+
+        r = self._row(body, "", lw)
+        ctk.CTkLabel(r, text="Min", font=self.f_s).pack(side="left")
+        self.ent_min = ctk.CTkEntry(r, width=104, height=28, font=self.f_n)
+        self.ent_min.insert(0, "0")
+        self.ent_min.pack(side="left", padx=(4, 12))
+        ctk.CTkLabel(r, text="Max", font=self.f_s).pack(side="left")
+        self.ent_max = ctk.CTkEntry(r, width=124, height=28, font=self.f_n)
+        self.ent_max.insert(0, "15.000.000")
+        self.ent_max.pack(side="left", padx=(4, 0))
+        return card
+
+    def _card_sinta(self, parent):
+        card, body, header = make_card(parent, "Peringkat SINTA", self.f_h)
+        sample = "S1–S3, S5–S6"
+        self.lbl_sinta = ctk.CTkLabel(header, text="S1–S6", font=self.f_s, height=22, corner_radius=11,
+                                      fg_color=BLUE, width=fit_w(self.f_s, sample, 0, 24))
+        self.lbl_sinta.grid(row=0, column=1, sticky="e")
+
+        self.sinta_vars = {n: ctk.BooleanVar(value=True) for n in range(1, 7)}
+        for c in range(3):
+            body.grid_columnconfigure(c, weight=1, uniform="sinta")
+        w = fit_w(self.f_n, "Sinta 6", 20 + 8)
+        for i, n in enumerate(self.sinta_vars):
+            FitCheckBox(body, f"Sinta {n}", self.f_n, variable=self.sinta_vars[n], width=w).grid(
+                row=i // 3, column=i % 3, sticky="w", pady=3)
+            self.sinta_vars[n].trace_add("write", lambda *_: self._update_sinta())
+
+        sep = ctk.CTkFrame(body, height=1, fg_color="#3a3a3a")
+        sep.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(GAP + 2, GAP + 2))
+        self.var_turbo, self.var_selenium = ctk.BooleanVar(value=True), ctk.BooleanVar(value=False)
+        FitSwitch(body, "⚡ Turbo Mode", self.f_h, variable=self.var_turbo, text_color="#f59e0b").grid(
+            row=3, column=0, columnspan=3, sticky="w", pady=3)
+        FitSwitch(body, "Gunakan Selenium (fallback)", self.f_n, variable=self.var_selenium).grid(
+            row=4, column=0, columnspan=3, sticky="w", pady=3)
+        return card
+
+    def _card_month(self, parent):
+        card, body, _ = make_card(parent, "Filter Bulan Terbit", self.f_h)
+        self.month_filter = MonthFilter(body, self.f_s)
+        self.month_filter.pack(fill="x")
+        return card
+
+    def _card_ai(self, parent):
+        card, body, _ = make_card(parent, "Mesin AI (Ollama)", self.f_h)
+        self.var_ai = ctk.BooleanVar(value=True)
+        self.sw_ai = FitSwitch(body, "Gunakan AI (Ollama)", self.f_n, variable=self.var_ai)
+        self.sw_ai.pack(anchor="w", pady=3)
+        r = ctk.CTkFrame(body, fg_color="transparent")
+        r.pack(fill="x", pady=GAP)
+        ctk.CTkLabel(r, text="AI workers:", font=self.f_n).pack(side="left", padx=(0, GAP))
+        self.seg_workers = ctk.CTkSegmentedButton(r, values=["1", "2"], width=96, height=28, font=self.f_n)
+        self.seg_workers.set("2")
+        self.seg_workers.pack(side="left")
+        ctk.CTkLabel(body, text="AI hanya memproses jurnal yang lolos pre-filter. "
+                                "Bila Ollama mati, JSFS otomatis memakai Regex.",
+                     font=self.f_s, text_color=MUTED, justify="left", anchor="w",
+                     wraplength=300).pack(fill="x", pady=(GAP, 0))
+        return card
+
+    # ── action bar (dipatok di bawah) ──
+    def _build_actionbar(self):
+        bar = ctk.CTkFrame(self, fg_color="transparent")
+        bar.grid(row=2, column=0, sticky="ew", padx=PAD + 4, pady=(GAP, PAD))
+        bar.grid_columnconfigure(0, weight=3, uniform="act")
+        bar.grid_columnconfigure(1, weight=2, uniform="act")
+
+        self.btn_start = ctk.CTkButton(bar, text="MULAI SCRAPING", height=46, font=self.f_btn,
+                                       fg_color=BLUE, hover_color=BLUE_H, command=self._on_start)
+        self.btn_start.grid(row=0, column=0, sticky="ew", padx=(0, GAP))
+        self.btn_preview = ctk.CTkButton(bar, text="PREVIEW HASIL DATA", height=46, font=self.f_btn,
+                                         fg_color=GREEN, hover_color=GREEN_H, state="disabled",
+                                         command=self._open_data_previewer)
+        self.btn_preview.grid(row=0, column=1, sticky="ew", padx=(GAP, 0))
+
+        foot = ctk.CTkFrame(bar, fg_color="transparent")
+        foot.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(GAP + 2, 0))
+        foot.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(foot, text="Output: output/  (format: JSFS_<keyword>_<timestamp>)",
+                     font=self.f_s, text_color=MUTED, anchor="w").grid(row=0, column=0, sticky="w")
+        ctk.CTkButton(foot, text="Buka Folder Output", height=28, font=self.f_s,
+                      width=fit_w(self.f_s, "Buka Folder Output", 0, 28),
+                      command=self._open_output).grid(row=0, column=1, sticky="e")
+
+    # ───────────────────────── Util GUI ─────────────────────────
+    def log(self, msg: str):
+        """Hanya dari thread GUI. Dari thread lain: ui_q.put(('log', msg))."""
+        self.log_box.configure(state="normal")
+        self.log_box.insert("end", f"[{time.strftime('%H:%M:%S')}] {msg}\n")
+        self.log_box.see("end")
+        self.log_box.configure(state="disabled")
+
+    def _clear_log(self):
+        self.log_box.configure(state="normal")
+        self.log_box.delete("1.0", "end")
+        self.log_box.configure(state="disabled")
+
+    def _update_sinta(self):
+        self.lbl_sinta.configure(text=fmt_ranges([n for n, v in self.sinta_vars.items() if v.get()]))
+
+    def _on_upload(self):
+        p = filedialog.askopenfilename(filetypes=[("Naskah Ilmiah", "*.docx *.pdf")])
+        if p:
+            self.manuscript_path = p
+            self.lbl_ms.configure(text=os.path.basename(p), text_color="#d0d0d0")
+            self.var_match.set(True)
+            self.log(f"📄 Naskah diunggah: {os.path.basename(p)}")
+
+    def _open_output(self):
+        os.makedirs("output", exist_ok=True)
+        try:
+            os.startfile(os.path.abspath("output"))
+        except Exception:
+            pass
+
+    def _open_data_previewer(self):
+        if not self._latest_results:
+            self.log("⚠ Belum ada hasil scraping untuk ditampilkan.")
+            return
+
+        if self._previewer_window is not None and self._previewer_window.winfo_exists():
+            self._previewer_window.update_data(self._latest_results, self._latest_excel_path)
+            self._previewer_window.lift()
+            self._previewer_window.focus()
+            return
+
+        self._previewer_window = JSFSDataPreviewer(
+            master=self,
+            journals=self._latest_results,
+            excel_path=self._latest_excel_path,
+        )
+
+    def _set_running(self, running: bool):
+        if running:
+            self.btn_start.configure(text="HENTIKAN", fg_color=RED, hover_color=RED_H, command=self._on_stop)
+            self.btn_preview.configure(state="disabled")
+        else:
+            self.btn_start.configure(text="MULAI SCRAPING", fg_color=BLUE, hover_color=BLUE_H,
+                                     command=self._on_start)
+
+    def _collect_params(self) -> dict:
+        digits = lambda s: int(re.sub(r"\D", "", s) or 0)
+        return {
+            "keyword": self.entry_kw.get().strip(),
+            "target": digits(self.cmb_target.get()) or 50,
+            "garuda": self.var_garuda.get(),
+            "sinta_src": self.var_sinta_src.get(),
+            "sinta": {n for n, v in self.sinta_vars.items() if v.get()},
+            "months": self.month_filter.selected_months(),
+            "include_unknown": self.month_filter.include_unknown(),
+            "only_free": self.var_free.get(),
+            "include_na": self.var_na.get(),
+            "min_rp": digits(self.ent_min.get()),
+            "max_rp": digits(self.ent_max.get()) or 15_000_000,
+            "turbo": self.var_turbo.get(),
+            "selenium": self.var_selenium.get(),
+            "match": self.var_match.get(),
+            "formats": [f for f, v in ((".md", self.var_md), (".xlsx", self.var_xlsx), (".csv", self.var_csv)) if v.get()],
+            "manuscript": self.manuscript_path,
+        }
+
+    # ───────────────────────── Badge Ollama (loop 30 dtk) ─────────────────────────
+    def _refresh_badge(self):
+        threading.Thread(
+            target=lambda: self.ui_q.put(("ollama", ai_engine.check_ollama_active(force=True))),
+            daemon=True).start()
+        self.after(30_000, self._refresh_badge)
+
+    def _apply_badge(self, active: bool):
+        if active:
+            self.badge.configure(
+                text=f"●  AI Aktif · {ai_engine.MODEL}",
+                fg_color=OK_GREEN,
+                hover_color=GREEN_H,
+                text_color="white",
+            )
+            if self._ai_auto_off:
+                self.var_ai.set(True)
+                self._ai_auto_off = False
+            self.sw_ai.configure(state="normal")
+        else:
+            self.badge.configure(
+                text="○  Mode Regex (Klik untuk Setup)",
+                fg_color="#4a4a4a",
+                hover_color="#5a5a5a",
+                text_color="#d0d0d0",
+            )
+            if self.var_ai.get():
+                self._ai_auto_off = True
+            self.var_ai.set(False)
+            self.sw_ai.configure(state="disabled")
+
+    def _open_ai_setup_manager(self):
+        if self._ai_setup_dialog is not None and self._ai_setup_dialog.winfo_exists():
+            self._ai_setup_dialog.lift()
+            self._ai_setup_dialog.focus_force()
+            return
+        self._ai_setup_dialog = AISetupDialog(self)
+
+    # ───────────────────────── Threading: Start / Stop ─────────────────────────
+    def _on_start(self):
+        if self._worker and self._worker.is_alive():
+            return
+        params = self._collect_params()
+        if not params["keyword"]:
+            self.log("⚠ Masukkan kata kunci terlebih dahulu.")
+            return
+        if not params["garuda"] and not params["sinta_src"]:
+            self.log("⚠ Pilih setidaknya satu sumber (Garuda atau SINTA).")
+            return
+
+        self.cancel_evt.clear()
+        ai_engine.set_enabled(self.var_ai.get())
+        ai_engine.set_workers(int(self.seg_workers.get()))
+        self.progress.reset()
+        self._set_running(True)
+        self._worker = threading.Thread(target=self._pipeline, args=(params,), daemon=True)
+        self._worker.start()
+
+    def _on_stop(self):
+        self.cancel_evt.set()
+        self.log("Menghentikan proses… (tugas yang sedang berjalan diselesaikan dulu)")
+
+    def _pipeline(self, p: dict):
+        """THREAD LATAR — dilarang menyentuh widget. Semua pelaporan lewat self.ui_q."""
+        q = self.ui_q
+        try:
+            # FASE 1: Fast Broad Scraping (128 Workers)
+            q.put(("log", f"Fase 1: Scraping massal untuk '{p['keyword']}' (Target: {p['target']} jurnal)..."))
+            records = run_scraper(p, lambda d, t: q.put(("scrape", d, t)), self.cancel_evt)
+            if self.cancel_evt.is_set():
+                q.put(("done", None))
+                return
+
+            q.put(("log", f"Fase 1 selesai: {len(records)} jurnal berhasil di-crawl."))
+
+            # FASE 2: Pre-Filter (Rank SINTA & Bulan Terbit)
+            survivors: list[JournalEntry] = []
+            for r in records:
+                if r["sinta"] not in p["sinta"]:
+                    continue
+                if not lolos_filter_bulan(r.get("bulan_terbit", []), p["months"], p["include_unknown"]):
+                    continue
+                survivors.append(r)
+
+            if len(survivors) > p["target"]:
+                survivors = survivors[:p["target"]]
+
+            q.put(("log", f"Fase 2: Pre-filter -> {len(survivors)}/{len(records)} jurnal lolos seleksi SINTA & Bulan."))
+
+            if not survivors:
+                q.put(("log", "⚠ Tidak ada jurnal yang lolos pre-filter. Selesai."))
+                q.put(("done", 0))
+                return
+
+            # FASE 3: AI Enrichment (Focus & Scope + APC Submit vs Publikasi)
+            mode_desc = f"AI Ollama ({ai_engine.MODEL})" if (self.var_ai.get() and ai_engine.check_ollama_active()) else "Regex Legacy v1.3.8"
+            q.put(("log", f"Fase 3: Ekstraksi data mendalam [{mode_desc}] untuk {len(survivors)} jurnal lolos filter..."))
+            q.put(("ai", 0, len(survivors) * 2))
+
+            ai_engine.enrich_records(
+                survivors,
+                on_progress=lambda d, t: q.put(("ai", d, t)),
+                cancel=self.cancel_evt,
+            )
+            if self.cancel_evt.is_set():
+                q.put(("done", None))
+                return
+
+            # Analisis Naskah (jika dicentang dan naskah diunggah)
+            if p.get("match") and p.get("manuscript") and os.path.exists(p["manuscript"]):
+                q.put(("log", f"Menganalisis kesesuaian naskah: {os.path.basename(p['manuscript'])}..."))
+                ms_data = parse_manuscript(p["manuscript"])
+                if ms_data:
+                    for s in survivors:
+                        match_res = calculate_manuscript_match(ms_data, s)
+                        s.match_score = match_res.get("score", 0)
+                        s.kesesuaian_naskah = match_res.get("level", "Kurang Sesuai")
+
+            n_ai = sum(1 for r in survivors if r.get("sumber_focus") == "AI")
+            n_ai_apc = sum(1 for r in survivors if r.get("sumber_apc") == "AI")
+            q.put(("log", f"Hasil AI Enrichment: Focus via AI {n_ai}/{len(survivors)}, APC via AI {n_ai_apc}/{len(survivors)}."))
+
+            # Filter biaya pengguna jika diminta
+            final_survivors: list[JournalEntry] = []
+            for r in survivors:
+                b_pub = r.get("biaya_publikasi")
+                if p.get("only_free"):
+                    if b_pub == 0:
+                        final_survivors.append(r)
+                    elif b_pub is None and p.get("include_na"):
+                        final_survivors.append(r)
+                else:
+                    if b_pub is not None and b_pub > 0:
+                        if p.get("min_rp", 0) <= b_pub <= p.get("max_rp", 15_000_000):
+                            final_survivors.append(r)
+                    elif b_pub == 0:
+                        if p.get("min_rp", 0) == 0:
+                            final_survivors.append(r)
+                    else:
+                        if p.get("include_na", True):
+                            final_survivors.append(r)
+
+            if not final_survivors and survivors:
+                final_survivors = survivors
+
+            self._latest_results = final_survivors
+
+            # FASE 4: Export Data
+            q.put(("log", f"Fase 4: Mengekspor {len(final_survivors)} jurnal ke berkas output..."))
+            exported = exporter.write_exports(
+                final_survivors,
+                keyword=p["keyword"],
+                formats=p["formats"],
+                sinta_ranks=sorted(list(p["sinta"])),
+            )
+            for ef in exported:
+                q.put(("log", f"💾 Berkas tersimpan → {ef}"))
+                if ef.endswith(".xlsx"):
+                    self._latest_excel_path = ef
+
+            q.put(("done", len(final_survivors)))
+        except Exception as e:
+            q.put(("error", repr(e)))
+
+    def _poll_queue(self):
+        """Dijalankan di thread GUI tiap 100 ms. Coalesce progress pesan agar GUI anti-freeze."""
+        latest, others = {}, []
+        try:
+            while True:
+                msg = self.ui_q.get_nowait()
+                if msg[0] in ("scrape", "ai"):
+                    latest[msg[0]] = msg[1:]
+                else:
+                    others.append(msg)
+        except queue.Empty:
+            pass
+
+        for key, (done, total) in latest.items():
+            self.progress.update_bar(key, done, total)
+        for msg in others:
+            kind = msg[0]
+            if kind == "log":
+                self.log(msg[1])
+            elif kind == "ollama":
+                self._apply_badge(msg[1])
+            elif kind == "error":
+                self.log(f"✖ Error: {msg[1]}")
+                self._set_running(False)
+            elif kind == "done":
+                self._set_running(False)
+                if msg[1] is None:
+                    self.log("Proses dihentikan oleh pengguna.")
+                else:
+                    self.log(f"✔ Selesai. {msg[1]} jurnal berhasil diekspor ke folder output/.")
+                    if self._latest_results:
+                        self.btn_preview.configure(
+                            state="normal",
+                            text=f"PREVIEW HASIL ({len(self._latest_results)})",
+                        )
+        self.after(100, self._poll_queue)
+
+    def _on_close(self):
+        self.cancel_evt.set()
+        ai_engine.shutdown()
+        self.destroy()
 
 
 if __name__ == "__main__":
-    main()
+    app = JSFSApp()
+    app.mainloop()

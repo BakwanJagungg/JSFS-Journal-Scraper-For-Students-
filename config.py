@@ -1,6 +1,6 @@
 # =============================================================================
 # JSFS - Journal Scraper For Students
-# config.py — Konfigurasi global scraper v1.3.8 (Multi-Tier Focus & Scope Mining, Pixel-Perfect Layout, Previewer)
+# config.py — Konfigurasi global scraper v1.4.0 (Hybrid AI Engine, Focus & Scope Mining, Zero Clipping)
 # =============================================================================
 
 import os

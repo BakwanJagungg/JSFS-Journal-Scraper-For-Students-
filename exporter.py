@@ -1,12 +1,12 @@
 # =============================================================================
 # JSFS - Journal Scraper For Students
-# exporter.py — Modul ekspor hasil ke Markdown, CSV, dan Excel v1.3.8
+# exporter.py — Modul ekspor hasil ke Markdown, CSV, dan Excel v1.4.0 (Hybrid AI Engine)
 # =============================================================================
 
 import os
 import re
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union, List
 from concurrent.futures import ThreadPoolExecutor
 import requests
 import urllib3
@@ -32,6 +32,7 @@ from config import (
     generate_output_filename,
 )
 from scraper_garuda import JournalEntry, sanitize_text
+from month_parser import format_bulan_terbit
 
 console = Console()
 
@@ -41,12 +42,24 @@ def _ensure_output_dir():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
+def _format_amount(val: Optional[int], currency: Optional[str] = "IDR") -> str:
+    """Format nominal angka menjadi format terstandarisasi Rp / USD / Gratis / —."""
+    if val is None:
+        return "—"
+    if val == 0:
+        return "Gratis (0)"
+    cur = (currency or "IDR").upper()
+    if cur == "USD":
+        return f"${val:,} USD"
+    return f"Rp {val:,}".replace(",", ".")
+
+
 def validate_urls_async(urls: list[str]) -> dict[str, bool]:
     """
     VALIDASI HYPERLINK SSL-TOLERANT (v1.3.2):
     - Mengabaikan galat sertifikat SSL kampus lokal (.ac.id) dengan verify=False.
     - Mengikuti lokasi redirect (allow_redirects=True).
-    - Timeout adaptif 6 detik untuk server kampus.
+    - Timeout adaptif untuk server kampus.
     - Menandai 'Situs tidak dapat diakses' HANYA jika server merespons 404, 500, atau DNS unreachable.
     Returns: dict {url: is_accessible (bool)}
     """
@@ -68,13 +81,10 @@ def validate_urls_async(urls: list[str]) -> dict[str, bool]:
                 verify=False,
                 allow_redirects=True,
             )
-            # Server merespons: jika 404/500/502/503 dianggap mati
             if resp.status_code in (404, 500, 502, 503):
                 return u, False
-            # Status 200..399, 401, 403 (Cloudflare challenge aktif tapi server hidup) dianggap valid
             return u, True
         except (requests.exceptions.SSLError, requests.exceptions.ReadTimeout):
-            # SSL warning atau ReadTimeout berarti server aktif merespons koneksi TCP/SSL
             return u, True
         except Exception:
             return u, False
@@ -94,7 +104,7 @@ def _clean_entry_value(val: Optional[str]) -> str:
 
 
 def _journals_to_dataframe(journals: list[JournalEntry], url_status_map: dict[str, bool]) -> pd.DataFrame:
-    """Konversi list JournalEntry ke Pandas DataFrame lengkap (v1.3.8)."""
+    """Konversi list JournalEntry ke Pandas DataFrame lengkap v1.4.0."""
     has_match_score = any(getattr(j, "match_score", 0) > 0 for j in journals)
     data = []
     for i, j in enumerate(journals):
@@ -115,9 +125,20 @@ def _journals_to_dataframe(journals: list[JournalEntry], url_status_map: dict[st
             row["Kesesuaian Naskah"] = getattr(j, "kesesuaian_naskah", "Kurang Sesuai") or "Kurang Sesuai"
             row["Match Score (%)"] = getattr(j, "match_score", 0)
 
+        cur = getattr(j, "mata_uang", None) or "IDR"
+        b_sub = getattr(j, "biaya_submit", None)
+        b_pub = getattr(j, "biaya_publikasi", None)
+        if b_pub is None and getattr(j, "apc_amount", None) is not None:
+            b_pub = getattr(j, "apc_amount", None)
+
         row.update({
             "Penerbit": _clean_entry_value(j.penerbit),
-            "Biaya Publikasi (APC)": _clean_entry_value(j.apc_status),
+            "Biaya Submit": _format_amount(b_sub, cur),
+            "Biaya Publikasi": _format_amount(b_pub, cur),
+            "Mata Uang": getattr(j, "mata_uang", None) or "—",
+            "Bulan Terbit": format_bulan_terbit(getattr(j, "bulan_terbit", [])),
+            "Sumber Focus": getattr(j, "sumber_focus", "Regex") or "Regex",
+            "Sumber APC": getattr(j, "sumber_apc", "Regex") or "Regex",
             "Frekuensi Terbit": _clean_entry_value(getattr(j, "frekuensi", INFO_NOT_FOUND)),
             "Email Kontak": _clean_entry_value(getattr(j, "email", INFO_NOT_FOUND)),
             "Telepon / WA": _clean_entry_value(getattr(j, "telepon", INFO_NOT_FOUND)),
@@ -141,58 +162,81 @@ def export_markdown(
     filename: Optional[str] = None,
 ) -> str:
     """
-    Ekspor hasil scraping ke file Markdown (.md) dengan tabel rapi,
-    ringkasan statistik peringkat & APC, validasi link mati, serta daftar kontak cepat.
+    Ekspor hasil scraping ke file Markdown (.md) v1.4.0 dengan tabel rapi,
+    statistik peringkat, biaya submit & publikasi, jadwal bulan terbit, serta audit sumber AI/Regex.
     """
     _ensure_output_dir()
     final_filename = filename or generate_output_filename(keyword, "md")
     filepath = os.path.join(OUTPUT_DIR, final_filename)
 
-    now = datetime.now().strftime("%d %B %Y, %H:%M:%S WIB")
-    rank_str = f"Sinta {', '.join(map(str, sinta_ranks))}" if sinta_ranks else "Semua Peringkat"
     total = len(journals)
+    now = datetime.now().strftime("%d %B %Y, %H:%M:%S")
 
-    # Validasi Link OJS secara Asinkronus dengan toleransi SSL
     all_urls = [j.link_ojs for j in journals if j.link_ojs and j.link_ojs.startswith("http")]
     url_status = validate_urls_async(all_urls)
 
-    lines = []
-    lines.append("# 📚 JSFS — Hasil Pencarian & Ekstraksi Jurnal")
+    lines: list[str] = []
+
+    # Header Dokumen
+    lines.append(f"# 📚 Hasil Pencarian Jurnal Ilmiah (JSFS v1.4.0 Hybrid AI Engine)")
     lines.append("")
-    lines.append("> **Journal Scraper For Students (JSFS v1.3.8)**")
-    lines.append("> *Solusi presisi pencarian jurnal terakreditasi SINTA & Garuda untuk mahasiswa & peneliti.*")
+    lines.append(f"> Dokumen ini dibuat otomatis oleh **JSFS (Journal Scraper For Students) v1.4.0**.")
+    lines.append(f"> Waktu ekstraksi: **{now}**")
     lines.append("")
     lines.append("---")
     lines.append("")
 
-    # 1. Ringkasan Parameter & Statistik
-    lines.append("## 🔎 Ringkasan & Parameter Riset")
+    # Metadata Pencarian
+    lines.append("## 🔍 Parameter Pencarian")
+    lines.append(f"- **Kata Kunci**: `{keyword}`")
+    sinta_str = ", ".join(f"Sinta {r}" for r in sorted(sinta_ranks)) if sinta_ranks else "Semua Peringkat"
+    lines.append(f"- **Filter Peringkat SINTA**: {sinta_str}")
+    lines.append(f"- **Total Jurnal Ditemukan**: **{total}** jurnal")
     lines.append("")
-    lines.append(f"| Parameter | Nilai |")
-    lines.append(f"|---|---|")
-    lines.append(f"| **Kata Kunci (Keyword)** | `{keyword}` |")
-    lines.append(f"| **Filter Peringkat SINTA** | {rank_str} |")
-    lines.append(f"| **Total Jurnal Ditemukan** | **{total} jurnal** |")
-    lines.append(f"| **Waktu Ekstraksi** | {now} |")
+    lines.append("---")
     lines.append("")
 
-    # Hitung Statistik Distribusi SINTA & Biaya APC
-    rank_counts = {}
-    apc_counts = {"Gratis": 0, "Berbayar": 0, "Belum Teridentifikasi": 0}
+    # 1. Ringkasan Statistik
+    lines.append("## 📈 Ringkasan Statistik")
+    lines.append("")
+
+    rank_counts: dict[str, int] = {}
+    pub_counts = {"Gratis": 0, "Berbayar": 0, "Belum Teridentifikasi": 0}
+    sub_counts = {"Gratis": 0, "Berbayar": 0, "Tidak Ada / Belum Terdata": 0}
+    ai_focus_count = 0
+    ai_apc_count = 0
     server_counts = {"Sangat Aktif": 0, "Aktif": 0, "SSL Warning": 0, "Non-Aktif": 0}
     transparency_counts = {"Lengkap": 0, "Sedang": 0, "Terbatas": 0, "Tidak Transparan": 0}
 
     for j in journals:
-        r = _clean_entry_value(j.peringkat_sinta)
-        rank_counts[r] = rank_counts.get(r, 0) + 1
+        rank = _clean_entry_value(j.peringkat_sinta)
+        rank_counts[rank] = rank_counts.get(rank, 0) + 1
 
-        apc_val = _clean_entry_value(j.apc_status).lower()
-        if (j.apc_amount == 0) or ("gratis" in apc_val) or ("free" in apc_val) or ("rp 0" in apc_val):
-            apc_counts["Gratis"] += 1
-        elif "rp" in apc_val or "usd" in apc_val or "$" in apc_val:
-            apc_counts["Berbayar"] += 1
+        # Audit AI
+        if getattr(j, "sumber_focus", "") == "AI":
+            ai_focus_count += 1
+        if getattr(j, "sumber_apc", "") == "AI":
+            ai_apc_count += 1
+
+        # Biaya Publikasi
+        b_pub = getattr(j, "biaya_publikasi", None)
+        if b_pub is None and getattr(j, "apc_amount", None) is not None:
+            b_pub = getattr(j, "apc_amount", None)
+        if b_pub == 0:
+            pub_counts["Gratis"] += 1
+        elif b_pub is not None and b_pub > 0:
+            pub_counts["Berbayar"] += 1
         else:
-            apc_counts["Belum Teridentifikasi"] += 1
+            pub_counts["Belum Teridentifikasi"] += 1
+
+        # Biaya Submit
+        b_sub = getattr(j, "biaya_submit", None)
+        if b_sub == 0:
+            sub_counts["Gratis"] += 1
+        elif b_sub is not None and b_sub > 0:
+            sub_counts["Berbayar"] += 1
+        else:
+            sub_counts["Tidak Ada / Belum Terdata"] += 1
 
         srv = getattr(j, "status_server", "Aktif (HTTP)")
         if "Sangat Aktif" in srv:
@@ -218,14 +262,20 @@ def export_markdown(
     for r in sorted(rank_counts.keys()):
         lines.append(f"- **{r}**: {rank_counts[r]} jurnal")
     lines.append("")
-    lines.append("### 💰 Estimasi Biaya Publikasi (APC):")
-    lines.append(f"- **Gratis / Free (Rp 0)**: {apc_counts['Gratis']} jurnal")
-    lines.append(f"- **Berbayar (Terindikasi Tarif)**: {apc_counts['Berbayar']} jurnal")
-    lines.append(f"- **Informasi Belum Tertera di Situs**: {apc_counts['Belum Teridentifikasi']} jurnal")
+
+    lines.append("### 💰 Analisis Biaya Penulis (Author Fees):")
+    lines.append(f"- **Biaya Publikasi (APC)**: {pub_counts['Gratis']} Gratis, {pub_counts['Berbayar']} Berbayar, {pub_counts['Belum Teridentifikasi']} Belum Terdata")
+    lines.append(f"- **Biaya Submit**: {sub_counts['Gratis']} Gratis, {sub_counts['Berbayar']} Berbayar, {sub_counts['Tidak Ada / Belum Terdata']} Tidak Ada / Belum Terdata")
     lines.append("")
+
+    lines.append("### 🤖 Transparansi Sumber Ekstraksi Data (AI vs Regex):")
+    lines.append(f"- **Focus & Scope**: {ai_focus_count} diekstrak AI (Ollama), {total - ai_focus_count} Regex Legacy")
+    lines.append(f"- **Author Fees (APC)**: {ai_apc_count} diekstrak AI (Ollama), {total - ai_apc_count} Regex Legacy")
+    lines.append("")
+
     lines.append("### 🌐 Indikator Server OJS & Transparansi Kontak:")
     lines.append(f"- **Status Server**: {server_counts['Sangat Aktif']} Sangat Aktif (HTTPS), {server_counts['Aktif']} Aktif (HTTP), {server_counts['SSL Warning']} SSL Warning, {server_counts['Non-Aktif']} Non-Aktif")
-    lines.append(f"- **Kualitas Kontak**: {transparency_counts['Lengkap']} Lengkap (Email & Telp), {transparency_counts['Sedang']} Sedang (Email Saja), {transparency_counts['Terbatas']} Terbatas, {transparency_counts['Tidak Transparan']} Belum Tercantum")
+    lines.append(f"- **Kualitas Kontak**: {transparency_counts['Lengkap']} Lengkap, {transparency_counts['Sedang']} Sedang, {transparency_counts['Terbatas']} Terbatas, {transparency_counts['Tidak Transparan']} Belum Tercantum")
     lines.append("")
     lines.append("---")
     lines.append("")
@@ -234,26 +284,33 @@ def export_markdown(
     if not journals:
         lines.append("## ⚠️ Tidak ada jurnal yang sesuai dengan kriteria filter.")
         lines.append("")
-        lines.append("Silakan coba kembali dengan kata kunci yang lebih umum atau perluas cakupan filter SINTA.")
     else:
         has_match_score = any(getattr(j, "match_score", 0) > 0 for j in journals)
         lines.append(f"## 📋 Daftar Hasil Jurnal ({total} Data)")
         lines.append("")
         if has_match_score:
-            lines.append("| No | Nama Jurnal | SINTA | Kesesuaian | Skor | Biaya APC | Frekuensi | Transparansi | Status Server | Focus & Scope | Link OJS |")
-            lines.append("|:---:|---|:---:|:---:|:---:|---|---|:---:|:---:|---|:---:|")
+            lines.append("| No | Nama Jurnal | SINTA | Kesesuaian | Skor | Submit | Publikasi | Mata Uang | Bulan Terbit | Sumber Focus | Sumber APC | Frekuensi | Focus & Scope | Link OJS |")
+            lines.append("|:---:|---|:---:|:---:|:---:|---|---|:---:|:---:|:---:|:---:|---|---|:---:|")
         else:
-            lines.append("| No | Nama Jurnal | SINTA | Penerbit | Biaya APC | Frekuensi | Transparansi | Status Server | Focus & Scope | Link OJS |")
-            lines.append("|:---:|---|:---:|---|---|---|:---:|:---:|---|:---:|")
+            lines.append("| No | Nama Jurnal | SINTA | Penerbit | Submit | Publikasi | Mata Uang | Bulan Terbit | Sumber Focus | Sumber APC | Frekuensi | Focus & Scope | Link OJS |")
+            lines.append("|:---:|---|:---:|---|---|---|:---:|:---:|:---:|:---:|---|---|:---:|")
 
         for i, j in enumerate(journals, 1):
             nama = _clean_entry_value(j.nama_jurnal).replace("|", "\\|")
             penerbit = _clean_entry_value(j.penerbit).replace("|", "\\|")
             rank = _clean_entry_value(j.peringkat_sinta)
-            apc = _clean_entry_value(j.apc_status)
+            cur = getattr(j, "mata_uang", None) or "—"
+            b_sub = _format_amount(getattr(j, "biaya_submit", None), getattr(j, "mata_uang", None))
+            
+            b_pub_num = getattr(j, "biaya_publikasi", None)
+            if b_pub_num is None and getattr(j, "apc_amount", None) is not None:
+                b_pub_num = getattr(j, "apc_amount", None)
+            b_pub = _format_amount(b_pub_num, getattr(j, "mata_uang", None))
+
+            bulan = format_bulan_terbit(getattr(j, "bulan_terbit", []))
+            s_focus = getattr(j, "sumber_focus", "Regex") or "Regex"
+            s_apc = getattr(j, "sumber_apc", "Regex") or "Regex"
             freq = _clean_entry_value(getattr(j, "frekuensi", INFO_NOT_FOUND))
-            transparansi = _clean_entry_value(getattr(j, "transparansi_kontak", "Tidak Transparan"))
-            status_server = _clean_entry_value(getattr(j, "status_server", "Aktif (HTTP)"))
             focus = _clean_entry_value(getattr(j, "focus_scope", INFO_NOT_FOUND)).replace("|", "\\|")
             if len(focus) > 120:
                 focus = focus[:117].rsplit(" ", 1)[0] + "..."
@@ -269,9 +326,9 @@ def export_markdown(
             if has_match_score:
                 kesesuaian = getattr(j, "kesesuaian_naskah", "Kurang Sesuai") or "Kurang Sesuai"
                 skor = f"{getattr(j, 'match_score', 0)}%"
-                lines.append(f"| {i} | **{nama}** | {rank} | **{kesesuaian}** | `{skor}` | {apc} | {freq} | {transparansi} | {status_server} | {focus} | {link_col} |")
+                lines.append(f"| {i} | **{nama}** | {rank} | **{kesesuaian}** | `{skor}` | {b_sub} | {b_pub} | {cur} | {bulan} | {s_focus} | {s_apc} | {freq} | {focus} | {link_col} |")
             else:
-                lines.append(f"| {i} | **{nama}** | {rank} | {penerbit} | {apc} | {freq} | {transparansi} | {status_server} | {focus} | {link_col} |")
+                lines.append(f"| {i} | **{nama}** | {rank} | {penerbit} | {b_sub} | {b_pub} | {cur} | {bulan} | {s_focus} | {s_apc} | {freq} | {focus} | {link_col} |")
 
         lines.append("")
         lines.append("---")
@@ -296,9 +353,14 @@ def export_markdown(
                 tel = _clean_entry_value(getattr(j, "telepon", INFO_NOT_FOUND))
                 if tel != INFO_NOT_FOUND:
                     lines.append(f"- 📱 **Telepon/WA**: `{tel}`")
-                apc_s = _clean_entry_value(j.apc_status)
-                if apc_s != INFO_NOT_FOUND:
-                    lines.append(f"- 💰 **Biaya Publikasi (APC)**: `{apc_s}`")
+                
+                b_pub_num = getattr(j, "biaya_publikasi", None)
+                if b_pub_num is not None:
+                    lines.append(f"- 💰 **Biaya Publikasi**: `{_format_amount(b_pub_num, getattr(j, 'mata_uang', None))}`")
+                b_sub_num = getattr(j, "biaya_submit", None)
+                if b_sub_num is not None:
+                    lines.append(f"- 📝 **Biaya Submit**: `{_format_amount(b_sub_num, getattr(j, 'mata_uang', None))}`")
+
                 fq = _clean_entry_value(getattr(j, "frekuensi", INFO_NOT_FOUND))
                 if fq != INFO_NOT_FOUND:
                     lines.append(f"- ⏱️ **Frekuensi**: `{fq}`")
@@ -313,7 +375,7 @@ def export_markdown(
     # Footer
     lines.append("---")
     lines.append("")
-    lines.append("*Dibuat otomatis oleh **JSFS (Journal Scraper For Students) v1.3.8***")
+    lines.append("*Dibuat otomatis oleh **JSFS (Journal Scraper For Students) v1.4.0 (Hybrid AI Engine)***")
     lines.append(f"*{now}*")
     lines.append("")
     lines.append(
@@ -333,7 +395,7 @@ def export_csv(
     keyword: str = "",
     filename: Optional[str] = None,
 ) -> str:
-    """Ekspor hasil ke CSV dengan encoding UTF-8 BOM dan validasi link SSL-tolerant."""
+    """Ekspor hasil ke CSV dengan encoding UTF-8 BOM dan header v1.4.0."""
     _ensure_output_dir()
     final_filename = filename or generate_output_filename(keyword, "csv")
     filepath = os.path.join(OUTPUT_DIR, final_filename)
@@ -353,18 +415,16 @@ def export_excel(
     filename: Optional[str] = None,
 ) -> str:
     """
-    Ekspor hasil ke Excel (.xlsx) dengan visual profesional v1.3.8:
+    Ekspor hasil ke Excel (.xlsx) dengan visual profesional v1.4.0:
     - Header Navy Blue (#1B365D) dengan teks putih bold.
-    - URL OJS yang aktif sebagai Hyperlink interaktif (=HYPERLINK).
-    - URL OJS yang mati ditampilkan sebagai teks 'Situs tidak dapat diakses' tanpa hyperlink.
-    - Warna sel lembut untuk peringkat SINTA (S1/S2 Hijau, S3/S4 Biru, S5/S6 Abu-abu).
-    - Border tipis dan auto-fit lebar kolom.
+    - Kolom Biaya Submit, Biaya Publikasi, Mata Uang, Bulan Terbit, Sumber Focus & Sumber APC terpisah rapi.
+    - URL OJS aktif sebagai Hyperlink interaktif (=HYPERLINK).
+    - Auto-fit lebar kolom dan styling sel halus.
     """
     _ensure_output_dir()
     final_filename = filename or generate_output_filename(keyword, "xlsx")
     filepath = os.path.join(OUTPUT_DIR, final_filename)
 
-    # Validasi link OJS secara asinkronus dengan toleransi SSL
     all_urls = [j.link_ojs for j in journals if j.link_ojs and j.link_ojs.startswith("http")]
     url_status = validate_urls_async(all_urls)
 
@@ -374,7 +434,7 @@ def export_excel(
 
     has_match_score = any(getattr(j, "match_score", 0) > 0 for j in journals)
 
-    # Definisi Header Kolom
+    # Definisi Header Kolom v1.4.0
     headers = [
         "No",
         "Nama Jurnal",
@@ -384,7 +444,12 @@ def export_excel(
         headers.extend(["Kesesuaian Naskah", "Match Score (%)"])
     headers.extend([
         "Penerbit",
-        "Biaya Publikasi (APC)",
+        "Biaya Submit",
+        "Biaya Publikasi",
+        "Mata Uang",
+        "Bulan Terbit",
+        "Sumber Focus",
+        "Sumber APC",
         "Frekuensi Terbit",
         "Email Kontak",
         "Telepon / WA",
@@ -420,21 +485,18 @@ def export_excel(
         cell.border = thin_border
     ws.row_dimensions[1].height = 28
 
-    # Definisi Styling Cell untuk Peringkat SINTA, Transparansi & Server
-    fill_s1_s2 = PatternFill(start_color="DCFCE7", end_color="DCFCE7", fill_type="solid")  # Hijau Lembut
+    # Styling Cell untuk Peringkat SINTA, AI Sources & Status
+    fill_s1_s2 = PatternFill(start_color="DCFCE7", end_color="DCFCE7", fill_type="solid")
     font_s1_s2 = Font(name="Segoe UI", size=10, bold=True, color="166534")
 
-    fill_s3_s4 = PatternFill(start_color="DBEAFE", end_color="DBEAFE", fill_type="solid")  # Biru Lembut
+    fill_s3_s4 = PatternFill(start_color="DBEAFE", end_color="DBEAFE", fill_type="solid")
     font_s3_s4 = Font(name="Segoe UI", size=10, bold=True, color="1E40AF")
 
-    fill_s5_s6 = PatternFill(start_color="F3F4F6", end_color="F3F4F6", fill_type="solid")  # Abu-abu Lembut
+    fill_s5_s6 = PatternFill(start_color="F3F4F6", end_color="F3F4F6", fill_type="solid")
     font_s5_s6 = Font(name="Segoe UI", size=10, bold=True, color="374151")
 
-    fill_warning = PatternFill(start_color="FEF3C7", end_color="FEF3C7", fill_type="solid")  # Kuning / Amber
-    font_warning = Font(name="Segoe UI", size=10, bold=True, color="92400E")
-
-    fill_danger = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")   # Merah Lembut
-    font_danger = Font(name="Segoe UI", size=10, bold=True, color="991B1B")
+    fill_ai = PatternFill(start_color="FEF3C7", end_color="FEF3C7", fill_type="solid")
+    font_ai = Font(name="Segoe UI", size=10, bold=True, color="B45309")
 
     regular_font = Font(name="Segoe UI", size=10)
     link_font = Font(name="Segoe UI", size=10, color="1D4ED8", underline="single")
@@ -445,12 +507,25 @@ def export_excel(
     trans_col_idx = headers.index("Transparansi Kontak") + 1
     status_col_idx = headers.index("Status Server OJS") + 1
     focus_col_idx = headers.index("Focus & Scope") + 1
-    match_col_idx = headers.index("Kesesuaian Naskah") + 1 if has_match_score else -1
+    sumber_focus_idx = headers.index("Sumber Focus") + 1
+    sumber_apc_idx = headers.index("Sumber APC") + 1
 
     # 2. Tulis Data Jurnal & Terapkan Styling
     for row_num, j in enumerate(journals, start=2):
         raw_url = j.link_ojs or ""
         is_link_alive = raw_url.startswith("http") and url_status.get(raw_url, False)
+
+        cur = getattr(j, "mata_uang", None) or "—"
+        b_sub = _format_amount(getattr(j, "biaya_submit", None), getattr(j, "mata_uang", None))
+
+        b_pub_num = getattr(j, "biaya_publikasi", None)
+        if b_pub_num is None and getattr(j, "apc_amount", None) is not None:
+            b_pub_num = getattr(j, "apc_amount", None)
+        b_pub = _format_amount(b_pub_num, getattr(j, "mata_uang", None))
+
+        bulan = format_bulan_terbit(getattr(j, "bulan_terbit", []))
+        s_focus = getattr(j, "sumber_focus", "Regex") or "Regex"
+        s_apc = getattr(j, "sumber_apc", "Regex") or "Regex"
 
         row_vals = [
             row_num - 1,
@@ -462,7 +537,12 @@ def export_excel(
             row_vals.append(f"{getattr(j, 'match_score', 0)}%")
         row_vals.extend([
             _clean_entry_value(j.penerbit),
-            _clean_entry_value(j.apc_status),
+            b_sub,
+            b_pub,
+            cur,
+            bulan,
+            s_focus,
+            s_apc,
             _clean_entry_value(getattr(j, "frekuensi", INFO_NOT_FOUND)),
             _clean_entry_value(getattr(j, "email", INFO_NOT_FOUND)),
             _clean_entry_value(getattr(j, "telepon", INFO_NOT_FOUND)),
@@ -478,22 +558,19 @@ def export_excel(
         ws.append(row_vals)
         ws.row_dimensions[row_num].height = 24
 
-        # Format setiap cell dalam baris
         for col_idx in range(1, len(headers) + 1):
             cell = ws.cell(row=row_num, column=col_idx)
             cell.font = regular_font
             cell.border = thin_border
             cell.alignment = left_align
 
-            # Kolom No, Peringkat, Transparansi, Status Server dibuat rata tengah
-            if col_idx in (1, rank_col_idx, trans_col_idx, status_col_idx):
+            if col_idx in (1, rank_col_idx, trans_col_idx, status_col_idx, sumber_focus_idx, sumber_apc_idx):
                 cell.alignment = center_align
 
-            # Kolom Focus & Scope dibungkus (wrap text)
             if col_idx == focus_col_idx:
                 cell.alignment = wrap_left_align
 
-            # Pewarnaan Khusus Peringkat SINTA
+            # Pewarnaan SINTA
             if col_idx == rank_col_idx:
                 val_str = str(cell.value).upper()
                 if "SINTA 1" in val_str or "SINTA 2" in val_str or val_str in ("S1", "S2"):
@@ -506,50 +583,12 @@ def export_excel(
                     cell.fill = fill_s5_s6
                     cell.font = font_s5_s6
 
-            # Pewarnaan Khusus Transparansi Kontak
-            if col_idx == trans_col_idx:
-                val_tr = str(cell.value)
-                if "Lengkap" in val_tr:
-                    cell.fill = fill_s1_s2
-                    cell.font = font_s1_s2
-                elif "Sedang" in val_tr:
-                    cell.fill = fill_s3_s4
-                    cell.font = font_s3_s4
-                elif "Terbatas" in val_tr:
-                    cell.fill = fill_warning
-                    cell.font = font_warning
-                else:
-                    cell.fill = fill_s5_s6
-                    cell.font = font_s5_s6
+            # Highlight AI
+            if col_idx in (sumber_focus_idx, sumber_apc_idx) and str(cell.value) == "AI":
+                cell.fill = fill_ai
+                cell.font = font_ai
 
-            # Pewarnaan Khusus Status Server OJS
-            if col_idx == status_col_idx:
-                val_srv = str(cell.value)
-                if "Sangat Aktif" in val_srv:
-                    cell.fill = fill_s1_s2
-                    cell.font = font_s1_s2
-                elif "Aktif (HTTP)" in val_srv:
-                    cell.fill = fill_s3_s4
-                    cell.font = font_s3_s4
-                elif "SSL Warning" in val_srv:
-                    cell.fill = fill_warning
-                    cell.font = font_warning
-                elif "Non-Aktif" in val_srv:
-                    cell.fill = fill_danger
-                    cell.font = font_danger
-
-            # Pewarnaan Khusus Kesesuaian Naskah
-            if col_idx == match_col_idx:
-                val_m = str(cell.value)
-                if val_m == "Sangat Sesuai":
-                    cell.fill = fill_s1_s2
-                    cell.font = font_s1_s2
-                elif val_m == "Sesuai":
-                    cell.fill = fill_s3_s4
-                    cell.font = font_s3_s4
-                cell.alignment = center_align
-
-            # Hyperlink Interaktif untuk Link OJS / Website
+            # Link Hyperlink
             if col_idx == link_col_idx:
                 if is_link_alive:
                     cell.value = raw_url
@@ -581,6 +620,29 @@ def export_excel(
     return filepath
 
 
+def write_exports(
+    journals: list[JournalEntry],
+    keyword: str,
+    formats: list[str],
+    sinta_ranks: Optional[list[int]] = None,
+) -> list[str]:
+    """Ekspor hasil ke beberapa format sekaligus (.md, .xlsx, .csv)."""
+    exported: list[str] = []
+    if not formats:
+        formats = [".xlsx", ".md"]
+
+    for fmt in formats:
+        fmt_clean = fmt.lower().lstrip(".")
+        if fmt_clean in ("xlsx", "excel"):
+            exported.append(export_excel(journals, keyword=keyword))
+        elif fmt_clean == "md":
+            exported.append(export_markdown(journals, keyword=keyword, sinta_ranks=sinta_ranks))
+        elif fmt_clean == "csv":
+            exported.append(export_csv(journals, keyword=keyword))
+
+    return exported
+
+
 def print_summary_table(journals: list[JournalEntry]):
     """Tampilkan ringkasan hasil di terminal menggunakan Rich."""
     from rich.table import Table
@@ -590,17 +652,18 @@ def print_summary_table(journals: list[JournalEntry]):
         return
 
     table = Table(
-        title=f"📚 Hasil JSFS v1.3.8 — {len(journals)} Jurnal Ditemukan",
+        title=f"📚 Hasil JSFS v1.4.0 — {len(journals)} Jurnal Ditemukan",
         show_lines=True,
         highlight=True,
     )
     table.add_column("No", style="dim", width=4, justify="right")
-    table.add_column("Nama Jurnal", style="bold", min_width=28)
+    table.add_column("Nama Jurnal", style="bold", min_width=24)
     table.add_column("SINTA", justify="center", width=8)
-    table.add_column("Penerbit", style="cyan", min_width=18)
-    table.add_column("APC", width=16)
-    table.add_column("Frekuensi", width=14)
-    table.add_column("Email Kontak", style="magenta", width=20)
+    table.add_column("Penerbit", style="cyan", min_width=16)
+    table.add_column("Submit", width=12)
+    table.add_column("Publikasi", width=14)
+    table.add_column("Bulan", width=10)
+    table.add_column("Sumber", width=12)
     table.add_column("Link OJS", style="blue underline")
 
     for i, j in enumerate(journals, 1):
@@ -610,14 +673,23 @@ def print_summary_table(journals: list[JournalEntry]):
             "S4": "blue", "S5": "yellow", "S6": "white",
         }.get(rank_val.replace("Sinta ", "S"), "white")
 
+        b_sub = _format_amount(getattr(j, "biaya_submit", None), getattr(j, "mata_uang", None))
+        b_pub_num = getattr(j, "biaya_publikasi", None)
+        if b_pub_num is None and getattr(j, "apc_amount", None) is not None:
+            b_pub_num = getattr(j, "apc_amount", None)
+        b_pub = _format_amount(b_pub_num, getattr(j, "mata_uang", None))
+        bulan = format_bulan_terbit(getattr(j, "bulan_terbit", []))
+        src = f"AI" if getattr(j, "sumber_focus", "") == "AI" else "Regex"
+
         table.add_row(
             str(i),
             _clean_entry_value(j.nama_jurnal),
             f"[{rank_color}]{rank_val}[/{rank_color}]",
             _clean_entry_value(j.penerbit),
-            _clean_entry_value(j.apc_status),
-            _clean_entry_value(getattr(j, "frekuensi", INFO_NOT_FOUND)),
-            _clean_entry_value(getattr(j, "email", INFO_NOT_FOUND)),
+            b_sub,
+            b_pub,
+            bulan,
+            src,
             j.link_ojs or INFO_NOT_FOUND,
         )
 

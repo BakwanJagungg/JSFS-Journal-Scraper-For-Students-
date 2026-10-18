@@ -348,3 +348,11 @@ def calculate_match_score(manuscript_meta: dict, journal_obj: any) -> dict:
         "matched_terms": unique_matched,
         "explanation": explanation,
     }
+
+
+# =============================================================================
+# Aliases untuk kompatibilitas JSFS v1.4.0
+# =============================================================================
+parse_manuscript = extract_manuscript_metadata
+calculate_manuscript_match = calculate_match_score
+

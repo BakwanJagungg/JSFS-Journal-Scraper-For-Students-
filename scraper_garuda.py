@@ -21,6 +21,8 @@ from concurrent.futures import ThreadPoolExecutor
 from rich.console import Console
 
 import warnings
+import month_parser
+import ai_engine
 
 # Nonaktifkan peringatan SSL tidak aman untuk server kampus (.ac.id) dan parser warning
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -152,7 +154,7 @@ _cache_lock = threading.Lock()
 
 @dataclass
 class JournalEntry:
-    """Model data satu jurnal hasil scraping v1.3.8."""
+    """Model data satu jurnal hasil scraping v1.4.0 (Hybrid AI Engine)."""
     nama_jurnal: str = ""
     penerbit: str = ""
     link_ojs: str = ""
@@ -173,6 +175,19 @@ class JournalEntry:
     sumber: str = "Garuda"
     kesesuaian_naskah: str = ""
     match_score: int = 0
+    # Field v1.4.0
+    raw_about: str = ""
+    raw_submissions: str = ""
+    bulan_terbit: list = None
+    biaya_submit: Optional[int] = None
+    biaya_publikasi: Optional[int] = None
+    mata_uang: Optional[str] = None
+    sumber_focus: str = ""
+    sumber_apc: str = ""
+
+    def __post_init__(self):
+        if self.bulan_terbit is None:
+            self.bulan_terbit = []
 
     @property
     def judul(self) -> str:
@@ -213,6 +228,67 @@ class JournalEntry:
     @link_sinta.setter
     def link_sinta(self, val: str):
         self.sinta_profile_url = val
+
+    def __getitem__(self, key: str):
+        if key == "sinta":
+            m = re.search(r"(\d)", str(self.peringkat_sinta))
+            return int(m.group(1)) if m else 0
+        if key == "judul":
+            return self.nama_jurnal
+        if hasattr(self, key):
+            return getattr(self, key)
+        raise KeyError(key)
+
+    def __setitem__(self, key: str, value):
+        if key == "judul":
+            self.nama_jurnal = value
+        elif key == "sinta":
+            self.peringkat_sinta = f"S{value}"
+        else:
+            setattr(self, key, value)
+
+    def get(self, key: str, default=None):
+        try:
+            return self[key]
+        except (KeyError, AttributeError):
+            return default
+
+    def update(self, **kwargs):
+        for k, v in kwargs.items():
+            self[k] = v
+
+    def to_dict(self) -> dict:
+        return {
+            "nama_jurnal": self.nama_jurnal,
+            "penerbit": self.penerbit,
+            "link_ojs": self.link_ojs,
+            "sinta_profile_url": self.sinta_profile_url,
+            "garuda_profile_url": self.garuda_profile_url,
+            "peringkat_sinta": self.peringkat_sinta,
+            "issn": self.issn,
+            "e_issn": self.e_issn,
+            "bidang": self.bidang,
+            "apc_status": self.apc_status,
+            "apc_amount": self.apc_amount,
+            "email": self.email,
+            "telepon": self.telepon,
+            "frekuensi": self.frekuensi,
+            "focus_scope": self.focus_scope,
+            "status_server": self.status_server,
+            "transparansi_kontak": self.transparansi_kontak,
+            "sumber": self.sumber,
+            "kesesuaian_naskah": self.kesesuaian_naskah,
+            "match_score": self.match_score,
+            "raw_about": self.raw_about,
+            "raw_submissions": self.raw_submissions,
+            "bulan_terbit": self.bulan_terbit,
+            "biaya_submit": self.biaya_submit,
+            "biaya_publikasi": self.biaya_publikasi,
+            "mata_uang": self.mata_uang,
+            "sumber_focus": self.sumber_focus,
+            "sumber_apc": self.sumber_apc,
+        }
+
 
 
 # ── HIGH-CAPACITY CONNECTION POOLING WITH RETRY (v1.3.6) ──────────────────────
@@ -400,7 +476,10 @@ def _get_from_cache(url: str) -> Optional[dict]:
                 if time.time() - cached_time < CACHE_TTL_SECONDS:
                     data = entry.get("data")
                     if data and isinstance(data, dict):
-                        # Jangan gunakan cache jika seluruh field masih bernilai INFO_NOT_FOUND (kegagalan scraping masa lalu)
+                        # Jangan gunakan cache lama yang belum memiliki raw_about v1.4.0 (kecuali dead link)
+                        if data.get("apc_status") != DEAD_LINK_TEXT and not data.get("raw_about"):
+                            return None
+                        # Jangan gunakan cache jika seluruh field masih bernilai INFO_NOT_FOUND (kegagalan masa lalu)
                         if not (
                             data.get("email") == INFO_NOT_FOUND
                             and data.get("telepon") == INFO_NOT_FOUND
@@ -875,6 +954,91 @@ def build_tier3_scope_fallback(entry: JournalEntry) -> str:
     return normalize_focus_and_scope(raw_text)
 
 
+def legacy_extract_focus(raw_text: str) -> str:
+    """Ekstraksi Focus & Scope Legacy v1.3.8 berbasis regex dan heuristik OJS."""
+    if not raw_text or not raw_text.strip():
+        return ""
+    text = re.sub(r"\s+", " ", raw_text).strip()
+    if "<" in text and ">" in text:
+        text = re.sub(r"<[^>]+>", " ", text)
+    m = re.search(
+        r"(?:focus\s*(?:and|&)\s*scope|aims\s*(?:and|&)\s*scope|fokus\s*dan\s*ruang\s*lingkup|ruang\s*lingkup)[:\s-]*(.{30,600})",
+        text,
+        re.I,
+    )
+    if m:
+        candidate = m.group(1).strip()
+        norm = normalize_focus_and_scope(candidate)
+        if norm and norm != INFO_NOT_FOUND:
+            return norm
+    norm = normalize_focus_and_scope(text)
+    return norm if norm != INFO_NOT_FOUND else ""
+
+
+def legacy_extract_apc_dict(raw_text: str) -> dict:
+    """
+    Ekstraksi APC Legacy v1.3.8 dengan pemisahan Biaya Submit vs Publikasi.
+    Returns: {"biaya_submit": int | None, "biaya_publikasi": int | None, "mata_uang": str | None}
+    """
+    empty = {"biaya_submit": None, "biaya_publikasi": None, "mata_uang": None}
+    if not raw_text or not raw_text.strip():
+        return empty
+    text = raw_text.strip()
+
+    biaya_submit = None
+    biaya_pub = None
+    mata_uang = None
+
+    # Deteksi spesifik submission fee
+    for sent in re.split(r"(?<=[.!?:;\n])\s+", text):
+        sent_l = sent.lower()
+        if any(k in sent_l for k in ("submission", "submit", "penyerahan naskah", "processing fee")):
+            if any(k in sent_l for k in ("gratis", "free", "no charge", "0 idr", "rp 0", "tanpa biaya")):
+                biaya_submit = 0
+            else:
+                m_usd = RE_USD_1.search(sent) or RE_USD_2.search(sent)
+                if m_usd:
+                    try:
+                        v = float((m_usd.group(1) or m_usd.group(2)).replace(",", "."))
+                        biaya_submit = int(v)
+                        mata_uang = "USD"
+                    except Exception:
+                        pass
+                m_idr = RE_IDR_1.search(sent) or RE_IDR_2.search(sent)
+                if m_idr:
+                    try:
+                        digits = re.sub(r"[.,]", "", m_idr.group(1) or m_idr.group(2) or "")
+                        biaya_submit = int(digits)
+                        mata_uang = "IDR"
+                    except Exception:
+                        pass
+
+    # Deteksi biaya publikasi via parse_apc_from_context legacy
+    disp, num = parse_apc_from_context(text)
+    if num is not None:
+        biaya_pub = num
+        if not mata_uang:
+            mata_uang = "USD" if ("$" in disp or "USD" in disp) else "IDR"
+    elif RE_FREE_APC.search(text):
+        biaya_pub = 0
+        if not mata_uang:
+            mata_uang = "IDR"
+
+    if biaya_submit is None and biaya_pub is None:
+        return empty
+
+    return {
+        "biaya_submit": biaya_submit,
+        "biaya_publikasi": biaya_pub,
+        "mata_uang": mata_uang,
+    }
+
+
+# Daftarkan fungsi legacy ke ai_engine
+ai_engine.register_legacy(focus_fn=legacy_extract_focus, apc_fn=legacy_extract_apc_dict)
+
+
+
 def _extract_focus_and_scope_from_soup(soup: BeautifulSoup, is_homepage: bool = False) -> str:
     """
     Ekstraksi Fokus dan Ruang Lingkup Jurnal (Multi-Tier Mining Engine - v1.3.8):
@@ -1023,6 +1187,9 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
         "focus_scope": INFO_NOT_FOUND,
         "status_server": "Aktif (HTTP)",
         "transparansi_kontak": "Tidak Transparan",
+        "raw_about": "",
+        "raw_submissions": "",
+        "bulan_terbit": [],
     }
     if not target_url or not target_url.startswith("http"):
         return info
@@ -1052,6 +1219,8 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
     raw_frequency: str = ""
     effective_ojs_url: str = target_url
     freq_contexts: list[str] = []
+    raw_about_parts: list[str] = []
+    raw_subs_parts: list[str] = []
 
     try:
         # Pass 1: Halaman Utama OJS / Detail Garuda (Timeout diperketat)
@@ -1061,6 +1230,7 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
             soup = BeautifulSoup(html_text, "lxml")
             plain_text = sanitize_dom(soup)
             freq_contexts.append(plain_text[:2500])
+            raw_about_parts.append(plain_text)
 
             # Jika ini halaman Garuda (/journal/view/{id}), ambil link OJS asli dari artikel
             if "garuda.kemdiktisaintek.go.id" in target_url:
@@ -1125,6 +1295,7 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
                 or (info["apc_status"] == INFO_NOT_FOUND)
                 or (not raw_frequency)
                 or (info["focus_scope"] == INFO_NOT_FOUND)
+                or (len(raw_about_parts) < 2)
             )
             if need_more and effective_ojs_url.startswith("http") and not (stop_event and stop_event.is_set()):
                 # Fast-Fail Check untuk effective_ojs_url jika baru terungkap dari Garuda
@@ -1207,15 +1378,18 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
                 for sub_url in ordered_subpaths[:4]:
                     if stop_event and stop_event.is_set():
                         break
-                    # Hentikan jika seluruh komponen krusial sudah ditemukan
-                    if all_emails and info["apc_status"] != INFO_NOT_FOUND and raw_frequency and info["focus_scope"] != INFO_NOT_FOUND:
-                        break
                     try:
                         sub_resp = session.get(sub_url, timeout=DEEP_SCRAPE_TIMEOUT, verify=False, allow_redirects=True)
                         if sub_resp.status_code == 200:
                             sub_soup = BeautifulSoup(sub_resp.text, "lxml")
                             sub_plain = sanitize_dom(sub_soup)
                             freq_contexts.append(sub_plain[:2000])
+
+                            sub_url_low = sub_url.lower()
+                            if any(k in sub_url_low for k in ("submission", "author-fee", "author_fee", "/af", "/apc", "fee")):
+                                raw_subs_parts.append(sub_plain)
+                            if any(k in sub_url_low for k in ("about", "focus", "scope", "editorialpolicies")):
+                                raw_about_parts.append(sub_plain)
 
                             # Focus & Scope dari subpath
                             if info["focus_scope"] == INFO_NOT_FOUND:
@@ -1235,6 +1409,7 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
                                                 fee_r = session.get(target_fee_url, timeout=DEEP_SCRAPE_TIMEOUT, verify=False, allow_redirects=True)
                                                 if fee_r.status_code == 200:
                                                     f_soup = BeautifulSoup(fee_r.text, "lxml")
+                                                    raw_subs_parts.append(sanitize_dom(f_soup))
                                                     f_apc, f_num = _extract_apc_contextual(f_soup)
                                                     if f_apc != INFO_NOT_FOUND:
                                                         info["apc_status"] = f_apc
@@ -1298,6 +1473,12 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
     info["email"] = ", ".join(all_emails) if all_emails else INFO_NOT_FOUND
     info["telepon"] = ", ".join(all_phones) if all_phones else INFO_NOT_FOUND
     info["frekuensi"] = format_frequency(raw_frequency, " ".join(freq_contexts))
+
+    combined_about = " ".join(raw_about_parts).strip()
+    combined_subs = " ".join(raw_subs_parts).strip() or combined_about
+    info["raw_about"] = combined_about
+    info["raw_submissions"] = combined_subs
+    info["bulan_terbit"] = month_parser.parse_bulan_terbit(combined_about)
 
     if info["apc_status"] == DEAD_LINK_TEXT:
         info["status_server"] = "Non-Aktif"
@@ -1791,6 +1972,9 @@ def _scrape_garuda_single_keyword(
                         entry.bidang = clean_and_merge_subjects(entry.bidang, res.get("bidang"))
                     if not entry.penerbit and res.get("publisher"):
                         entry.penerbit = res.get("publisher")
+                    entry.raw_about = res.get("raw_about", "")
+                    entry.raw_submissions = res.get("raw_submissions", "")
+                    entry.bulan_terbit = res.get("bulan_terbit", [])
 
                     with matched_lock:
                         if free_only:

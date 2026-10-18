@@ -5,6 +5,10 @@ from PyInstaller.utils.hooks import collect_all
 datas = [('assets', 'assets')]
 binaries = []
 hiddenimports = [
+    'ai_engine',
+    'ai_installer',
+    'month_parser',
+    'requests',
     'undetected_chromedriver',
     'doc_reader',
     'scraper_garuda',

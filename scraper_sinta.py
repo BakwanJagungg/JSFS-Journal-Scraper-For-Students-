@@ -214,6 +214,9 @@ def _process_deep_sinta_entry(session: requests.Session, entry: JournalEntry, st
             entry.penerbit = res.get("publisher")
         if entry.link_ojs != res.get("ojs_url", entry.link_ojs) and res.get("ojs_url"):
             entry.link_ojs = res.get("ojs_url", entry.link_ojs)
+        entry.raw_about = res.get("raw_about", "")
+        entry.raw_submissions = res.get("raw_submissions", "")
+        entry.bulan_terbit = res.get("bulan_terbit", [])
         # Jika OJS tidak menyediakan Focus & Scope, periksa profil Garuda
         if (not entry.focus_scope or entry.focus_scope == INFO_NOT_FOUND) and entry.garuda_profile_url:
             g_meta = resolve_garuda_profile_meta(session, entry.garuda_profile_url)

@@ -1,6 +1,6 @@
-# 📚 JSFS — Journal Scraper For Students (v1.3.8)
+# 📚 JSFS — Journal Scraper For Students (v1.4.0 Hybrid AI Engine)
 
-> **Alat otomatisasi pencarian jurnal SINTA & Garuda untuk mahasiswa: Re-Engineering Mesin Data Mining Focus & Scope (Multi-Tier Mining Engine >90–100% Coverage), Estetika GUI Pixel-Perfect Alignment (Symmetric 2-Column SINTA Grid & Zero Clipping), Indikator Kesehatan Server OJS & Transparansi Kontak, GUI Data Table Previewer Interaktif, Speed Acceleration Engine (Fast-Fail Circuit Breaker), Modul Analisis Naskah (.docx/.pdf) & Match Scoring (0–100%), Hardware Turbo Mode (250–1000 jurnal), dan 0% NaN Data Export.**
+> **Alat otomatisasi pencarian jurnal SINTA & Garuda untuk mahasiswa: Hybrid AI Engine (Ollama qwen2.5:3b + Fallback Regex Legacy v1.3.8), Pemisahan Biaya Submit & Publikasi, Filter & Deteksi Bulan Terbit, Audit Trail Asal Data, Estetika GUI Zero Clipping & Responsif, Dual Progress Bar, Indikator Kesehatan Server OJS & Transparansi Kontak, GUI Data Table Previewer Interaktif, Analisis Naskah (.docx/.pdf), dan 0% NaN Data Export.**
 
 ---
 
@@ -10,23 +10,22 @@ Bagi mahasiswa tingkat akhir atau peneliti pemula, mencari jurnal yang tepat di 
 - ❌ Harus membuka dan mengklik link puluhan situs jurnal satu per satu.
 - ❌ Bingung menentukan jurnal mana yang ruang lingkupnya (*Focus & Scope*) paling cocok dengan topik naskah artikel skripsi/tesis.
 - ❌ Sulit memfilter peringkat SINTA yang realistis untuk target publikasi mahasiswa (misal: SINTA 3, 4, 5, atau 6).
-- ❌ Informasi status biaya publikasi (*Article Processing Charge* / APC) sering tersembunyi.
-- ❌ Kontak redaksi (Email/WA) dan jadwal terbit (*Call for Papers*) sulit ditemukan dengan cepat.
-- ❌ Banyak link OJS yang mati atau tidak dapat diakses tanpa peringatan sebelumnya.
-- ❌ Menghabiskan waktu berharga yang seharusnya bisa digunakan untuk menyusun naskah dan analisis data.
+- ❌ Informasi status biaya naskah sering ambigu antara biaya submit (*submission fee*) dan biaya publikasi (*publication charge / APC*).
+- ❌ Sulit mencocokkan jadwal bulan terbit jurnal (*call for papers*) dengan tenggat waktu sidang/kelulusan.
+- ❌ Kontak redaksi (Email/WA) dan link OJS sering mati tanpa peringatan sebelumnya.
 
-**JSFS (Journal Scraper For Students) v1.3.8** hadir dengan fitur data mining terlengkap dan estetika GUI terdepan:
-- 🎯 **Re-Engineering Mesin Data Mining "Focus & Scope" (Multi-Tier Mining Engine)**: Ekstraksi berjenjang multi-tier: Tier 1 (OJS Meta-Tags & Targeted Selectors), Tier 2 (OJS Homepage Context Parsing), dan Tier 3 (Garuda `j-meta-desc` & SINTA Subject Area Synthesis). Menjamin **>90–100% data Focus & Scope terisi penuh** tanpa "Informasi tidak ditemukan".
-- 🖥️ **Tampilan GUI Pixel-Perfect Alignment (Zero Clipping)**: Penataan ulang panel filter SINTA ke dalam grid 2-kolom simetris (Kolom 1: Sinta 1–3, Kolom 2: Sinta 4–6), perataan presisi input Min/Max APC, dan harmonisasi rasio font pada layar 1366x768 maupun 1920x1080.
-- 👁️ **GUI Data Table Previewer Interaktif**: Menampilkan data jurnal hasil scraping secara instan di dalam antarmuka desktop (CustomTkinter & ttk.Treeview Dark Theme) dengan fitur live search, filter SINTA/APC/Server, panel pembaca Focus & Scope lengkap, dan dobel-klik untuk membuka URL di browser tanpa perlu Microsoft Excel.
-- 🌐 **Indikator Kesehatan Server OJS & SSL**: Deteksi otomatis status server (`Sangat Aktif (HTTPS/SSL Valid)`, `Aktif (HTTP)`, `SSL Warning (Bypass Valid)`, atau `Non-Aktif`).
-- 🛡️ **Indikator Transparansi Kontak (Contact Quality Index)**: Mengukur kelengkapan kontak redaksi (`Lengkap (Email & WA/Telp)`, `Sedang (Hanya Email)`, `Terbatas (Hanya WA/Telp)`, atau `Tidak Transparan`).
-- 🚀 **Speed Acceleration Engine & Fast-Fail Circuit Breaker**: Pengecekan status domain induk OJS dalam 2.5 detik untuk memangkas thread hanging pada server mati, memangkas durasi pemrosesan 250 jurnal dari 15 menit menjadi < 1.5–2 menit.
-- 📄 **Modul Analisis Naskah & Rekomendasi Jurnal (Match Score 0–100%)**: Unggah draf artikel ilmiah (.docx atau .pdf), sistem secara otomatis mengekstrak judul, abstrak, kata kunci, dan istilah dominan, lalu mengalkulasi skor kesesuaian ruang lingkup terhadap setiap jurnal serta mengurutkan hasil secara presisi.
-- ⚡ **Hardware Turbo Mode (Throughput Ekstrem)**: Paginasi SINTA via direct concurrent HTTP requests memangkas waktu penelusuran dari belasan detik menjadi sub-detik (<1s), dengan worker paralel dinamis hingga 128 threads.
-- 📅 **Standardisasi Mutlak Frekuensi Terbit**: Menghapus total istilah generik seperti `(Semiannual)` atau `(Triwulanan)`. Format baku: `X kali setahun (Bulan1, Bulan2, ...)` atau `X kali setahun`.
-- 💰 **Filter Rentang Harga APC & Konversi USD→IDR**: Deteksi kalimat gratis komprehensif, kurs acuan tetap 1 USD = Rp 17.500, dan sanity check kewajaran biaya.
-- 📊 **0% NaN Data Export**: Seluruh kolom ekspor Excel (`.xlsx`), CSV (`.csv`), dan Markdown (`.md`) terisi konsisten tanpa missing values.
+**JSFS (Journal Scraper For Students) v1.4.0** hadir dengan arsitektur **Hybrid AI Engine**:
+- 🤖 **Hybrid AI Engine (Ollama REST API + Fallback Regex Legacy)**: Ekstraksi Focus & Scope dan rincian biaya naskah secara cerdas menggunakan model open-weights lokal `qwen2.5:3b` via Ollama (`localhost:11434`). Dilengkapi smart truncation, circuit breaker, dan fallback otomatis ke Regex v1.3.8 jika Ollama tidak aktif.
+- 💰 **Pemisahan Biaya Submit vs Publikasi**: Kolom terpisah `Biaya Submit`, `Biaya Publikasi`, dan `Mata Uang` (`IDR` / `USD`).
+- 📅 **Parser & Filter Bulan Terbit**: Deteksi jadwal bulan terbit jurnal (1–12) dengan filter checkbox bulan di GUI untuk mencocokkan periode wisuda/sidang.
+- 🔍 **Transparansi Asal Data (Audit Trail)**: Kolom `Sumber Focus` dan `Sumber APC` (`AI` / `Regex` / `Kosong`) untuk audit kualitas ekstraksi.
+- 🖥️ **Tampilan GUI Zero Clipping & Responsif**: Pengukuran teks dinamis, scrollable frame, badge status Ollama real-time (`● AI Aktif` / `○ Mode Regex`), dan Dual Progress Bar (Scrape Massal + Analisis AI).
+- 👁️ **GUI Data Table Previewer Interaktif**: Pop-up previewer v1.4.0 untuk memfilter, mencari, dan membaca detail Focus & Scope serta Author Fees langsung di aplikasi.
+- 🌐 **Indikator Kesehatan Server OJS & SSL**: Deteksi otomatis status server (`Sangat Aktif`, `Aktif`, `SSL Warning`, `Non-Aktif`).
+- 🛡️ **Indikator Transparansi Kontak**: Mengukur kelengkapan kontak redaksi (`Lengkap`, `Sedang`, `Terbatas`, `Tidak Transparan`).
+- 📄 **Modul Analisis Naskah & Rekomendasi Jurnal (Match Score 0–100%)**: Unggah draf artikel ilmiah (.docx atau .pdf) untuk menghitung skor kecocokan topik terhadap setiap jurnal.
+- ⚙️ **1-Click AI Setup Manager**: Wizard mandiri di dalam aplikasi GUI untuk mengunduh Ollama dan menarik model AI secara otomatis tanpa perlu membuka browser atau terminal manual.
+- ⚡ **Arsitektur Pipeline 4-Fase Berkecepatan Tinggi**: Fase 1 Scraping Massal (128 workers), Fase 2 Pre-Filter (SINTA & Bulan), Fase 3 AI Enrichment (pool 1–2 workers), Fase 4 Export Data (.xlsx, .md, .csv).
 
 ---
 
