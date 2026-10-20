@@ -5,6 +5,7 @@ from PyInstaller.utils.hooks import collect_all
 datas = [('assets', 'assets')]
 binaries = []
 hiddenimports = [
+    'cache_engine',
     'ai_engine',
     'ai_installer',
     'month_parser',
