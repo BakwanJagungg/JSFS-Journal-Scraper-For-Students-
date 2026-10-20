@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.5.1] - 2026-10-20
 
 ### Fixed & Stabilized
+- **Perbaikan Startup Log Box Attribute Guard (`app_ui.py`)**:
+  - Menambahkan pengaman `hasattr(self, 'log_box') and self.log_box is not None` pada `log()` dan `_insert_log_batch()`.
+  - Menginisialisasi `self.log_box = None` pada `__init__` dan menempatkan pembuatan widget `log_box` sebelum pemanggilan preset awal sehingga startup aplikasi 100% stabil dan bebas dari `AttributeError`.
 - **Eliminasi Total GUI Blackout & Render Starvation (`app_ui.py`)**:
   - Membatasi konsumsi antrean log pada GUI queue (`max_batch_size = 25` per polling cycle) dan melakukan batch insert tunggal (`_insert_log_batch`) untuk mencegah Windows `WM_PAINT` event starvation.
   - Membatasi buffer teks log maksimal 500 baris terbaru guna menjaga performa memori dan rendering CustomTkinter tetap responsif.
