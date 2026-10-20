@@ -19,6 +19,7 @@ import customtkinter as ctk
 
 import ai_engine
 import ai_installer
+import cache_engine
 from month_parser import lolos_filter_bulan, format_bulan_terbit
 import exporter
 # Modul pembaca berkas naskah dengan fallback aman
@@ -26,14 +27,17 @@ try:
     from doc_reader import (
         extract_manuscript_metadata as parse_manuscript,
         calculate_match_score as calculate_manuscript_match,
+        calculate_keyword_match_score,
     )
 except ImportError:
     try:
-        from doc_reader import parse_manuscript, calculate_manuscript_match
+        from doc_reader import parse_manuscript, calculate_manuscript_match, calculate_keyword_match_score
     except ImportError:
         def parse_manuscript(p: str) -> dict:
             return {"status": "empty", "keywords": [], "dominant_terms": [], "title": ""}
         def calculate_manuscript_match(meta: dict, j: any) -> dict:
+            return {"score": 0, "level": "Kurang Sesuai", "matched_terms": [], "explanation": ""}
+        def calculate_keyword_match_score(k: str, j: any) -> dict:
             return {"score": 0, "level": "Kurang Sesuai", "matched_terms": [], "explanation": ""}
 
 from scraper_garuda import (
@@ -402,7 +406,7 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
         )
         style.map("JSFS.Treeview", background=[("selected", "#0284c7")], foreground=[("selected", "#ffffff")])
 
-        cols = ("no", "title", "sinta", "submit", "pub", "cur", "month", "src_focus", "src_apc", "scope")
+        cols = ("no", "title", "sinta", "submit", "pub", "cur", "month", "next_issue", "src_focus", "src_apc", "scope")
         self.tree = ttk.Treeview(
             tree_container,
             columns=cols,
@@ -418,6 +422,7 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
         self.tree.heading("pub", text="Biaya Publikasi")
         self.tree.heading("cur", text="Mata Uang")
         self.tree.heading("month", text="Bulan Terbit")
+        self.tree.heading("next_issue", text="Terbit Terdekat")
         self.tree.heading("src_focus", text="Sumber Focus")
         self.tree.heading("src_apc", text="Sumber APC")
         self.tree.heading("scope", text="Focus & Scope (Ringkasan)")
@@ -429,6 +434,7 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
         self.tree.column("pub", width=115, anchor="center")
         self.tree.column("cur", width=75, anchor="center")
         self.tree.column("month", width=95, anchor="center")
+        self.tree.column("next_issue", width=120, anchor="center")
         self.tree.column("src_focus", width=95, anchor="center")
         self.tree.column("src_apc", width=95, anchor="center")
         self.tree.column("scope", width=250, anchor="w")
@@ -538,6 +544,7 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
             b_pub = exporter._format_amount(b_pub_num, getattr(j, "mata_uang", None))
 
             bulan = format_bulan_terbit(getattr(j, "bulan_terbit", []))
+            terbit_est = exporter.get_next_issue_estimate(getattr(j, "bulan_terbit", []))
             s_focus = getattr(j, "sumber_focus", "Regex") or "Regex"
             s_apc = getattr(j, "sumber_apc", "Regex") or "Regex"
             scope_snip = (getattr(j, "focus_scope", "") or "—")[:120]
@@ -554,6 +561,7 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
                     b_pub,
                     cur,
                     bulan,
+                    terbit_est,
                     s_focus,
                     s_apc,
                     scope_snip,
@@ -576,13 +584,14 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
                 b_pub_num = getattr(j, "apc_amount", None)
             b_pub = exporter._format_amount(b_pub_num, getattr(j, "mata_uang", None))
             bulan = format_bulan_terbit(getattr(j, "bulan_terbit", []))
+            terbit_est = exporter.get_next_issue_estimate(getattr(j, "bulan_terbit", []))
             s_focus = getattr(j, "sumber_focus", "Regex") or "Regex"
             s_apc = getattr(j, "sumber_apc", "Regex") or "Regex"
 
             txt = (
                 f"• Focus & Scope [{s_focus}]: {getattr(j, 'focus_scope', INFO_NOT_FOUND)}\n"
                 f"• Biaya Penulis [{s_apc}]: Submit: {b_sub} | Publikasi: {b_pub} | Mata Uang: {getattr(j, 'mata_uang', 'IDR') or 'IDR'}\n"
-                f"• Jadwal Bulan Terbit: {bulan} | Frekuensi: {getattr(j, 'frekuensi', INFO_NOT_FOUND)}\n"
+                f"• Jadwal Terbit: {bulan} (Terdekat: {terbit_est}) | Frekuensi: {getattr(j, 'frekuensi', INFO_NOT_FOUND)}\n"
                 f"• Kontak: Email: {getattr(j, 'email', INFO_NOT_FOUND)} | Telepon/WA: {getattr(j, 'telepon', INFO_NOT_FOUND)} | Server: {getattr(j, 'status_server', 'Aktif')}\n"
                 f"• Link Website: {j.link_ojs or INFO_NOT_FOUND}"
             )
@@ -900,7 +909,7 @@ class AISetupDialog(ctk.CTkToplevel):
 class JSFSApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("JSFS v1.4.0 — Journal Scraper For Students (Hybrid AI Engine)")
+        self.title("JSFS v1.5.0 — Journal Scraper For Students (Hybrid AI Engine)")
         self.geometry("1040x860")
         self.minsize(980, 640)                                  # Zero Clipping aturan #3
 
@@ -941,9 +950,9 @@ class JSFSApp(ctk.CTk):
         hdr = ctk.CTkFrame(self, fg_color="transparent")
         hdr.grid(row=0, column=0, sticky="ew", padx=PAD + 4, pady=(PAD, GAP))
         hdr.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(hdr, text="JSFS v1.4.0 — Journal Scraper For Students",
+        ctk.CTkLabel(hdr, text="JSFS v1.5.0 — Journal Scraper For Students",
                      font=self.f_title, text_color="#38bdf8", anchor="w").grid(row=0, column=0, sticky="w")
-        ctk.CTkLabel(hdr, text="Hybrid AI Engine • Focus & Scope Mining • Server Health • Publication Month",
+        ctk.CTkLabel(hdr, text="Hybrid AI Engine • Smart SQLite WAL Cache • Top 3 AI Advisor • Schedule Estimator",
                      font=self.f_s, text_color=MUTED, anchor="w").grid(row=1, column=0, sticky="w", pady=(2, 0))
 
         texts = (f"●  AI Aktif · {ai_engine.MODEL}", "○  Mode Regex (Klik untuk Setup)")
@@ -1327,7 +1336,7 @@ class JSFSApp(ctk.CTk):
                 q.put(("done", None))
                 return
 
-            # Analisis Naskah (jika dicentang dan naskah diunggah)
+            # Analisis Naskah & Skor Kesesuaian (v1.5.0)
             if p.get("match") and p.get("manuscript") and os.path.exists(p["manuscript"]):
                 q.put(("log", f"Menganalisis kesesuaian naskah: {os.path.basename(p['manuscript'])}..."))
                 ms_data = parse_manuscript(p["manuscript"])
@@ -1336,6 +1345,13 @@ class JSFSApp(ctk.CTk):
                         match_res = calculate_manuscript_match(ms_data, s)
                         s.match_score = match_res.get("score", 0)
                         s.kesesuaian_naskah = match_res.get("level", "Kurang Sesuai")
+            else:
+                # Mode Pencocokan Berbasis Kata Kunci (Keyword-Mode Scoring - v1.5.0)
+                q.put(("log", f"Menghitung skor kesesuaian berbasis kata kunci '{p['keyword']}' (Kamus Dwibahasa)..."))
+                for s in survivors:
+                    kw_res = calculate_keyword_match_score(p["keyword"], s)
+                    s.match_score = kw_res.get("score", 0)
+                    s.kesesuaian_naskah = kw_res.get("level", "Kurang Sesuai")
 
             n_ai = sum(1 for r in survivors if r.get("sumber_focus") == "AI")
             n_ai_apc = sum(1 for r in survivors if r.get("sumber_apc") == "AI")

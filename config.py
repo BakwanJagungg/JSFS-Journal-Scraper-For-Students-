@@ -1,11 +1,13 @@
 # =============================================================================
 # JSFS - Journal Scraper For Students
-# config.py — Konfigurasi global scraper v1.4.0 (Hybrid AI Engine, Focus & Scope Mining, Zero Clipping)
+# config.py — Konfigurasi global scraper v1.5.0 (SQLite WAL Cache, Top 3 AI Advisor, Next Issue Countdown)
 # =============================================================================
 
 import os
 import re
 from datetime import datetime
+
+APP_VERSION = "1.5.0"
 
 # --- Target URL ---
 GARUDA_BASE_URL = "https://garuda.kemdiktisaintek.go.id"

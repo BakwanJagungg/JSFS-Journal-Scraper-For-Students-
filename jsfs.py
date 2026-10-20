@@ -36,7 +36,7 @@ def print_banner():
     banner.append("\n")
     banner.append("  Journal Scraper For Students\n", style="bold white")
     banner.append("  Scraping Garuda & SINTA → Markdown/CSV/Excel\n", style="dim")
-    banner.append("  by Rakyat Biasa | v1.3.8 (Multi-Tier Mining & Pixel-Perfect GUI)\n", style="dim")
+    banner.append("  by Rakyat Biasa | v1.5.0 (SQLite WAL Cache & Top 3 AI Advisor)\n", style="dim")
 
     console.print(Panel(banner, border_style="cyan", expand=False))
 
@@ -235,6 +235,13 @@ def run(args):
             console.print(f"[bold green]✓ Selesai menghitung match score untuk {len(unique_results)} jurnal.[/bold green]")
         except Exception as e:
             console.print(f"[red]⚠️ Gagal menganalisis naskah: {e}[/red]")
+    else:
+        import doc_reader
+        for j in unique_results:
+            sc = doc_reader.calculate_keyword_match_score(keyword, j)
+            j.match_score = sc["score"]
+            j.kesesuaian_naskah = sc["level"]
+        unique_results.sort(key=lambda x: getattr(x, "match_score", 0), reverse=True)
 
     # ── Tampilkan di terminal ─────────────────────────────────────────────────
     print_summary_table(unique_results)

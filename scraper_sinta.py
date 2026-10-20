@@ -45,6 +45,7 @@ from scraper_garuda import (
     JournalEntry,
     extract_ojs_deep_info,
     check_ojs_domain_reachable,
+    clean_contact_list,
     sanitize_text,
     get_high_capacity_session,
     normalize_issn,
@@ -182,8 +183,8 @@ def _process_deep_sinta_entry(session: requests.Session, entry: JournalEntry, st
         if not check_ojs_domain_reachable(session, entry.link_ojs):
             entry.apc_status = DEAD_LINK_TEXT
             entry.frekuensi = DEAD_LINK_TEXT
-            entry.email = DEAD_LINK_TEXT
-            entry.telepon = DEAD_LINK_TEXT
+            entry.email = INFO_NOT_FOUND
+            entry.telepon = INFO_NOT_FOUND
             entry.status_server = "Non-Aktif"
             entry.transparansi_kontak = "Tidak Transparan"
             # Coba ambil focus_scope dari garuda_profile_url jika ada sebelum fallback ke Tier 3B
@@ -196,8 +197,8 @@ def _process_deep_sinta_entry(session: requests.Session, entry: JournalEntry, st
             return entry
 
         res = extract_ojs_deep_info(session, entry.link_ojs, stop_event=stop_event)
-        entry.email = res.get("email", INFO_NOT_FOUND)
-        entry.telepon = res.get("telepon", INFO_NOT_FOUND)
+        entry.email = clean_contact_list(res.get("email", INFO_NOT_FOUND), contact_type="email")
+        entry.telepon = clean_contact_list(res.get("telepon", INFO_NOT_FOUND), contact_type="phone")
         entry.frekuensi = res.get("frekuensi", INFO_NOT_FOUND)
         entry.apc_status = res.get("apc_status", INFO_NOT_FOUND)
         entry.apc_amount = res.get("apc_amount", None)
