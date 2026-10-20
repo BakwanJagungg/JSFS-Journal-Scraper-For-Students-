@@ -1090,6 +1090,7 @@ class JSFSApp(ctk.CTk):
         self._previewer_window: Optional[JSFSDataPreviewer] = None
         self._ai_setup_dialog: Optional[AISetupDialog] = None
         self._guide_dialog: Optional[QuickGuideDialog] = None
+        self.log_box: Optional[ctk.CTkTextbox] = None
 
         # Grid Window: baris 1 (body) fleksibel, baris 0 & 2 dipatok
         self.grid_columnconfigure(0, weight=1)
@@ -1229,15 +1230,11 @@ class JSFSApp(ctk.CTk):
         # 2. Bangun frame simple mode card
         self.frame_simple_mode = self._build_simple_mode_card(body)
 
-        # 3. Tampilkan simple mode secara default
-        self.frame_simple_mode.grid(row=3, column=0, sticky="nsew", pady=(0, GAP + 2))
-        self._apply_preset_skripsi()
-
         # Baris 4: progress ganda
         self.progress = DualProgress(body, self.f_n)
         self.progress.grid(row=4, column=0, sticky="ew", pady=(0, GAP + 2))
 
-        # Baris 5-6: log
+        # Baris 5-6: log box (Dibuat terlebih dahulu sebelum memanggil preset log)
         lh = ctk.CTkFrame(body, fg_color="transparent")
         lh.grid(row=5, column=0, sticky="ew")
         lh.grid_columnconfigure(0, weight=1)
@@ -1249,6 +1246,10 @@ class JSFSApp(ctk.CTk):
         self.log_box = ctk.CTkTextbox(body, height=190, font=self.f_mono, wrap="word", state="disabled")
         self.log_box.grid(row=6, column=0, sticky="nsew", pady=(GAP, PAD))
         self.log("Selamat datang di JSFS v1.5.1 (Hybrid AI Engine).")
+
+        # 3. Tampilkan simple mode secara default & terapkan preset awal (aman karena log_box sudah aktif)
+        self.frame_simple_mode.grid(row=3, column=0, sticky="nsew", pady=(0, GAP + 2))
+        self._apply_preset_skripsi()
 
     # ── kartu-kartu ──
     def _row(self, parent, label: str, label_w: int):
@@ -1512,6 +1513,10 @@ class JSFSApp(ctk.CTk):
     # ───────────────────────── Util GUI ─────────────────────────
     def _insert_log_batch(self, lines: list[str]):
         """Menyisipkan batch baris log sekaligus untuk mencegah WM_PAINT starvation."""
+        if not hasattr(self, "log_box") or self.log_box is None:
+            for l in lines:
+                print(f"[JSFS LOG] {l}")
+            return
         if not lines:
             return
         self.log_box.configure(state="normal")
@@ -1531,6 +1536,9 @@ class JSFSApp(ctk.CTk):
 
     def log(self, msg: str):
         """Hanya dari thread GUI. Dari thread lain: ui_q.put(('log', msg))."""
+        if not hasattr(self, "log_box") or self.log_box is None:
+            print(f"[JSFS LOG] {msg}")
+            return
         self._insert_log_batch([f"[{time.strftime('%H:%M:%S')}] {msg}"])
 
     def _clear_log(self):
