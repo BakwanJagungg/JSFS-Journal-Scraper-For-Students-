@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] - 2026-10-20
+
+### Fixed & Stabilized
+- **Eliminasi Total GUI Blackout & Render Starvation (`app_ui.py`)**:
+  - Membatasi konsumsi antrean log pada GUI queue (`max_batch_size = 25` per polling cycle) dan melakukan batch insert tunggal (`_insert_log_batch`) untuk mencegah Windows `WM_PAINT` event starvation.
+  - Membatasi buffer teks log maksimal 500 baris terbaru guna menjaga performa memori dan rendering CustomTkinter tetap responsif.
+  - Interval polling queue dipercepat secara aman menjadi 80 ms (~12 fps visual updates).
+- **Pembersihan Bersih SQLite Connection & PyInstaller MEI Directory Lock (`cache_engine.py`, `app_ui.py`, `config.py`)**:
+  - Penambahan `close_all_connections()` dengan `PRAGMA wal_checkpoint(TRUNCATE);` yang terdaftar pada `atexit` dan dipanggil secara eksplisit saat GUI ditutup (`_on_close`).
+  - Penempatan direktori cache `.cache/` secara deterministik pada direktori aplikasi (`get_app_dir()`), sepenuhnya terisolasi dari folder ekstraksi sementara PyInstaller (`sys._MEIPASS`), melenyapkan peringatan `Failed to remove temporary directory: _MEIxxxxxx`.
+- **Pemulihan Scraping Recall Drop (23 Jurnal -> 2 Jurnal) (`month_parser.py`)**:
+  - Normalisasi fleksibel tipe data filter bulan (`_normalize_month_list`) yang mendukung integer, nama bulan string, singkatan 3 huruf, maupun JSON string.
+  - Bypass cepat seleksi default 12 bulan pada `lolos_filter_bulan`: jika pengguna memilih seluruh 12 bulan (default), semua jurnal (baik yang memiliki data bulan maupun belum terdeteksi) otomatis lolos tanpa drop recall.
+- **Normalisasi Root URL OJS & Filter Anti-Dewan Redaksi (`cache_engine.py`, `ai_engine.py`, `scraper_garuda.py`, `scraper_sinta.py`)**:
+  - Implementasi fungsi `normalize_ojs_root_url` untuk memangkas sub-path OJS (`/about/editorialTeam`, `/submissions`, `/article/view/...`) kembali ke homepage resmi jurnal.
+  - Penambahan filter token `editor-in-chief`, `editorial board`, `managing editor`, `dewan redaksi`, `reviewer` pada `BOILERPLATE_TOKENS` di `ai_engine.py` untuk mencegah daftar nama editor bocor ke dalam kolom Focus & Scope.
+- **Eliminasi Duplikasi pada Exporter (`exporter.py`)**:
+  - Menghapus duplikasi seksi *Top 3 Rekomendasi Jurnal* pada berkas Markdown (hanya mempertahankan 1 seksi bersih di bawah parameter pencarian).
+  - Menghapus duplikasi baris kontak pada tabel *Direktori Kontak Cepat Redaksi Jurnal*.
+  - Menjamin kolom `Kesesuaian` dan `Skor` selalu tercantum konsisten pada output Markdown (`.md`), CSV (`.csv`), dan Excel (`.xlsx`).
+
+### Added & Enhanced
+- **Progressive Disclosure UI & 4 Quick Presets Mahasiswa (`app_ui.py`)**:
+  - Saklar Mode Cerdas: `✨ Mode Simpel (Direkomendasikan)` vs `⚙️ Mode Pengaturan Lengkap`.
+  - 4 Preset Instan Mahasiswa:
+    1. 🎓 **Target Skripsi S1**: SINTA 3–5, Target 25, Biaya maks Rp 1,5 jt, Semua Bulan.
+    2. 💰 **Jurnal Gratis (Rp 0)**: SINTA 2–6, Hanya jurnal bebas APC, Target 50.
+    3. ⚡ **Terbit Terdekat**: Memfilter otomatis edisi terbit 1–3 bulan ke depan, SINTA 3–6, Target 25.
+    4. 🏆 **Reputasi Tinggi**: SINTA 1 & 2 (Nasional Akreditasi A & Scopus) untuk tesis, disertasi, atau hibah.
+  - Dialog modal `❓ Panduan Singkat` interaktif yang dapat diakses langsung dari header aplikasi.
+  - Label progres ganda yang lebih bersahabat bagi pemula (`🌐 Tahap 1: Mengumpulkan Data Jurnal` dan `🤖 Tahap 2: Menganalisis Biaya & Fokus Keilmuan`).
+- **Template Percakapan Editor Jurnal & Health Warning (`app_ui.py`)**:
+  - Tombol baru `💬 Salin Draf Chat Editor` pada `JSFSDataPreviewer` untuk menyalin draf pesan sopan menanyakan ketersediaan kuota publikasi edisi terdekat.
+  - Indikator *Journal Health Warning* pada panel detail previewer bila jurnal belum mencantumkan jadwal terbit dan kontak redaksi.
+
 ## [1.5.0] - 2026-10-20
 
 ### Added & Enhanced

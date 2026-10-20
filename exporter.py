@@ -20,6 +20,7 @@ from openpyxl.utils import get_column_letter
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 from config import (
+    APP_VERSION,
     OUTPUT_DIR,
     OUTPUT_MD_FILENAME,
     OUTPUT_CSV_FILENAME,
@@ -261,14 +262,17 @@ def _journals_to_dataframe(journals: list[JournalEntry], url_status_map: dict[st
         else:
             resolved_link = link_val
 
+        m_score = getattr(j, "match_score", 0) or 0
+        kesesuaian = getattr(j, "kesesuaian_naskah", "") or "—"
+        skor_str = f"{int(m_score)}%" if m_score > 0 else "—"
+
         row = {
             "No": i + 1,
             "Nama Jurnal": _clean_entry_value(j.nama_jurnal),
             "Peringkat SINTA": _clean_entry_value(j.peringkat_sinta),
+            "Kesesuaian Naskah": kesesuaian,
+            "Match Score (%)": skor_str,
         }
-        if has_match_score:
-            row["Kesesuaian Naskah"] = getattr(j, "kesesuaian_naskah", "Kurang Sesuai") or "Kurang Sesuai"
-            row["Match Score (%)"] = getattr(j, "match_score", 0)
 
         cur = getattr(j, "mata_uang", None) or "IDR"
         b_sub = getattr(j, "biaya_submit", None)
@@ -324,9 +328,9 @@ def export_markdown(
     lines: list[str] = []
 
     # Header Dokumen
-    lines.append(f"# 📚 Hasil Pencarian Jurnal Ilmiah (JSFS v1.5.0 Hybrid AI Engine)")
+    lines.append(f"# 📚 Hasil Pencarian Jurnal Ilmiah (JSFS v{APP_VERSION} Hybrid AI Engine)")
     lines.append("")
-    lines.append(f"> Dokumen ini dibuat otomatis oleh **JSFS (Journal Scraper For Students) v1.5.0**.")
+    lines.append(f"> Dokumen ini dibuat otomatis oleh **JSFS (Journal Scraper For Students) v{APP_VERSION}**.")
     lines.append(f"> Waktu ekstraksi: **{now}**")
     lines.append("")
     lines.append("---")
@@ -459,57 +463,22 @@ def export_markdown(
     lines.append("---")
     lines.append("")
 
-    # 1.5. Top 3 Rekomendasi Jurnal Terbaik (AI Advisor)
-    if journals:
-        top_recommendations = select_top_recommendations(journals, top_n=3)
-        if top_recommendations:
-            lines.append("## 🏆 Top 3 Rekomendasi Jurnal Terbaik (AI Advisor)")
-            lines.append("")
-            lines.append("Dipilih secara cerdas menggunakan algoritma komposit multi-faktor (Relevansi Topik 40%, Biaya/Gratis 25%, Jadwal Terbit Terdekat 20%, dan Akreditasi SINTA 15%):")
-            lines.append("")
-            lines.append("| Peringkat | Nama Jurnal | SINTA | Skor Advisor | Terbit Terdekat | Biaya Publikasi | Alasan Rekomendasi |")
-            lines.append("|:---:|---|:---:|:---:|:---:|---|---|")
-            for idx, rec in enumerate(top_recommendations, 1):
-                j_ent = rec["entry"]
-                j_title = rec.get("title") or getattr(j_ent, "nama_jurnal", "")
-                j_sinta = getattr(j_ent, "peringkat_sinta", "-")
-                j_score = rec["score"]
-                j_terbit = rec["terbit_terdekat"]
-                j_pub = getattr(j_ent, "biaya_publikasi", None)
-                if j_pub == 0:
-                    pub_str = "Gratis (Rp 0)"
-                elif j_pub is not None:
-                    pub_str = _format_amount(j_pub, getattr(j_ent, "mata_uang", "IDR"))
-                else:
-                    pub_str = getattr(j_ent, "apc_status", "Belum Terdata")
-                medal = "🥇" if idx == 1 else ("🥈" if idx == 2 else "🥉")
-                lines.append(f"| {medal} #{idx} | **{j_title}** | {j_sinta} | **{j_score}** | `{j_terbit}` | {pub_str} | {rec['reason']} |")
-            lines.append("")
-            lines.append("---")
-            lines.append("")
-
     # 2. Tabel Utama
     if not journals:
         lines.append("## ⚠️ Tidak ada jurnal yang sesuai dengan kriteria filter.")
         lines.append("")
     else:
-        has_match_score = any(getattr(j, "match_score", 0) > 0 for j in journals)
         lines.append(f"## 📋 Daftar Hasil Jurnal ({total} Data)")
         lines.append("")
-        if has_match_score:
-            lines.append("| No | Nama Jurnal | SINTA | Kesesuaian | Skor | Submit | Publikasi | Mata Uang | Bulan Terbit | Terbit Terdekat | Sumber Focus | Sumber APC | Frekuensi | Focus & Scope | Link OJS |")
-            lines.append("|:---:|---|:---:|:---:|:---:|---|---|:---:|:---:|:---:|:---:|:---:|---|---|:---:|")
-        else:
-            lines.append("| No | Nama Jurnal | SINTA | Penerbit | Submit | Publikasi | Mata Uang | Bulan Terbit | Terbit Terdekat | Sumber Focus | Sumber APC | Frekuensi | Focus & Scope | Link OJS |")
-            lines.append("|:---:|---|:---:|---|---|---|:---:|:---:|:---:|:---:|:---:|---|---|:---:|")
+        lines.append("| No | Nama Jurnal | SINTA | Kesesuaian | Skor | Submit | Publikasi | Mata Uang | Bulan Terbit | Terbit Terdekat | Sumber Focus | Sumber APC | Frekuensi | Focus & Scope | Link OJS |")
+        lines.append("|:---:|---|:---:|:---:|:---:|---|---|:---:|:---:|:---:|:---:|:---:|---|---|:---:|")
 
         for i, j in enumerate(journals, 1):
             nama = _clean_entry_value(j.nama_jurnal).replace("|", "\\|")
-            penerbit = _clean_entry_value(j.penerbit).replace("|", "\\|")
             rank = _clean_entry_value(j.peringkat_sinta)
             cur = getattr(j, "mata_uang", None) or "—"
             b_sub = _format_amount(getattr(j, "biaya_submit", None), getattr(j, "mata_uang", None))
-            
+
             b_pub_num = getattr(j, "biaya_publikasi", None)
             if b_pub_num is None and getattr(j, "apc_amount", None) is not None:
                 b_pub_num = getattr(j, "apc_amount", None)
@@ -532,12 +501,10 @@ def export_markdown(
             else:
                 link_col = f"*{DEAD_LINK_TEXT}*"
 
-            if has_match_score:
-                kesesuaian = getattr(j, "kesesuaian_naskah", "Kurang Sesuai") or "Kurang Sesuai"
-                skor = f"{getattr(j, 'match_score', 0)}%"
-                lines.append(f"| {i} | **{nama}** | {rank} | **{kesesuaian}** | `{skor}` | {b_sub} | {b_pub} | {cur} | {bulan} | {terbit_est} | {s_focus} | {s_apc} | {freq} | {focus} | {link_col} |")
-            else:
-                lines.append(f"| {i} | **{nama}** | {rank} | {penerbit} | {b_sub} | {b_pub} | {cur} | {bulan} | {terbit_est} | {s_focus} | {s_apc} | {freq} | {focus} | {link_col} |")
+            m_score = getattr(j, "match_score", 0) or 0
+            kesesuaian = getattr(j, "kesesuaian_naskah", "") or "—"
+            skor_str = f"{int(m_score)}%" if m_score > 0 else "—"
+            lines.append(f"| {i} | **{nama}** | {rank} | **{kesesuaian}** | `{skor_str}` | {b_sub} | {b_pub} | {cur} | {bulan} | {terbit_est} | {s_focus} | {s_apc} | {freq} | {focus} | {link_col} |")
 
         lines.append("")
         lines.append("---")
@@ -584,29 +551,11 @@ def export_markdown(
                 elif raw_u.startswith("http"):
                     lines.append(f"- 🌐 **Link OJS**: *{DEAD_LINK_TEXT}* ({raw_u})")
                 lines.append("")
-                
-                b_pub_num = getattr(j, "biaya_publikasi", None)
-                if b_pub_num is not None:
-                    lines.append(f"- 💰 **Biaya Publikasi**: `{_format_amount(b_pub_num, getattr(j, 'mata_uang', None))}`")
-                b_sub_num = getattr(j, "biaya_submit", None)
-                if b_sub_num is not None:
-                    lines.append(f"- 📝 **Biaya Submit**: `{_format_amount(b_sub_num, getattr(j, 'mata_uang', None))}`")
-
-                fq = _clean_entry_value(getattr(j, "frekuensi", INFO_NOT_FOUND))
-                if fq != INFO_NOT_FOUND:
-                    lines.append(f"- ⏱️ **Frekuensi**: `{fq}`")
-
-                raw_u = j.link_ojs or ""
-                if raw_u.startswith("http") and url_status.get(raw_u, False):
-                    lines.append(f"- 🌐 **Link OJS**: [{raw_u}]({raw_u})")
-                elif raw_u.startswith("http"):
-                    lines.append(f"- 🌐 **Link OJS**: *{DEAD_LINK_TEXT}* ({raw_u})")
-                lines.append("")
 
     # Footer
     lines.append("---")
     lines.append("")
-    lines.append("*Dibuat otomatis oleh **JSFS (Journal Scraper For Students) v1.4.0 (Hybrid AI Engine)***")
+    lines.append(f"*Dibuat otomatis oleh **JSFS (Journal Scraper For Students) v{APP_VERSION} (Hybrid AI Engine)***")
     lines.append(f"*{now}*")
     lines.append("")
     lines.append(
@@ -663,17 +612,13 @@ def export_excel(
     ws = wb.active
     ws.title = "Hasil Jurnal JSFS"
 
-    has_match_score = any(getattr(j, "match_score", 0) > 0 for j in journals)
-
-    # Definisi Header Kolom v1.5.0
+    # Definisi Header Kolom v1.5.1 (Selalu menyertakan Kesesuaian & Skor)
     headers = [
         "No",
         "Nama Jurnal",
         "Peringkat SINTA",
-    ]
-    if has_match_score:
-        headers.extend(["Kesesuaian Naskah", "Match Score (%)"])
-    headers.extend([
+        "Kesesuaian Naskah",
+        "Match Score (%)",
         "Penerbit",
         "Biaya Submit",
         "Biaya Publikasi",
@@ -693,7 +638,7 @@ def export_excel(
         "Bidang Keilmuan",
         "Link OJS / Website",
         "Sumber Data",
-    ])
+    ]
     ws.append(headers)
 
     # 1. Styling Header
@@ -761,15 +706,16 @@ def export_excel(
         s_focus = getattr(j, "sumber_focus", "Regex") or "Regex"
         s_apc = getattr(j, "sumber_apc", "Regex") or "Regex"
 
+        m_score = getattr(j, "match_score", 0) or 0
+        kesesuaian = getattr(j, "kesesuaian_naskah", "") or "—"
+        skor_str = f"{int(m_score)}%" if m_score > 0 else "—"
+
         row_vals = [
             row_num - 1,
             _clean_entry_value(j.nama_jurnal),
             _clean_entry_value(j.peringkat_sinta),
-        ]
-        if has_match_score:
-            row_vals.append(getattr(j, "kesesuaian_naskah", "Kurang Sesuai") or "Kurang Sesuai")
-            row_vals.append(f"{getattr(j, 'match_score', 0)}%")
-        row_vals.extend([
+            kesesuaian,
+            skor_str,
             _clean_entry_value(j.penerbit),
             b_sub,
             b_pub,
@@ -789,7 +735,7 @@ def export_excel(
             _clean_entry_value(j.bidang),
             raw_url if is_link_alive else (DEAD_LINK_TEXT if raw_url.startswith("http") else INFO_NOT_FOUND),
             j.sumber,
-        ])
+        ]
         ws.append(row_vals)
         ws.row_dimensions[row_num].height = 24
 

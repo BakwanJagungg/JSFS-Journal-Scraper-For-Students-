@@ -25,6 +25,8 @@ if sys.platform == "win32":
     except Exception:
         pass
 
+import cache_engine
+
 from config import (
     SINTA_JOURNAL_URL,
     HEADERS,
@@ -116,7 +118,7 @@ def resolve_sinta_profile_meta(session: requests.Session, profile_url: str) -> d
                 if txt in ("website", "editor url", "home page", "portal", "ojs") and "kemdiktisaintek" not in h:
                     if not h.startswith("http"):
                         h = f"https://{h}"
-                    meta["ojs_url"] = h
+                    meta["ojs_url"] = cache_engine.normalize_ojs_root_url(h)
                     break
                 if "garuda.kemdiktisaintek.go.id/journal/view" in h:
                     garuda_link = h
@@ -143,7 +145,7 @@ def resolve_sinta_profile_meta(session: requests.Session, profile_url: str) -> d
                             g_txt = ga.get_text(strip=True).lower()
                             g_h = ga["href"].strip()
                             if g_txt == "website" and g_h.startswith("http") and "kemdiktisaintek" not in g_h:
-                                meta["ojs_url"] = g_h
+                                meta["ojs_url"] = cache_engine.normalize_ojs_root_url(g_h)
                                 break
                 except Exception:
                     pass

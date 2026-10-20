@@ -164,7 +164,10 @@ class MonthFilter(ctk.CTkFrame):
 
 # ───────────────────────── Komponen: Progress Ganda ─────────────────────────
 class DualProgress(ctk.CTkFrame):
-    ROWS = (("Scraping Massal (HTTP)", "scrape", BLUE), ("Analisis AI (Ollama)", "ai", "#e08a1e"))
+    ROWS = (
+        ("🌐 Tahap 1: Mengumpulkan Data Jurnal (SINTA & Garuda)", "scrape", BLUE),
+        ("🤖 Tahap 2: Menganalisis Biaya & Fokus Keilmuan (AI / Smart Parser)", "ai", "#e08a1e"),
+    )
 
     def __init__(self, master, font: ctk.CTkFont, **kw):
         super().__init__(master, fg_color=BG_CARD, corner_radius=10, **kw)
@@ -256,20 +259,21 @@ def run_scraper(params: dict, on_progress, cancel: threading.Event) -> list[Jour
 # ───────────────────────── Data Previewer Interaktif ─────────────────────────
 class JSFSDataPreviewer(ctk.CTkToplevel):
     """
-    Jendela Pop-up Interaktif Data Table Previewer v1.4.0.
+    Jendela Pop-up Interaktif Data Table Previewer v1.5.1.
     Menampilkan data terstruktur dengan kolom Submit, Publikasi, Bulan Terbit, dan Sumber (AI/Regex).
     """
 
     def __init__(self, master, journals: list[JournalEntry], excel_path: Optional[str] = None):
         super().__init__(master)
 
-        self.title("👁️ JSFS Data Table Previewer v1.4.0 — Hasil Scraping Jurnal")
+        self.title("👁️ JSFS Data Table Previewer v1.5.1 — Hasil Scraping Jurnal")
         self.geometry("1180x720")
         self.minsize(980, 600)
 
         self._all_journals: list[JournalEntry] = list(journals)
         self._filtered_journals: list[JournalEntry] = list(journals)
         self._excel_path: Optional[str] = excel_path
+        self._selected_journal: Optional[JournalEntry] = None
 
         self._build_previewer_ui()
         self._apply_filters()
@@ -285,7 +289,7 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
 
         title_lbl = ctk.CTkLabel(
             header_bar,
-            text="📊 Data Table Previewer v1.4.0",
+            text="📊 Data Table Previewer v1.5.1",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color="#38bdf8",
         )
@@ -479,6 +483,19 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
         )
         self.btn_open_ojs.pack(side="right")
 
+        self.btn_copy_chat = ctk.CTkButton(
+            detail_top,
+            text="💬 Salin Draf Chat Editor",
+            width=175,
+            height=28,
+            font=ctk.CTkFont(size=11, weight="bold"),
+            fg_color="#0d9488",
+            hover_color="#0f766e",
+            state="disabled",
+            command=self._copy_editor_chat_draft,
+        )
+        self.btn_copy_chat.pack(side="right", padx=(0, 8))
+
         self.detail_textbox = ctk.CTkTextbox(
             detail_card,
             height=90,
@@ -575,8 +592,10 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
         idx = int(sel[0])
         if idx < len(self._filtered_journals):
             j = self._filtered_journals[idx]
+            self._selected_journal = j
             self.lbl_detail_title.configure(text=f"📑 {j.nama_jurnal} ({j.peringkat_sinta}) • {j.penerbit}")
             self.btn_open_ojs.configure(state="normal" if (j.link_ojs and j.link_ojs.startswith("http")) else "disabled")
+            self.btn_copy_chat.configure(state="normal")
 
             b_sub = exporter._format_amount(getattr(j, "biaya_submit", None), getattr(j, "mata_uang", None))
             b_pub_num = getattr(j, "biaya_publikasi", None)
@@ -588,17 +607,56 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
             s_focus = getattr(j, "sumber_focus", "Regex") or "Regex"
             s_apc = getattr(j, "sumber_apc", "Regex") or "Regex"
 
+            # Indikator Journal Health Warning (Tahap 4.2)
+            has_no_month = not getattr(j, "bulan_terbit", [])
+            em = getattr(j, "email", "")
+            tel = getattr(j, "telepon", "")
+            has_no_contact = (not em or em == INFO_NOT_FOUND or "tidak dapat" in str(em).lower()) and \
+                             (not tel or tel == INFO_NOT_FOUND or "tidak dapat" in str(tel).lower())
+
+            warning_note = ""
+            if has_no_month and has_no_contact:
+                warning_note = "\n\n⚠️ PERINGATAN KELENGKAPAN JURNAL: Jurnal ini belum mencantumkan jadwal bulan terbit dan kontak redaksi. Pastikan Anda memeriksa aktivitas terbitan terakhir langsung di situs OJS sebelum mengirimkan naskah."
+
             txt = (
                 f"• Focus & Scope [{s_focus}]: {getattr(j, 'focus_scope', INFO_NOT_FOUND)}\n"
                 f"• Biaya Penulis [{s_apc}]: Submit: {b_sub} | Publikasi: {b_pub} | Mata Uang: {getattr(j, 'mata_uang', 'IDR') or 'IDR'}\n"
                 f"• Jadwal Terbit: {bulan} (Terdekat: {terbit_est}) | Frekuensi: {getattr(j, 'frekuensi', INFO_NOT_FOUND)}\n"
                 f"• Kontak: Email: {getattr(j, 'email', INFO_NOT_FOUND)} | Telepon/WA: {getattr(j, 'telepon', INFO_NOT_FOUND)} | Server: {getattr(j, 'status_server', 'Aktif')}\n"
                 f"• Link Website: {j.link_ojs or INFO_NOT_FOUND}"
+                f"{warning_note}"
             )
             self.detail_textbox.configure(state="normal")
             self.detail_textbox.delete("1.0", "end")
             self.detail_textbox.insert("1.0", txt)
             self.detail_textbox.configure(state="disabled")
+
+    def _copy_editor_chat_draft(self):
+        """Menyalin template pesan tanya kuota publikasi sopan ke clipboard (Tahap 4.1)."""
+        if not self._selected_journal:
+            return
+        j = self._selected_journal
+        j_name = j.nama_jurnal or "Jurnal"
+        kw = getattr(self.master, "entry_kw", None)
+        kw_text = kw.get().strip() if kw else ""
+        if not kw_text:
+            kw_text = "bidang terkait"
+
+        terbit = exporter.get_next_issue_estimate(getattr(j, "bulan_terbit", []))
+        if not terbit or terbit == "—":
+            terbit = getattr(j, "frekuensi", "") or "edisi terdekat"
+
+        draft = (
+            f"Selamat pagi/siang Bapak/Ibu Tim Editor {j_name},\n\n"
+            f"Perkenalkan saya mahasiswa yang sedang menyusun artikel ilmiah di bidang {kw_text}. "
+            f"Saya ingin menanyakan apakah kuota publikasi untuk edisi {terbit} masih tersedia? "
+            f"Terima kasih banyak atas perhatian dan kesediaan Bapak/Ibu."
+        )
+        self.clipboard_clear()
+        self.clipboard_append(draft)
+
+        self.btn_copy_chat.configure(text="✅ Draf Tersalin!", fg_color="#16a34a")
+        self.after(2000, lambda: self.btn_copy_chat.configure(text="💬 Salin Draf Chat Editor", fg_color="#0d9488"))
 
     def _open_selected_ojs(self):
         sel = self.tree.selection()
@@ -905,11 +963,120 @@ class AISetupDialog(ctk.CTkToplevel):
         self.destroy()
 
 
+# ───────────────────────── Panduan Singkat Dialog (v1.5.1) ─────────────────────────
+class QuickGuideDialog(ctk.CTkToplevel):
+    """
+    Dialog Modal Panduan Singkat Pemula (JSFS v1.5.1).
+    Menjelaskan alur pencarian jurnal, peringkat SINTA, biaya APC, dan tips komunikasi editor.
+    """
+    def __init__(self, parent: "JSFSApp"):
+        super().__init__(parent)
+        self.title("❓ Panduan Singkat Penggunaan JSFS v1.5.1")
+        self.geometry("640x560")
+        self.minsize(580, 500)
+        self.transient(parent)
+        self.grab_set()
+
+        self._build_ui()
+        self.after(100, self.lift)
+
+    def _build_ui(self):
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
+        self.configure(fg_color="#181818")
+
+        f_pad = 16
+        # Header
+        hdr = ctk.CTkFrame(self, fg_color="transparent")
+        hdr.grid(row=0, column=0, sticky="ew", padx=f_pad, pady=(16, 8))
+        hdr.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            hdr,
+            text="📚 Panduan Singkat JSFS untuk Mahasiswa & Peneliti",
+            font=ctk.CTkFont(size=17, weight="bold"),
+            text_color="#38bdf8",
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w")
+
+        ctk.CTkLabel(
+            hdr,
+            text="Tips praktis memilih jurnal ilmiah yang tepat, cepat, dan sesuai anggaran.",
+            font=ctk.CTkFont(size=11),
+            text_color="#94a3b8",
+            anchor="w",
+        ).grid(row=1, column=0, sticky="w", pady=(2, 0))
+
+        # Scrollable content
+        body = ctk.CTkScrollableFrame(self, fg_color="#242424", corner_radius=10)
+        body.grid(row=1, column=0, sticky="nsew", padx=f_pad, pady=8)
+        body.grid_columnconfigure(0, weight=1)
+
+        sections = [
+            ("1. Cara Mencari Jurnal Berdasarkan Topik Skripsi",
+             "• Masukkan topik utama skripsi pada kolom 'Kata Kunci' (misal: 'akuntansi publik', 'machine learning', 'hukum perdata').\n"
+             "• Jika Anda sudah memiliki naskah (.docx atau .pdf), klik tombol 'Unggah' dan centang 'Match Score' agar AI mencocokkan naskah dengan Focus & Scope jurnal."),
+
+            ("2. Memahami Peringkat SINTA (S1 s.d. S6)",
+             "• SINTA 1 & 2: Jurnal bereputasi tertinggi (terindeks Scopus/WoS), cocok untuk syarat kelulusan magister/doktoral atau hibah.\n"
+             "• SINTA 3 & 4: Jurnal bereputasi menengah dengan proses telaah (review) stabil, sangat ideal untuk syarat skripsi S1.\n"
+             "• SINTA 5 & 6: Jurnal baru/berkembang dengan seleksi lebih fleksibel dan peluang terbit lebih cepat."),
+
+            ("3. Biaya Penulis (Author Fees / APC)",
+             "• Biaya Submit: Biaya saat pertama kali mendaftarkan naskah (mayoritas Rp 0 / gratis).\n"
+             "• Biaya Publikasi: Biaya yang dibayar HANYA setelah naskah diterima (Accepted).\n"
+             "• Gunakan preset 'Jurnal Gratis' jika kampus tidak menyediakan subsidi publikasi."),
+
+            ("4. Memilih Jadwal Terbit Terdekat",
+             "• Periksa kolom 'Jadwal Terbit' dan 'Terbit Terdekat' pada hasil scraping.\n"
+             "• Kirimkan naskah minimal 2-3 bulan sebelum bulan terbit target agar ada waktu telaah sejawat (peer review) dan revisi."),
+
+            ("5. Menghubungi Editor Jurnal (Fitur Baru v1.5.1)",
+             "• Pada jendela 'Preview Hasil Data', pilih jurnal yang diinginkan lalu klik tombol '💬 Salin Draf Chat Editor'.\n"
+             "• Draf pesan sopan menanyakan kuota terbitan terdekat akan otomatis tersalin ke clipboard Anda dan siap dikirim via WhatsApp atau Email redaksi.")
+        ]
+
+        for i, (stitle, sdesc) in enumerate(sections):
+            card = ctk.CTkFrame(body, fg_color="#1e1e1e", corner_radius=8)
+            card.pack(fill="x", padx=8, pady=6)
+            card.grid_columnconfigure(0, weight=1)
+
+            ctk.CTkLabel(
+                card,
+                text=stitle,
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color="#f59e0b",
+                anchor="w",
+            ).grid(row=0, column=0, sticky="w", padx=12, pady=(10, 4))
+
+            ctk.CTkLabel(
+                card,
+                text=sdesc,
+                font=ctk.CTkFont(size=11),
+                text_color="#e2e8f0",
+                justify="left",
+                anchor="w",
+                wraplength=520,
+            ).grid(row=1, column=0, sticky="w", padx=12, pady=(0, 10))
+
+        # Bottom Close Button
+        btn_close = ctk.CTkButton(
+            self,
+            text="Tutup Panduan",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            height=36,
+            fg_color="#334155",
+            hover_color="#475569",
+            command=self.destroy,
+        )
+        btn_close.grid(row=2, column=0, sticky="ew", padx=f_pad, pady=(6, 14))
+
+
 # ───────────────────────── Aplikasi Utama ─────────────────────────
 class JSFSApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("JSFS v1.5.0 — Journal Scraper For Students (Hybrid AI Engine)")
+        self.title("JSFS v1.5.1 — Journal Scraper For Students (Hybrid AI Engine)")
         self.geometry("1040x860")
         self.minsize(980, 640)                                  # Zero Clipping aturan #3
 
@@ -922,6 +1089,7 @@ class JSFSApp(ctk.CTk):
         self._latest_excel_path: str | None = None
         self._previewer_window: Optional[JSFSDataPreviewer] = None
         self._ai_setup_dialog: Optional[AISetupDialog] = None
+        self._guide_dialog: Optional[QuickGuideDialog] = None
 
         # Grid Window: baris 1 (body) fleksibel, baris 0 & 2 dipatok
         self.grid_columnconfigure(0, weight=1)
@@ -933,7 +1101,7 @@ class JSFSApp(ctk.CTk):
         self._build_actionbar()
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
-        self.after(100, self._poll_queue)            # pompa pesan thread -> GUI (100 ms)
+        self.after(80, self._poll_queue)             # pompa pesan thread -> GUI (80 ms)
         self.after(300, self._refresh_badge)         # cek status Ollama (loop 30 dtk)
 
     # ── fonts ──
@@ -945,19 +1113,35 @@ class JSFSApp(ctk.CTk):
         self.f_mono = ctk.CTkFont(family="Consolas", size=12)
         self.f_btn = ctk.CTkFont(size=14, weight="bold")
 
-    # ── header + badge Ollama ──
+    # ── header + badge Ollama + Panduan ──
     def _build_header(self):
         hdr = ctk.CTkFrame(self, fg_color="transparent")
         hdr.grid(row=0, column=0, sticky="ew", padx=PAD + 4, pady=(PAD, GAP))
         hdr.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(hdr, text="JSFS v1.5.0 — Journal Scraper For Students",
+        ctk.CTkLabel(hdr, text="JSFS v1.5.1 — Journal Scraper For Students",
                      font=self.f_title, text_color="#38bdf8", anchor="w").grid(row=0, column=0, sticky="w")
         ctk.CTkLabel(hdr, text="Hybrid AI Engine • Smart SQLite WAL Cache • Top 3 AI Advisor • Schedule Estimator",
                      font=self.f_s, text_color=MUTED, anchor="w").grid(row=1, column=0, sticky="w", pady=(2, 0))
 
+        btn_box = ctk.CTkFrame(hdr, fg_color="transparent")
+        btn_box.grid(row=0, column=1, rowspan=2, sticky="e", padx=(GAP, 0))
+
+        self.btn_help = ctk.CTkButton(
+            btn_box,
+            text="❓ Panduan Singkat",
+            font=self.f_s,
+            height=28,
+            corner_radius=14,
+            fg_color="#334155",
+            hover_color="#475569",
+            text_color="#f1f5f9",
+            command=self._open_quick_guide,
+        )
+        self.btn_help.pack(side="left", padx=(0, 6))
+
         texts = (f"●  AI Aktif · {ai_engine.MODEL}", "○  Mode Regex (Klik untuk Setup)")
         self.badge = ctk.CTkButton(
-            hdr,
+            btn_box,
             text=texts[1],
             font=self.f_s,
             height=28,
@@ -969,7 +1153,14 @@ class JSFSApp(ctk.CTk):
             width=max(fit_w(self.f_s, t, 0, 28) for t in texts) + 16,
             command=self._open_ai_setup_manager,
         )
-        self.badge.grid(row=0, column=1, rowspan=2, sticky="e", padx=(GAP, 0))
+        self.badge.pack(side="left")
+
+    def _open_quick_guide(self):
+        if self._guide_dialog is not None and self._guide_dialog.winfo_exists():
+            self._guide_dialog.lift()
+            self._guide_dialog.focus_force()
+            return
+        self._guide_dialog = QuickGuideDialog(self)
 
     # ── body (scrollable: Zero Clipping aturan #4) ──
     def _build_body(self):
@@ -983,8 +1174,12 @@ class JSFSApp(ctk.CTk):
         kw.grid(row=0, column=0, sticky="ew", pady=(0, GAP + 2))
         kw.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(kw, text="Kata Kunci:", font=self.f_h).grid(row=0, column=0, padx=(PAD, GAP), pady=PAD)
-        self.entry_kw = ctk.CTkEntry(kw, height=34, font=self.f_n,
-                                     placeholder_text="Topik riset (mis. bisnis, akuntansi, machine learning, manajemen)")
+        self.entry_kw = ctk.CTkEntry(
+            kw,
+            height=34,
+            font=self.f_n,
+            placeholder_text="💡 Ketik topik skripsi / riset (contoh: kecerdasan buatan, akuntansi publik, manajemen sdm)",
+        )
         self.entry_kw.grid(row=0, column=1, sticky="ew", pady=PAD)
         self.entry_kw.bind("<Return>", lambda _e: self._on_start())
         ctk.CTkButton(kw, text="Cari", width=76, height=34, font=self.f_h,
@@ -1006,25 +1201,45 @@ class JSFSApp(ctk.CTk):
                                    text_color=MUTED, anchor="w")
         self.lbl_ms.grid(row=0, column=3, sticky="ew", padx=(GAP, PAD))
 
-        # Baris 2: kartu 2x2 (kolom 3:2 seragam)
-        grid = ctk.CTkFrame(body, fg_color="transparent")
-        grid.grid(row=2, column=0, sticky="nsew", pady=(0, GAP + 2))
-        grid.grid_columnconfigure(0, weight=3, uniform="cards")
-        grid.grid_columnconfigure(1, weight=2, uniform="cards")
+        # Baris 2: Mode Selector (Progressive Disclosure)
+        mode_bar = ctk.CTkFrame(body, fg_color="transparent")
+        mode_bar.grid(row=2, column=0, sticky="ew", pady=(0, GAP))
+        mode_bar.grid_columnconfigure(0, weight=1)
+        self.seg_mode = ctk.CTkSegmentedButton(
+            mode_bar,
+            values=["✨ Mode Simpel (Direkomendasikan)", "⚙️ Mode Pengaturan Lengkap"],
+            font=self.f_h,
+            command=self._on_mode_change,
+        )
+        self.seg_mode.set("✨ Mode Simpel (Direkomendasikan)")
+        self.seg_mode.grid(row=0, column=0, sticky="ew")
+
+        # Baris 3: Container Konfigurasi (Advanced vs Simple)
+        # 1. Bangun frame advanced terlebih dahulu agar seluruh variabel & kontrol terinisialisasi
+        self.frame_advanced_grid = ctk.CTkFrame(body, fg_color="transparent")
+        self.frame_advanced_grid.grid_columnconfigure(0, weight=3, uniform="cards")
+        self.frame_advanced_grid.grid_columnconfigure(1, weight=2, uniform="cards")
         for r in (0, 1):
-            grid.grid_rowconfigure(r, weight=1)
-        self._card_source(grid).grid(row=0, column=0, sticky="nsew", padx=(0, GAP), pady=(0, GAP))
-        self._card_sinta(grid).grid(row=0, column=1, sticky="nsew", padx=(GAP, 0), pady=(0, GAP))
-        self._card_month(grid).grid(row=1, column=0, sticky="nsew", padx=(0, GAP), pady=(GAP, 0))
-        self._card_ai(grid).grid(row=1, column=1, sticky="nsew", padx=(GAP, 0), pady=(GAP, 0))
+            self.frame_advanced_grid.grid_rowconfigure(r, weight=1)
+        self._card_source(self.frame_advanced_grid).grid(row=0, column=0, sticky="nsew", padx=(0, GAP), pady=(0, GAP))
+        self._card_sinta(self.frame_advanced_grid).grid(row=0, column=1, sticky="nsew", padx=(GAP, 0), pady=(0, GAP))
+        self._card_month(self.frame_advanced_grid).grid(row=1, column=0, sticky="nsew", padx=(0, GAP), pady=(GAP, 0))
+        self._card_ai(self.frame_advanced_grid).grid(row=1, column=1, sticky="nsew", padx=(GAP, 0), pady=(GAP, 0))
 
-        # Baris 3: progress ganda
+        # 2. Bangun frame simple mode card
+        self.frame_simple_mode = self._build_simple_mode_card(body)
+
+        # 3. Tampilkan simple mode secara default
+        self.frame_simple_mode.grid(row=3, column=0, sticky="nsew", pady=(0, GAP + 2))
+        self._apply_preset_skripsi()
+
+        # Baris 4: progress ganda
         self.progress = DualProgress(body, self.f_n)
-        self.progress.grid(row=3, column=0, sticky="ew", pady=(0, GAP + 2))
+        self.progress.grid(row=4, column=0, sticky="ew", pady=(0, GAP + 2))
 
-        # Baris 4-5: log
+        # Baris 5-6: log
         lh = ctk.CTkFrame(body, fg_color="transparent")
-        lh.grid(row=4, column=0, sticky="ew")
+        lh.grid(row=5, column=0, sticky="ew")
         lh.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(lh, text="Pemantauan Proses & Riwayat Log:", font=self.f_h, anchor="w").grid(
             row=0, column=0, sticky="w")
@@ -1032,8 +1247,8 @@ class JSFSApp(ctk.CTk):
                       font=self.f_s, fg_color="#3a3a3a", hover_color="#4a4a4a",
                       command=self._clear_log).grid(row=0, column=1, sticky="e")
         self.log_box = ctk.CTkTextbox(body, height=190, font=self.f_mono, wrap="word", state="disabled")
-        self.log_box.grid(row=5, column=0, sticky="nsew", pady=(GAP, PAD))
-        self.log("Selamat datang di JSFS v1.4.0 (Hybrid AI Engine).")
+        self.log_box.grid(row=6, column=0, sticky="nsew", pady=(GAP, PAD))
+        self.log("Selamat datang di JSFS v1.5.1 (Hybrid AI Engine).")
 
     # ── kartu-kartu ──
     def _row(self, parent, label: str, label_w: int):
@@ -1127,6 +1342,149 @@ class JSFSApp(ctk.CTk):
                      wraplength=300).pack(fill="x", pady=(GAP, 0))
         return card
 
+    # ── kartu mode simpel & preset mahasiswa (v1.5.1) ──
+    def _build_simple_mode_card(self, parent):
+        card, body, _ = make_card(parent, "✨ Pilih Kategori / Preset Cepat Mahasiswa", self.f_h)
+        body.grid_columnconfigure(0, weight=1)
+        body.grid_columnconfigure(1, weight=1)
+
+        presets = [
+            ("🎓 Target Skripsi S1", "SINTA 3–5 • Biaya Murah/Gratis", "#1f6aa5", "#144870", self._apply_preset_skripsi),
+            ("💰 Jurnal Gratis (Rp 0)", "Bebas Biaya Publikasi • S2–S6", "#13a06f", "#0e7a55", self._apply_preset_gratis),
+            ("⚡ Terbit Terdekat", "Edisi 1–3 Bulan ke Depan", "#d97706", "#b45309", self._apply_preset_cepat),
+            ("🏆 Reputasi Tinggi", "SINTA 1 & 2 (Scopus / Nasional)", "#7c3aed", "#6d28d9", self._apply_preset_reputasi),
+        ]
+
+        for idx, (title, sub, col, hover_col, cmd) in enumerate(presets):
+            row_idx = idx // 2
+            col_idx = idx % 2
+            btn_f = ctk.CTkFrame(body, fg_color="#1c1c1c", corner_radius=8)
+            btn_f.grid(row=row_idx, column=col_idx, sticky="ew", padx=(0, GAP) if col_idx == 0 else (GAP, 0), pady=4)
+            btn_f.grid_columnconfigure(0, weight=1)
+
+            b = ctk.CTkButton(
+                btn_f,
+                text=title,
+                font=self.f_h,
+                height=34,
+                fg_color=col,
+                hover_color=hover_col,
+                command=cmd,
+            )
+            b.grid(row=0, column=0, sticky="ew", padx=6, pady=(6, 2))
+            ctk.CTkLabel(btn_f, text=sub, font=self.f_s, text_color="#94a3b8").grid(row=1, column=0, sticky="ew", padx=6, pady=(0, 6))
+
+        ctrl_row = ctk.CTkFrame(body, fg_color="transparent")
+        ctrl_row.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(GAP + 2, 0))
+        ctrl_row.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(ctrl_row, text="Target Jumlah Jurnal:", font=self.f_h).grid(row=0, column=0, sticky="w", padx=(4, GAP))
+        self.cmb_target_simple = ctk.CTkComboBox(
+            ctrl_row,
+            values=["10", "25", "50", "100", "250"],
+            width=90,
+            height=28,
+            font=self.f_n,
+            command=self._on_simple_target_change,
+        )
+        self.cmb_target_simple.set("25")
+        self.cmb_target_simple.grid(row=0, column=1, sticky="w")
+
+        self.lbl_active_preset = ctk.CTkLabel(
+            ctrl_row,
+            text="Preset Aktif: 🎓 Target Skripsi S1 (S3–S5)",
+            font=self.f_s,
+            text_color="#38bdf8",
+            anchor="e",
+        )
+        self.lbl_active_preset.grid(row=0, column=2, sticky="e", padx=(0, 4))
+
+        return card
+
+    def _on_mode_change(self, val: str):
+        if "Simpel" in val:
+            self.frame_advanced_grid.grid_remove()
+            self.frame_simple_mode.grid(row=3, column=0, sticky="nsew", pady=(0, GAP + 2))
+            self.log("💡 Beralih ke Mode Simpel (Preset Mahasiswa).")
+        else:
+            self.frame_simple_mode.grid_remove()
+            self.frame_advanced_grid.grid(row=3, column=0, sticky="nsew", pady=(0, GAP + 2))
+            self.log("⚙️ Beralih ke Mode Pengaturan Lengkap.")
+
+    def _on_simple_target_change(self, val: str):
+        self.cmb_target.set(val)
+
+    def _apply_preset_skripsi(self):
+        for n in (1, 2, 6):
+            self.sinta_vars[n].set(False)
+        for n in (3, 4, 5):
+            self.sinta_vars[n].set(True)
+        self.cmb_target.set("25")
+        if hasattr(self, "cmb_target_simple"):
+            self.cmb_target_simple.set("25")
+        self.var_free.set(False)
+        self.var_na.set(True)
+        self.ent_min.delete(0, "end")
+        self.ent_min.insert(0, "0")
+        self.ent_max.delete(0, "end")
+        self.ent_max.insert(0, "1.500.000")
+        self.month_filter._set_all(True)
+        if hasattr(self, "lbl_active_preset"):
+            self.lbl_active_preset.configure(text="Preset Aktif: 🎓 Target Skripsi S1 (S3–S5)")
+        self.log("📌 Preset Aktif: 🎓 Target Skripsi S1 (SINTA 3–5, Target 25, Biaya maks Rp 1,5 jt, Semua Bulan).")
+
+    def _apply_preset_gratis(self):
+        self.sinta_vars[1].set(False)
+        for n in (2, 3, 4, 5, 6):
+            self.sinta_vars[n].set(True)
+        self.cmb_target.set("50")
+        if hasattr(self, "cmb_target_simple"):
+            self.cmb_target_simple.set("50")
+        self.var_free.set(True)
+        self.var_na.set(True)
+        self.month_filter._set_all(True)
+        if hasattr(self, "lbl_active_preset"):
+            self.lbl_active_preset.configure(text="Preset Aktif: 💰 Jurnal Gratis (Rp 0)")
+        self.log("📌 Preset Aktif: 💰 Jurnal Bebas Biaya (Hanya jurnal tanpa biaya publikasi / Bebas APC, S2–S6).")
+
+    def _apply_preset_cepat(self):
+        for n in (1, 2):
+            self.sinta_vars[n].set(False)
+        for n in (3, 4, 5, 6):
+            self.sinta_vars[n].set(True)
+        self.cmb_target.set("25")
+        if hasattr(self, "cmb_target_simple"):
+            self.cmb_target_simple.set("25")
+        self.var_free.set(False)
+        self.var_na.set(True)
+        cur_m = time.localtime().tm_mon
+        target_months = {
+            cur_m,
+            ((cur_m) % 12) + 1,
+            ((cur_m + 1) % 12) + 1,
+        }
+        for i, v in enumerate(self.month_filter.vars):
+            v.set((i + 1) in target_months)
+        m_names = [self.month_filter.NAMES[m - 1] for m in sorted(target_months)]
+        if hasattr(self, "lbl_active_preset"):
+            self.lbl_active_preset.configure(text=f"Preset Aktif: ⚡ Terbit Terdekat ({', '.join(m_names)})")
+        self.log(f"📌 Preset Aktif: ⚡ Terbit Terdekat (Edisi terbit {', '.join(m_names)}, S3–S6, Target 25).")
+
+    def _apply_preset_reputasi(self):
+        for n in (1, 2):
+            self.sinta_vars[n].set(True)
+        for n in (3, 4, 5, 6):
+            self.sinta_vars[n].set(False)
+        self.cmb_target.set("25")
+        if hasattr(self, "cmb_target_simple"):
+            self.cmb_target_simple.set("25")
+        self.var_free.set(False)
+        self.var_na.set(True)
+        self.month_filter._set_all(True)
+        if hasattr(self, "lbl_active_preset"):
+            self.lbl_active_preset.configure(text="Preset Aktif: 🏆 Reputasi Tinggi (S1–S2)")
+        self.log("📌 Preset Aktif: 🏆 Reputasi Tinggi (SINTA 1 & 2 / Nasional Akreditasi A & Scopus untuk tesis/hibah).")
+
     # ── action bar (dipatok di bawah) ──
     def _build_actionbar(self):
         bar = ctk.CTkFrame(self, fg_color="transparent")
@@ -1152,12 +1510,28 @@ class JSFSApp(ctk.CTk):
                       command=self._open_output).grid(row=0, column=1, sticky="e")
 
     # ───────────────────────── Util GUI ─────────────────────────
-    def log(self, msg: str):
-        """Hanya dari thread GUI. Dari thread lain: ui_q.put(('log', msg))."""
+    def _insert_log_batch(self, lines: list[str]):
+        """Menyisipkan batch baris log sekaligus untuk mencegah WM_PAINT starvation."""
+        if not lines:
+            return
         self.log_box.configure(state="normal")
-        self.log_box.insert("end", f"[{time.strftime('%H:%M:%S')}] {msg}\n")
+        joined = "\n".join(lines) + "\n"
+        self.log_box.insert("end", joined)
+
+        # Batasi log box maksimal 500 baris agar rendering Tkinter tetap instan
+        content = self.log_box.get("1.0", "end")
+        all_lines = content.splitlines()
+        if len(all_lines) > 500:
+            truncated = "\n".join(all_lines[-500:]) + "\n"
+            self.log_box.delete("1.0", "end")
+            self.log_box.insert("1.0", truncated)
+
         self.log_box.see("end")
         self.log_box.configure(state="disabled")
+
+    def log(self, msg: str):
+        """Hanya dari thread GUI. Dari thread lain: ui_q.put(('log', msg))."""
+        self._insert_log_batch([f"[{time.strftime('%H:%M:%S')}] {msg}"])
 
     def _clear_log(self):
         self.log_box.configure(state="normal")
@@ -1400,13 +1774,21 @@ class JSFSApp(ctk.CTk):
             q.put(("error", repr(e)))
 
     def _poll_queue(self):
-        """Dijalankan di thread GUI tiap 100 ms. Coalesce progress pesan agar GUI anti-freeze."""
+        """Dijalankan di thread GUI tiap 80 ms. Batch processing untuk mencegah UI blackout."""
         latest, others = {}, []
+        log_lines = []
+        max_batch_size = 25
+        count = 0
+
         try:
-            while True:
+            while count < max_batch_size:
                 msg = self.ui_q.get_nowait()
-                if msg[0] in ("scrape", "ai"):
-                    latest[msg[0]] = msg[1:]
+                count += 1
+                kind = msg[0]
+                if kind in ("scrape", "ai"):
+                    latest[kind] = msg[1:]
+                elif kind == "log":
+                    log_lines.append(f"[{time.strftime('%H:%M:%S')}] {msg[1]}")
                 else:
                     others.append(msg)
         except queue.Empty:
@@ -1414,31 +1796,34 @@ class JSFSApp(ctk.CTk):
 
         for key, (done, total) in latest.items():
             self.progress.update_bar(key, done, total)
+
+        if log_lines:
+            self._insert_log_batch(log_lines)
+
         for msg in others:
             kind = msg[0]
-            if kind == "log":
-                self.log(msg[1])
-            elif kind == "ollama":
+            if kind == "ollama":
                 self._apply_badge(msg[1])
             elif kind == "error":
-                self.log(f"✖ Error: {msg[1]}")
+                self._insert_log_batch([f"[{time.strftime('%H:%M:%S')}] ✖ Error: {msg[1]}"])
                 self._set_running(False)
             elif kind == "done":
                 self._set_running(False)
                 if msg[1] is None:
-                    self.log("Proses dihentikan oleh pengguna.")
+                    self._insert_log_batch([f"[{time.strftime('%H:%M:%S')}] Proses dihentikan oleh pengguna."])
                 else:
-                    self.log(f"✔ Selesai. {msg[1]} jurnal berhasil diekspor ke folder output/.")
+                    self._insert_log_batch([f"[{time.strftime('%H:%M:%S')}] ✔ Selesai. {msg[1]} jurnal berhasil diekspor ke folder output/."])
                     if self._latest_results:
                         self.btn_preview.configure(
                             state="normal",
                             text=f"PREVIEW HASIL ({len(self._latest_results)})",
                         )
-        self.after(100, self._poll_queue)
+        self.after(80, self._poll_queue)
 
     def _on_close(self):
         self.cancel_evt.set()
         ai_engine.shutdown()
+        cache_engine.close_all_connections()
         self.destroy()
 
 

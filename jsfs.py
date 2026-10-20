@@ -36,7 +36,7 @@ def print_banner():
     banner.append("\n")
     banner.append("  Journal Scraper For Students\n", style="bold white")
     banner.append("  Scraping Garuda & SINTA → Markdown/CSV/Excel\n", style="dim")
-    banner.append("  by Rakyat Biasa | v1.5.0 (SQLite WAL Cache & Top 3 AI Advisor)\n", style="dim")
+    banner.append("  by Rakyat Biasa | v1.5.1 (Stability, Anti-Blackout & UX Presets)\n", style="dim")
 
     console.print(Panel(banner, border_style="cyan", expand=False))
 

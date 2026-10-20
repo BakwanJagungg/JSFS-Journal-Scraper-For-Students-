@@ -1786,7 +1786,7 @@ def resolve_garuda_profile_meta(session: requests.Session, detail_url: str) -> d
                 if h.startswith("//"):
                     h = f"https:{h}"
                 if txt in ("home page", "website", "editor url", "portal", "ojs") and "kemdiktisaintek" not in h and h.startswith("http"):
-                    res["ojs_url"] = h
+                    res["ojs_url"] = cache_engine.normalize_ojs_root_url(h)
                     break
 
             desc_el = soup.select_one("div.j-meta-desc")
@@ -1905,7 +1905,7 @@ def cross_reference_garuda_with_sinta(session: requests.Session, entry: JournalE
                                 txt_a = a_tag.get_text(strip=True).lower()
                                 href_a = a_tag.get("href", "").strip()
                                 if any(t in txt_a for t in ("website", "editor url", "ojs", "portal")) and "kemdiktisaintek" not in href_a and href_a.startswith("http"):
-                                    entry.link_ojs = href_a
+                                    entry.link_ojs = cache_engine.normalize_ojs_root_url(href_a)
                                     break
                         return
         except Exception:
