@@ -51,22 +51,29 @@ BOILERPLATE_TOKENS = {
     "plagiarism policy", "copyright notice", "section policies",
     "publication frequency", "archiving policy", "allegations of misconduct",
     "online submissions", "privacy statement", "focus and scope", "about the journal",
+    "editor-in-chief", "editorial board", "managing editor", "dewan redaksi", "reviewer",
 }
 
 
 def is_boilerplate_noise(text: str) -> bool:
     """
     Mendeteksi apakah teks merupakan derau daftar menu navigasi OJS
-    bukan teks deskripsi Focus & Scope sesungguhnya.
+    atau daftar nama redaktur/dosen, bukan teks deskripsi Focus & Scope sesungguhnya.
     Kriteria:
-    - Memuat >= 3 token menu navigasi OJS standar, DAN
-    - Panjang teks bersih < 400 karakter ATAU rasio kata menu terhadap total kata > 25%.
+    - Memuat >= 3 token menu navigasi OJS standar, ATAU
+    - Memuat token dewan redaksi/editor-in-chief tanpa kata kunci ruang lingkup riset.
     """
     if not text or not isinstance(text, str):
         return False
     t_clean = re.sub(r"\s+", " ", text).strip().lower()
     if not t_clean:
         return False
+
+    # Deteksi kebocoran halaman tim redaksi (editorial team)
+    editorial_tokens = ("editor-in-chief", "dewan redaksi", "editorial board", "managing editor", "chief editor")
+    if any(tok in t_clean for tok in editorial_tokens):
+        if not any(k in t_clean for k in ("focus", "scope", "ruang lingkup", "bidang riset", "aims")):
+            return True
 
     matched_count = sum(1 for tok in BOILERPLATE_TOKENS if tok in t_clean)
     if matched_count >= 3:

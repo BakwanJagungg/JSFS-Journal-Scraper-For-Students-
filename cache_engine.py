@@ -6,11 +6,13 @@ dan mengurangi beban inferensi LLM Ollama.
 """
 from __future__ import annotations
 
+import atexit
 import json
 import logging
 import os
 import re
 import sqlite3
+import sys
 import threading
 import time
 from typing import Any, Dict, Optional
@@ -18,19 +20,29 @@ from urllib.parse import urlparse
 
 log = logging.getLogger("jsfs.cache")
 
-DEFAULT_CACHE_DIR = ".cache"
+
+def get_app_dir() -> str:
+    """Mengembalikan direktori aplikasi yang aman (di luar _MEIPASS saat frozen)."""
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+DEFAULT_CACHE_DIR = os.path.join(get_app_dir(), ".cache")
 DEFAULT_DB_FILE = os.path.join(DEFAULT_CACHE_DIR, "jsfs_cache.db")
 DEFAULT_CACHE_TTL_DAYS = 14
 DEFAULT_CACHE_TTL_SECONDS = DEFAULT_CACHE_TTL_DAYS * 24 * 3600
 
 
-def normalize_ojs_url(url: str) -> str:
+def normalize_ojs_root_url(url: str) -> str:
     """
-    Normalisasi URL OJS untuk dijadikan kunci unik di tabel cache:
-    - Lowercase scheme dan host (netloc).
-    - Hapus trailing slash.
-    - Hapus sub-halaman OJS umum (/about, /index, /submissions, /af, dsb.)
-      sehingga variasi URL dari satu jurnal tetap mengarah ke 1 baris cache.
+    Normalisasi URL OJS untuk mengembalikan root path jurnal yang bersih:
+    Memotong sub-halaman seperti /about/..., /issue/..., /article/..., /submissions/...,
+    /editorialTeam, /editorialPolicies, /contact, /login, /user/..., /announcement/..., /search/...
+    sehingga selalu mengarah ke beranda/root jurnal yang sesungguhnya.
+    Contoh:
+    http://ejournal.iainkendari.ac.id/index.php/lifalah/about/editorialTeam
+    -> http://ejournal.iainkendari.ac.id/index.php/lifalah
     """
     if not url or not isinstance(url, str):
         return ""
@@ -44,27 +56,51 @@ def normalize_ojs_url(url: str) -> str:
         netloc = parsed.netloc.lower()
         path = parsed.path.rstrip("/")
 
-        # Pola sub-path yang bukan merupakan identitas unik jurnal
-        subpath_patterns = [
-            r"/about/editorialPolicies(?:#.*)?$",
-            r"/about/focusAndScope(?:#.*)?$",
-            r"/about/submissions(?:#.*)?$",
-            r"/about/contact(?:#.*)?$",
-            r"/about/editorialTeam(?:#.*)?$",
-            r"/about(?:#.*)?$",
-            r"/submissions(?:#.*)?$",
+        # Pola sub-path OJS yang harus dipotong dari root URL
+        patterns = [
+            r"/about(?:/.*)?$",
             r"/issue(?:/.*)?$",
-            r"/af(?:#.*)?$",
-            r"/index\.php$",
+            r"/article(?:/.*)?$",
+            r"/submissions(?:/.*)?$",
+            r"/submission(?:/.*)?$",
+            r"/editorialTeam(?:/.*)?$",
+            r"/editorialPolicies(?:/.*)?$",
+            r"/contact(?:/.*)?$",
+            r"/login(?:/.*)?$",
+            r"/user(?:/.*)?$",
+            r"/announcement(?:/.*)?$",
+            r"/search(?:/.*)?$",
+            r"/af(?:/.*)?$",
             r"/index$",
         ]
-        for pat in subpath_patterns:
+        for pat in patterns:
             path = re.sub(pat, "", path, flags=re.IGNORECASE).rstrip("/")
 
-        normalized = f"{scheme}://{netloc}{path}"
-        return normalized
+        return f"{scheme}://{netloc}{path}"
     except Exception:
-        return u.lower().rstrip("/")
+        return u.rstrip("/")
+
+
+def normalize_ojs_url(url: str) -> str:
+    """
+    Normalisasi URL OJS untuk dijadikan kunci unik di tabel cache:
+    - Lowercase scheme dan host (netloc).
+    - Hapus trailing slash.
+    - Hapus sub-halaman OJS umum sehingga variasi URL dari satu jurnal mengarah ke 1 baris cache.
+    """
+    root = normalize_ojs_root_url(url)
+    if not root:
+        return ""
+    try:
+        parsed = urlparse(root)
+        scheme = parsed.scheme.lower()
+        netloc = parsed.netloc.lower()
+        path = parsed.path.rstrip("/")
+        # Bersihkan juga index.php jika di akhir path untuk key cache seragam
+        path = re.sub(r"/index\.php$", "", path, flags=re.IGNORECASE).rstrip("/")
+        return f"{scheme}://{netloc}{path}"
+    except Exception:
+        return root.lower().rstrip("/")
 
 
 class JSFSCacheEngine:
@@ -330,3 +366,24 @@ class JSFSCacheEngine:
 
 # Singleton instans default
 cache_engine = JSFSCacheEngine()
+
+
+def close_all_connections():
+    """
+    Menutup dan melakukan checkpoint TRUNCATE pada SQLite WAL
+    agar tidak ada file lock (-wal / -shm) tersisa saat aplikasi ditutup.
+    """
+    try:
+        if os.path.exists(cache_engine.db_path):
+            conn = sqlite3.connect(cache_engine.db_path, timeout=5.0)
+            try:
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+                conn.commit()
+            finally:
+                conn.close()
+    except Exception as e:
+        log.warning("Gagal menutup koneksi SQLite cache: %s", e)
+
+
+atexit.register(close_all_connections)
+

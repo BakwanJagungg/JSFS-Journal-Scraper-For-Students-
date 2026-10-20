@@ -69,22 +69,82 @@ def parse_bulan_terbit(text: str) -> list[int]:
     return sorted(months)
 
 
+def _normalize_month_list(months: Any) -> list[int]:
+    """
+    Normalisasi berbagai variasi format data bulan (int, str nama bulan, singkatan, json string)
+    menjadi list integer [1..12] terurut dan unik.
+    Mencegah bug perbedaan tipe data (set string vs set int) yang menyebabkan drop jurnal.
+    """
+    if not months:
+        return []
+    if isinstance(months, str):
+        months_str = months.strip()
+        if months_str.startswith("[") and months_str.endswith("]"):
+            try:
+                import json
+                parsed = json.loads(months_str)
+                return _normalize_month_list(parsed)
+            except Exception:
+                pass
+        return parse_bulan_terbit(months_str)
+
+    if isinstance(months, (int, float)):
+        val = int(months)
+        return [val] if 1 <= val <= 12 else []
+
+    result: set[int] = set()
+    try:
+        for item in months:
+            if isinstance(item, (int, float)):
+                val = int(item)
+                if 1 <= val <= 12:
+                    result.add(val)
+            elif isinstance(item, str):
+                s = item.strip().lower()
+                if s.isdigit():
+                    val = int(s)
+                    if 1 <= val <= 12:
+                        result.add(val)
+                elif s in _LOOKUP:
+                    result.add(_LOOKUP[s])
+                else:
+                    for m_num in parse_bulan_terbit(s):
+                        result.add(m_num)
+    except Exception:
+        pass
+    return sorted(result)
+
+
 def lolos_filter_bulan(
-    bulan_jurnal: list[int] | None,
-    bulan_dipilih: set[int] | Iterable[int],
+    bulan_jurnal: Any,
+    bulan_dipilih: set[int] | Iterable[int] | None,
     sertakan_tak_terdeteksi: bool = True,
 ) -> bool:
-    """Cek apakah jadwal bulan terbit jurnal lolos filter yang dipilih pengguna."""
-    if not bulan_jurnal:
+    """
+    Cek apakah jadwal bulan terbit jurnal lolos filter yang dipilih pengguna.
+    - Jika seluruh 12 bulan dipilih (default), langsung return True agar 0% jurnal terbuang.
+    - Jika bulan_jurnal kosong, ikuti flag sertakan_tak_terdeteksi.
+    - Normalisasi data bulan ke integer sebelum interseksi set.
+    """
+    if not bulan_dipilih:
+        return True
+
+    selected_set = set(bulan_dipilih)
+    if len(selected_set) >= 12:
+        return True
+
+    normalized = _normalize_month_list(bulan_jurnal)
+    if not normalized:
         return sertakan_tak_terdeteksi
-    return bool(set(bulan_jurnal) & set(bulan_dipilih))
+    return bool(set(normalized) & selected_set)
 
 
-def format_bulan_terbit(months: list[int] | None) -> str:
-    """Format daftar integer bulan menjadi representasi teks ringkas, misal 'Mar, Sep'."""
-    if not months:
+def format_bulan_terbit(months: Any) -> str:
+    """Format daftar integer atau string bulan menjadi representasi teks ringkas, misal 'Mar, Sep'."""
+    norm = _normalize_month_list(months)
+    if not norm:
         return "—"
-    return ", ".join(_MONTH_NAMES_ID.get(m, str(m)) for m in sorted(set(months)))
+    return ", ".join(_MONTH_NAMES_ID.get(m, str(m)) for m in norm)
 
 
 def resolve_schedule_and_frequency(raw_text: str, fallback_freq_num: int = 0) -> dict:
@@ -164,7 +224,7 @@ def resolve_schedule_and_frequency(raw_text: str, fallback_freq_num: int = 0) ->
     }
 
 
-def get_next_issue_estimate(months_num: list[int] | None, ref_date: Optional[datetime] = None) -> str:
+def get_next_issue_estimate(months_num: Any, ref_date: Optional[datetime] = None) -> str:
     """
     Kalkulasi 'Estimasi Terbit Terdekat' (Next Issue Countdown) v1.5.0:
     - Ambil curr_month & curr_year dari ref_date (default: datetime.now()).
@@ -176,10 +236,7 @@ def get_next_issue_estimate(months_num: list[int] | None, ref_date: Optional[dat
       Jika delta == 0: "Des 2026 (Bulan Ini)"
       Jika delta > 0:  "Des 2026 (2 bln lagi)"
     """
-    if not months_num:
-        return "—"
-
-    valid_months = sorted(set(m for m in months_num if 1 <= m <= 12))
+    valid_months = _normalize_month_list(months_num)
     if not valid_months:
         return "—"
 

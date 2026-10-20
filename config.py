@@ -5,9 +5,17 @@
 
 import os
 import re
+import sys
 from datetime import datetime
 
-APP_VERSION = "1.5.0"
+APP_VERSION = "1.5.1"
+
+
+def get_app_dir() -> str:
+    """Mengembalikan direktori aplikasi yang aman (di luar _MEIPASS saat frozen)."""
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
 
 # --- Target URL ---
 GARUDA_BASE_URL = "https://garuda.kemdiktisaintek.go.id"
@@ -51,20 +59,20 @@ APC_SANITY_MIN_IDR = 50_000
 APC_SANITY_MAX_IDR = 15_000_000
 
 # --- Sistem Caching Metadata OJS Lokal (TTL 7 Hari) ---
-CACHE_DIR = ".cache"
+CACHE_DIR = os.path.join(get_app_dir(), ".cache")
 OJS_CACHE_FILE = os.path.join(CACHE_DIR, "ojs_cache.json")
 CACHE_TTL_DAYS = 7
 CACHE_TTL_SECONDS = CACHE_TTL_DAYS * 24 * 3600
 
-# --- Alokasi Hardware & Thread Pool Konkuren Maksimal (v1.3.6 Turbo Mode) ---
-# Skalabilitas ekstrem hingga 128 workers untuk pemrosesan 250-1000 jurnal
-TURBO_SCRAPE_WORKERS = min(128, (os.cpu_count() or 4) * 8)
-NORMAL_SCRAPE_WORKERS = min(64, (os.cpu_count() or 4) * 4)
+# --- Alokasi Hardware & Thread Pool Konkuren Maksimal (v1.5.1 Concurrency Throttling) ---
+# Disesuaikan agar CPU dan network stack tidak saturasi yang memicu Windows WM_PAINT starvation
+TURBO_SCRAPE_WORKERS = min(64, (os.cpu_count() or 4) * 4)
+NORMAL_SCRAPE_WORKERS = min(32, (os.cpu_count() or 4) * 2)
 DEEP_SCRAPE_WORKERS = TURBO_SCRAPE_WORKERS
 
-# --- High-Capacity Connection Pooling & Adaptive Timeout (v1.3.6 Speed Acceleration) ---
-HTTP_POOL_CONNECTIONS = 128
-HTTP_POOL_MAXSIZE = 128
+# --- High-Capacity Connection Pooling & Adaptive Timeout (v1.5.1 Speed Acceleration) ---
+HTTP_POOL_CONNECTIONS = 64
+HTTP_POOL_MAXSIZE = 64
 HTTP_TIMEOUT = 5  # Toleransi 5 detik untuk penelusuran portal SINTA / Garuda
 DEEP_SCRAPE_TIMEOUT = (2.0, 3.5)  # (connect: 2.0s, read: 3.5s) timeout diperketat untuk OJS
 FAST_FAIL_TIMEOUT = (2.0, 2.5)    # (connect: 2.0s, read: 2.5s) fast-fail circuit breaker OJS domain
