@@ -31,8 +31,13 @@ from config import (
     HTTP_TIMEOUT,
     generate_output_filename,
 )
-from scraper_garuda import JournalEntry, sanitize_text
-from month_parser import format_bulan_terbit
+from scraper_garuda import (
+    JournalEntry,
+    sanitize_text,
+    clean_contact_list,
+    get_whatsapp_link,
+)
+from month_parser import format_bulan_terbit, get_next_issue_estimate
 
 console = Console()
 
@@ -98,13 +103,153 @@ def validate_urls_async(urls: list[str]) -> dict[str, bool]:
     return results
 
 
+def select_top_recommendations(journals: list[JournalEntry], top_n: int = 3) -> list[dict]:
+    """
+    SISTEM REKOMENDASI JURNAL CERDAS (AI ADVISOR - v1.5.0):
+    Memberi peringkat jurnal berdasarkan rumus komposit:
+    AdvisorScore = (0.40 * MatchScore) + (0.25 * FreeBonus) + (0.20 * FastPublishBonus) + (0.15 * SintaBonus)
+    
+    Returns:
+    list[dict] berisi:
+    {
+        "entry": JournalEntry,
+        "score": float,
+        "reason": str,
+        "terbit_terdekat": str,
+    }
+    """
+    if not journals:
+        return []
+
+    scored_items = []
+    curr_month = datetime.now().month
+
+    def _get_entry_val(obj: any, *keys: str, default: any = None) -> any:
+        if isinstance(obj, dict):
+            for k in keys:
+                if k in obj and obj[k] is not None:
+                    return obj[k]
+            return default
+        for k in keys:
+            if hasattr(obj, k):
+                v = getattr(obj, k)
+                if v is not None:
+                    return v
+        return default
+
+    for j in journals:
+        # 1. MatchScore (0 - 100)
+        m_score = _get_entry_val(j, "match_score", default=0) or 0
+        if m_score <= 0:
+            m_score = 50.0  # Baseline skor netral jika naskah tidak diunggah
+
+        # 2. FreeBonus (0 - 100)
+        b_pub = _get_entry_val(j, "biaya_publikasi", "apc_amount")
+        b_pub_num = None
+        if b_pub is not None:
+            try:
+                b_pub_num = float(b_pub)
+            except (ValueError, TypeError):
+                pass
+
+        apc_str = str(_get_entry_val(j, "apc_status", default="")).lower()
+        if (b_pub_num is not None and b_pub_num == 0) or "gratis" in apc_str or "free" in apc_str or "rp 0" in apc_str:
+            free_bonus = 100.0
+        elif b_pub is None or _get_entry_val(j, "apc_status", default="") == INFO_NOT_FOUND:
+            free_bonus = 50.0  # Belum Terdata
+        else:
+            if b_pub_num is not None:
+                free_bonus = max(10.0, min(80.0, 100.0 - (b_pub_num / 50000.0)))
+            else:
+                free_bonus = 50.0
+
+        # 3. FastPublishBonus (0 - 100)
+        months = _get_entry_val(j, "bulan_terbit", default=[]) or []
+        valid_m = [m for m in months if isinstance(m, int) and 1 <= m <= 12]
+        delta = None
+        if valid_m:
+            cands = [m for m in valid_m if m >= curr_month]
+            if cands:
+                delta = min(cands) - curr_month
+            else:
+                delta = (12 - curr_month) + min(valid_m)
+
+            if delta in (0, 1, 2):
+                fast_bonus = 100.0
+            elif delta in (3, 4):
+                fast_bonus = 70.0
+            else:
+                fast_bonus = 30.0
+        else:
+            fast_bonus = 40.0
+
+        # 4. SintaBonus (0 - 100)
+        rank_str = str(_get_entry_val(j, "peringkat_sinta", "sinta", default="")).upper()
+        if any(r in rank_str for r in ("S1", "S2", "SINTA 1", "SINTA 2")):
+            sinta_bonus = 100.0
+        elif "S3" in rank_str or "SINTA 3" in rank_str:
+            sinta_bonus = 85.0
+        elif "S4" in rank_str or "SINTA 4" in rank_str:
+            sinta_bonus = 75.0
+        elif any(r in rank_str for r in ("S5", "S6", "SINTA 5", "SINTA 6")):
+            sinta_bonus = 60.0
+        else:
+            sinta_bonus = 40.0
+
+        advisor_score = (
+            (0.40 * m_score)
+            + (0.25 * free_bonus)
+            + (0.20 * fast_bonus)
+            + (0.15 * sinta_bonus)
+        )
+
+        terbit_est = _get_entry_val(j, "terbit_terdekat")
+        if not terbit_est:
+            terbit_est = get_next_issue_estimate(_get_entry_val(j, "bulan_terbit", default=[]))
+
+        # Generator alasan rekomendasi otomatis
+        reason_parts = []
+        sinta_val = _get_entry_val(j, "peringkat_sinta", "sinta", default="")
+        if sinta_val and sinta_val != INFO_NOT_FOUND:
+            reason_parts.append(f"berperingkat {sinta_val}")
+        if free_bonus == 100.0:
+            reason_parts.append("terkonfirmasi Gratis (Rp 0)")
+        elif b_pub_num is not None and b_pub_num > 0:
+            cur_val = _get_entry_val(j, "mata_uang", "currency", default=None)
+            reason_parts.append(f"biaya publikasi {_format_amount(int(b_pub_num), cur_val)}")
+        else:
+            reason_parts.append("biaya publikasi belum terdata")
+
+        m_sc = _get_entry_val(j, "match_score", default=0)
+        if m_sc and float(m_sc) > 0:
+            reason_parts.append(f"kecocokan topik {m_sc}%")
+
+        if terbit_est and terbit_est != "—":
+            reason_parts.append(f"jadwal terbit terdekat pada {terbit_est}")
+
+        reason = "Direkomendasikan karena " + ", ".join(reason_parts) + "."
+        title_val = _get_entry_val(j, "nama_jurnal", "title", default="")
+
+        scored_items.append({
+            "entry": j,
+            "title": title_val,
+            "score": round(advisor_score, 1),
+            "advisor_score": round(advisor_score, 1),
+            "reason": reason,
+            "terbit_terdekat": terbit_est,
+        })
+
+    scored_items.sort(key=lambda x: x["score"], reverse=True)
+    return scored_items[:top_n]
+
+
 def _clean_entry_value(val: Optional[str]) -> str:
     """Helper untuk memastikan semua nilai kosong diubah ke INFO_NOT_FOUND."""
     return sanitize_text(val)
 
 
 def _journals_to_dataframe(journals: list[JournalEntry], url_status_map: dict[str, bool]) -> pd.DataFrame:
-    """Konversi list JournalEntry ke Pandas DataFrame lengkap v1.4.0."""
+    """Konversi list JournalEntry ke Pandas DataFrame lengkap v1.5.0."""
     has_match_score = any(getattr(j, "match_score", 0) > 0 for j in journals)
     data = []
     for i, j in enumerate(journals):
@@ -137,6 +282,7 @@ def _journals_to_dataframe(journals: list[JournalEntry], url_status_map: dict[st
             "Biaya Publikasi": _format_amount(b_pub, cur),
             "Mata Uang": getattr(j, "mata_uang", None) or "—",
             "Bulan Terbit": format_bulan_terbit(getattr(j, "bulan_terbit", [])),
+            "Terbit Terdekat": get_next_issue_estimate(getattr(j, "bulan_terbit", [])),
             "Sumber Focus": getattr(j, "sumber_focus", "Regex") or "Regex",
             "Sumber APC": getattr(j, "sumber_apc", "Regex") or "Regex",
             "Frekuensi Terbit": _clean_entry_value(getattr(j, "frekuensi", INFO_NOT_FOUND)),
@@ -178,9 +324,9 @@ def export_markdown(
     lines: list[str] = []
 
     # Header Dokumen
-    lines.append(f"# 📚 Hasil Pencarian Jurnal Ilmiah (JSFS v1.4.0 Hybrid AI Engine)")
+    lines.append(f"# 📚 Hasil Pencarian Jurnal Ilmiah (JSFS v1.5.0 Hybrid AI Engine)")
     lines.append("")
-    lines.append(f"> Dokumen ini dibuat otomatis oleh **JSFS (Journal Scraper For Students) v1.4.0**.")
+    lines.append(f"> Dokumen ini dibuat otomatis oleh **JSFS (Journal Scraper For Students) v1.5.0**.")
     lines.append(f"> Waktu ekstraksi: **{now}**")
     lines.append("")
     lines.append("---")
@@ -195,6 +341,39 @@ def export_markdown(
     lines.append("")
     lines.append("---")
     lines.append("")
+
+    # 🏆 Top 3 Rekomendasi Jurnal Terbaik (AI Advisor)
+    top_recs = select_top_recommendations(journals, top_n=3)
+    if top_recs:
+        lines.append("## 🏆 Top 3 Rekomendasi Jurnal Terbaik (AI Advisor)")
+        lines.append("")
+        lines.append("> 💡 **Rekomendasi Cerdas**: Dipilih secara otomatis berdasarkan skor kecocokan topik, keterjangkauan biaya publikasi (APC), kecepatan jadwal terbit terdekat, dan akreditasi SINTA.")
+        lines.append("")
+        for idx, rec in enumerate(top_recs, 1):
+            rj = rec["entry"]
+            r_name = _clean_entry_value(rj.nama_jurnal)
+            r_rank = _clean_entry_value(rj.peringkat_sinta)
+            r_pub = _format_amount(getattr(rj, "biaya_publikasi", None) or getattr(rj, "apc_amount", None), getattr(rj, "mata_uang", None))
+            r_terbit = rec["terbit_terdekat"]
+            lines.append(f"### {idx}. {r_name} ({r_rank}) — Skor Advisor: `{rec['score']} pts`")
+            lines.append(f"- 🎯 **Alasan**: {rec['reason']}")
+            lines.append(f"- 💰 **Biaya Publikasi**: `{r_pub}` | 📅 **Terbit Terdekat**: `{r_terbit}`")
+
+            contact_parts = []
+            r_url = rj.link_ojs or ""
+            if r_url.startswith("http") and url_status.get(r_url, False):
+                contact_parts.append(f"[🔗 Link OJS]({r_url})")
+            em_clean = clean_contact_list(getattr(rj, "email", ""), "email")
+            if em_clean != INFO_NOT_FOUND and "tidak dapat diakses" not in em_clean.lower():
+                contact_parts.append(f"[📧 Email](mailto:{em_clean})")
+            wa_url = get_whatsapp_link(getattr(rj, "telepon", ""), rj.nama_jurnal)
+            if wa_url:
+                contact_parts.append(f"[💬 Chat WA Redaksi]({wa_url})")
+            if contact_parts:
+                lines.append(f"- 🌐 **Akses Cepat**: {' | '.join(contact_parts)}")
+            lines.append("")
+        lines.append("---")
+        lines.append("")
 
     # 1. Ringkasan Statistik
     lines.append("## 📈 Ringkasan Statistik")
@@ -280,6 +459,35 @@ def export_markdown(
     lines.append("---")
     lines.append("")
 
+    # 1.5. Top 3 Rekomendasi Jurnal Terbaik (AI Advisor)
+    if journals:
+        top_recommendations = select_top_recommendations(journals, top_n=3)
+        if top_recommendations:
+            lines.append("## 🏆 Top 3 Rekomendasi Jurnal Terbaik (AI Advisor)")
+            lines.append("")
+            lines.append("Dipilih secara cerdas menggunakan algoritma komposit multi-faktor (Relevansi Topik 40%, Biaya/Gratis 25%, Jadwal Terbit Terdekat 20%, dan Akreditasi SINTA 15%):")
+            lines.append("")
+            lines.append("| Peringkat | Nama Jurnal | SINTA | Skor Advisor | Terbit Terdekat | Biaya Publikasi | Alasan Rekomendasi |")
+            lines.append("|:---:|---|:---:|:---:|:---:|---|---|")
+            for idx, rec in enumerate(top_recommendations, 1):
+                j_ent = rec["entry"]
+                j_title = rec.get("title") or getattr(j_ent, "nama_jurnal", "")
+                j_sinta = getattr(j_ent, "peringkat_sinta", "-")
+                j_score = rec["score"]
+                j_terbit = rec["terbit_terdekat"]
+                j_pub = getattr(j_ent, "biaya_publikasi", None)
+                if j_pub == 0:
+                    pub_str = "Gratis (Rp 0)"
+                elif j_pub is not None:
+                    pub_str = _format_amount(j_pub, getattr(j_ent, "mata_uang", "IDR"))
+                else:
+                    pub_str = getattr(j_ent, "apc_status", "Belum Terdata")
+                medal = "🥇" if idx == 1 else ("🥈" if idx == 2 else "🥉")
+                lines.append(f"| {medal} #{idx} | **{j_title}** | {j_sinta} | **{j_score}** | `{j_terbit}` | {pub_str} | {rec['reason']} |")
+            lines.append("")
+            lines.append("---")
+            lines.append("")
+
     # 2. Tabel Utama
     if not journals:
         lines.append("## ⚠️ Tidak ada jurnal yang sesuai dengan kriteria filter.")
@@ -289,11 +497,11 @@ def export_markdown(
         lines.append(f"## 📋 Daftar Hasil Jurnal ({total} Data)")
         lines.append("")
         if has_match_score:
-            lines.append("| No | Nama Jurnal | SINTA | Kesesuaian | Skor | Submit | Publikasi | Mata Uang | Bulan Terbit | Sumber Focus | Sumber APC | Frekuensi | Focus & Scope | Link OJS |")
-            lines.append("|:---:|---|:---:|:---:|:---:|---|---|:---:|:---:|:---:|:---:|---|---|:---:|")
+            lines.append("| No | Nama Jurnal | SINTA | Kesesuaian | Skor | Submit | Publikasi | Mata Uang | Bulan Terbit | Terbit Terdekat | Sumber Focus | Sumber APC | Frekuensi | Focus & Scope | Link OJS |")
+            lines.append("|:---:|---|:---:|:---:|:---:|---|---|:---:|:---:|:---:|:---:|:---:|---|---|:---:|")
         else:
-            lines.append("| No | Nama Jurnal | SINTA | Penerbit | Submit | Publikasi | Mata Uang | Bulan Terbit | Sumber Focus | Sumber APC | Frekuensi | Focus & Scope | Link OJS |")
-            lines.append("|:---:|---|:---:|---|---|---|:---:|:---:|:---:|:---:|---|---|:---:|")
+            lines.append("| No | Nama Jurnal | SINTA | Penerbit | Submit | Publikasi | Mata Uang | Bulan Terbit | Terbit Terdekat | Sumber Focus | Sumber APC | Frekuensi | Focus & Scope | Link OJS |")
+            lines.append("|:---:|---|:---:|---|---|---|:---:|:---:|:---:|:---:|:---:|---|---|:---:|")
 
         for i, j in enumerate(journals, 1):
             nama = _clean_entry_value(j.nama_jurnal).replace("|", "\\|")
@@ -308,6 +516,7 @@ def export_markdown(
             b_pub = _format_amount(b_pub_num, getattr(j, "mata_uang", None))
 
             bulan = format_bulan_terbit(getattr(j, "bulan_terbit", []))
+            terbit_est = get_next_issue_estimate(getattr(j, "bulan_terbit", []))
             s_focus = getattr(j, "sumber_focus", "Regex") or "Regex"
             s_apc = getattr(j, "sumber_apc", "Regex") or "Regex"
             freq = _clean_entry_value(getattr(j, "frekuensi", INFO_NOT_FOUND))
@@ -326,9 +535,9 @@ def export_markdown(
             if has_match_score:
                 kesesuaian = getattr(j, "kesesuaian_naskah", "Kurang Sesuai") or "Kurang Sesuai"
                 skor = f"{getattr(j, 'match_score', 0)}%"
-                lines.append(f"| {i} | **{nama}** | {rank} | **{kesesuaian}** | `{skor}` | {b_sub} | {b_pub} | {cur} | {bulan} | {s_focus} | {s_apc} | {freq} | {focus} | {link_col} |")
+                lines.append(f"| {i} | **{nama}** | {rank} | **{kesesuaian}** | `{skor}` | {b_sub} | {b_pub} | {cur} | {bulan} | {terbit_est} | {s_focus} | {s_apc} | {freq} | {focus} | {link_col} |")
             else:
-                lines.append(f"| {i} | **{nama}** | {rank} | {penerbit} | {b_sub} | {b_pub} | {cur} | {bulan} | {s_focus} | {s_apc} | {freq} | {focus} | {link_col} |")
+                lines.append(f"| {i} | **{nama}** | {rank} | {penerbit} | {b_sub} | {b_pub} | {cur} | {bulan} | {terbit_est} | {s_focus} | {s_apc} | {freq} | {focus} | {link_col} |")
 
         lines.append("")
         lines.append("---")
@@ -337,8 +546,8 @@ def export_markdown(
         # 3. Direktori Kontak Cepat
         contact_journals = [
             j for j in journals
-            if _clean_entry_value(getattr(j, "email", INFO_NOT_FOUND)) != INFO_NOT_FOUND
-            or _clean_entry_value(getattr(j, "telepon", INFO_NOT_FOUND)) != INFO_NOT_FOUND
+            if clean_contact_list(getattr(j, "email", ""), "email") != INFO_NOT_FOUND
+            or clean_contact_list(getattr(j, "telepon", ""), "phone") != INFO_NOT_FOUND
         ]
         if contact_journals:
             lines.append("## 📞 Direktori Kontak Cepat Redaksi Jurnal")
@@ -347,12 +556,34 @@ def export_markdown(
                 lines.append(f"### 📑 {j.nama_jurnal} ({j.peringkat_sinta})")
                 if _clean_entry_value(j.penerbit) != INFO_NOT_FOUND:
                     lines.append(f"- 🏛️ **Penerbit**: {j.penerbit}")
-                em = _clean_entry_value(getattr(j, "email", INFO_NOT_FOUND))
-                if em != INFO_NOT_FOUND:
+                em = clean_contact_list(getattr(j, "email", ""), "email")
+                if em != INFO_NOT_FOUND and "tidak dapat diakses" not in em.lower():
                     lines.append(f"- 📧 **Email**: [{em}](mailto:{em})")
-                tel = _clean_entry_value(getattr(j, "telepon", INFO_NOT_FOUND))
-                if tel != INFO_NOT_FOUND:
-                    lines.append(f"- 📱 **Telepon/WA**: `{tel}`")
+                tel = clean_contact_list(getattr(j, "telepon", ""), "phone")
+                if tel != INFO_NOT_FOUND and "tidak dapat diakses" not in tel.lower():
+                    wa_link = get_whatsapp_link(tel, j.nama_jurnal)
+                    if wa_link:
+                        lines.append(f"- 📱 **Telepon/WA**: `{tel}` ([💬 Chat WA Redaksi]({wa_link}))")
+                    else:
+                        lines.append(f"- 📱 **Telepon/WA**: `{tel}`")
+
+                b_pub_num = getattr(j, "biaya_publikasi", None)
+                if b_pub_num is not None:
+                    lines.append(f"- 💰 **Biaya Publikasi**: `{_format_amount(b_pub_num, getattr(j, 'mata_uang', None))}`")
+                b_sub_num = getattr(j, "biaya_submit", None)
+                if b_sub_num is not None:
+                    lines.append(f"- 📝 **Biaya Submit**: `{_format_amount(b_sub_num, getattr(j, 'mata_uang', None))}`")
+
+                fq = _clean_entry_value(getattr(j, "frekuensi", INFO_NOT_FOUND))
+                if fq != INFO_NOT_FOUND:
+                    lines.append(f"- ⏱️ **Frekuensi**: `{fq}`")
+
+                raw_u = j.link_ojs or ""
+                if raw_u.startswith("http") and url_status.get(raw_u, False):
+                    lines.append(f"- 🌐 **Link OJS**: [{raw_u}]({raw_u})")
+                elif raw_u.startswith("http"):
+                    lines.append(f"- 🌐 **Link OJS**: *{DEAD_LINK_TEXT}* ({raw_u})")
+                lines.append("")
                 
                 b_pub_num = getattr(j, "biaya_publikasi", None)
                 if b_pub_num is not None:
@@ -434,7 +665,7 @@ def export_excel(
 
     has_match_score = any(getattr(j, "match_score", 0) > 0 for j in journals)
 
-    # Definisi Header Kolom v1.4.0
+    # Definisi Header Kolom v1.5.0
     headers = [
         "No",
         "Nama Jurnal",
@@ -448,6 +679,7 @@ def export_excel(
         "Biaya Publikasi",
         "Mata Uang",
         "Bulan Terbit",
+        "Terbit Terdekat",
         "Sumber Focus",
         "Sumber APC",
         "Frekuensi Terbit",
@@ -509,6 +741,7 @@ def export_excel(
     focus_col_idx = headers.index("Focus & Scope") + 1
     sumber_focus_idx = headers.index("Sumber Focus") + 1
     sumber_apc_idx = headers.index("Sumber APC") + 1
+    terbit_dekat_idx = headers.index("Terbit Terdekat") + 1
 
     # 2. Tulis Data Jurnal & Terapkan Styling
     for row_num, j in enumerate(journals, start=2):
@@ -524,6 +757,7 @@ def export_excel(
         b_pub = _format_amount(b_pub_num, getattr(j, "mata_uang", None))
 
         bulan = format_bulan_terbit(getattr(j, "bulan_terbit", []))
+        terbit_est = get_next_issue_estimate(getattr(j, "bulan_terbit", []))
         s_focus = getattr(j, "sumber_focus", "Regex") or "Regex"
         s_apc = getattr(j, "sumber_apc", "Regex") or "Regex"
 
@@ -541,6 +775,7 @@ def export_excel(
             b_pub,
             cur,
             bulan,
+            terbit_est,
             s_focus,
             s_apc,
             _clean_entry_value(getattr(j, "frekuensi", INFO_NOT_FOUND)),
@@ -564,7 +799,7 @@ def export_excel(
             cell.border = thin_border
             cell.alignment = left_align
 
-            if col_idx in (1, rank_col_idx, trans_col_idx, status_col_idx, sumber_focus_idx, sumber_apc_idx):
+            if col_idx in (1, rank_col_idx, trans_col_idx, status_col_idx, sumber_focus_idx, sumber_apc_idx, terbit_dekat_idx):
                 cell.alignment = center_align
 
             if col_idx == focus_col_idx:
@@ -600,7 +835,7 @@ def export_excel(
                     cell.font = dead_link_font
                     cell.alignment = center_align
 
-    # 3. Auto-fit Lebar Kolom
+    # 3. Auto-fit Lebar Kolom untuk Tabel Utama
     for col in ws.columns:
         max_len = 0
         col_letter = get_column_letter(col[0].column)
@@ -614,6 +849,77 @@ def export_excel(
                 val_str = "🔗 Buka Website"
             max_len = max(max_len, len(val_str))
         ws.column_dimensions[col_letter].width = min(max(max_len + 4, 12), 48)
+
+    # ── Sheet Top 3 Rekomendasi (AI Advisor) ──
+    top_recs = select_top_recommendations(journals, top_n=3)
+    if top_recs:
+        ws_adv = wb.create_sheet(title="🏆 Rekomendasi AI", index=0)
+        ws_adv.append(["🏆 TOP 3 REKOMENDASI JURNAL TERBAIK (AI ADVISOR)"])
+        ws_adv.append(["Dipilih otomatis berdasarkan Skor Kesesuaian, Keterjangkauan APC, Kecepatan Jadwal Terbit, dan Akreditasi SINTA."])
+        ws_adv.append([])
+
+        adv_headers = ["Peringkat", "Nama Jurnal", "SINTA", "Skor Advisor", "Biaya Publikasi", "Terbit Terdekat", "Alasan Rekomendasi", "Link OJS", "Email", "Telepon / WA"]
+        ws_adv.append(adv_headers)
+
+        title_font = Font(name="Segoe UI", size=13, bold=True, color="1B365D")
+        sub_font = Font(name="Segoe UI", size=10, italic=True, color="4B5563")
+        adv_header_font = Font(name="Segoe UI", size=10, bold=True, color="FFFFFF")
+
+        ws_adv.cell(row=1, column=1).font = title_font
+        ws_adv.cell(row=2, column=1).font = sub_font
+
+        for c_idx in range(1, len(adv_headers) + 1):
+            c = ws_adv.cell(row=4, column=c_idx)
+            c.fill = navy_fill
+            c.font = adv_header_font
+            c.alignment = center_align
+            c.border = thin_border
+        ws_adv.row_dimensions[4].height = 26
+
+        for r_idx, rec in enumerate(top_recs, start=5):
+            rj = rec["entry"]
+            r_pub = _format_amount(getattr(rj, "biaya_publikasi", None) or getattr(rj, "apc_amount", None), getattr(rj, "mata_uang", None))
+            r_em = clean_contact_list(getattr(rj, "email", ""), "email")
+            r_tel = clean_contact_list(getattr(rj, "telepon", ""), "phone")
+            r_url = rj.link_ojs or ""
+
+            adv_row = [
+                f"#{r_idx - 4}",
+                _clean_entry_value(rj.nama_jurnal),
+                _clean_entry_value(rj.peringkat_sinta),
+                f"{rec['score']} pts",
+                r_pub,
+                rec["terbit_terdekat"],
+                rec["reason"],
+                r_url if r_url.startswith("http") else INFO_NOT_FOUND,
+                r_em,
+                r_tel,
+            ]
+            ws_adv.append(adv_row)
+            ws_adv.row_dimensions[r_idx].height = 26
+
+            for c_idx in range(1, len(adv_headers) + 1):
+                cell = ws_adv.cell(row=r_idx, column=c_idx)
+                cell.font = regular_font
+                cell.border = thin_border
+                cell.alignment = left_align
+                if c_idx in (1, 3, 4, 5, 6):
+                    cell.alignment = center_align
+                if c_idx == 8 and r_url.startswith("http"):
+                    cell.hyperlink = r_url
+                    cell.font = link_font
+
+        for col in ws_adv.columns:
+            m_len = 0
+            col_letter = get_column_letter(col[0].column)
+            col_h = str(col[3].value or "") if len(col) >= 4 else ""
+            if col_h == "Alasan Rekomendasi":
+                ws_adv.column_dimensions[col_letter].width = 45
+                continue
+            for cell in col[3:]:
+                v_str = str(cell.value or "")
+                m_len = max(m_len, len(v_str))
+            ws_adv.column_dimensions[col_letter].width = min(max(m_len + 4, 12), 40)
 
     wb.save(filepath)
     console.print(f"[bold green]✅ Excel tersimpan → {filepath}[/bold green]")

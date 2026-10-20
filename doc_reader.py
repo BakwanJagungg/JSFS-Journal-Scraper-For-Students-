@@ -239,13 +239,219 @@ def extract_manuscript_metadata(file_path: str) -> dict:
     }
 
 
+# =============================================================================
+# Kamus Sinonim Akademik Dwibahasa (Bilingual Academic Synonyms - v1.5.0)
+# Mendukung ekspansi semantik dwibahasa (Indonesia <-> English) untuk rumpun ilmu populer
+# =============================================================================
+BILINGUAL_ACADEMIC_SYNONYMS = {
+    "bisnis": [
+        "bisnis", "business", "manajemen", "management", "ekonomi", "economy",
+        "wirausaha", "entrepreneurship", "pemasaran", "marketing", "keuangan", "finance",
+        "niaga", "commerce", "akuntansi", "accounting", "agribisnis", "agribusiness",
+        "perbankan", "banking", "investasi", "investment", "perdagangan", "trade",
+    ],
+    "informatika": [
+        "informatika", "informatics", "komputer", "computer", "teknologi informasi",
+        "information technology", "software", "rekayasa perangkat lunak", "sistem informasi",
+        "information systems", "kecerdasan buatan", "artificial intelligence", "data science",
+        "jaringan", "network", "cyber", "teknik", "engineering", "elektro", "electrical",
+        "mesin", "mechanical", "sipil", "civil", "ilmu komputer", "computer science",
+        "algoritma", "algorithm", "iot", "internet of things",
+    ],
+    "pendidikan": [
+        "pendidikan", "education", "pembelajaran", "learning", "pengajaran", "teaching",
+        "pedagogi", "pedagogy", "kurikulum", "curriculum", "guru", "teacher",
+        "sekolah", "school", "didaktik", "didactics", "edukasi", "educational",
+        "peserta didik", "siswa", "student", "instruksional", "instructional",
+    ],
+    "hukum": [
+        "hukum", "law", "yurisprudensi", "jurisprudence", "pidana", "criminal",
+        "perdata", "civil law", "konstitusi", "constitutional", "tata negara",
+        "hak asasi", "human rights", "legal", "advokasi", "justice", "keadilan",
+        "peradilan", "judiciary", "perundang-undangan", "legislation",
+    ],
+    "kesehatan": [
+        "kesehatan", "health", "medis", "medical", "kedokteran", "medicine",
+        "keperawatan", "nursing", "kebidanan", "midwifery", "farmasi", "pharmacy",
+        "gizi", "nutrition", "klinis", "clinical", "biomedis", "biomedical",
+        "epidemiologi", "epidemiology", "kesehatan masyarakat", "public health",
+        "farmakologi", "pharmacology", "terapi", "therapy",
+    ],
+    "pertanian": [
+        "pertanian", "agriculture", "agronomi", "agronomy", "hortikultura", "horticulture",
+        "tanaman", "crops", "peternakan", "animal husbandry", "kehutanan", "forestry",
+        "perikanan", "fisheries", "agroteknologi", "agrotechnology", "tanah", "soil",
+        "pangan", "food security", "akuakultur", "aquaculture",
+    ],
+    "komunikasi": [
+        "komunikasi", "communication", "jurnalistik", "journalism", "media", "penyiaran",
+        "broadcasting", "kehumasan", "public relations", "humas", "informasi", "information",
+        "massa", "mass media", "komunikasi visual", "periklanan", "advertising",
+    ],
+    "sosial": [
+        "sosial", "social", "humaniora", "humanities", "sosiologi", "sociology",
+        "antropologi", "anthropology", "budaya", "cultural", "politik", "political",
+        "filsafat", "philosophy", "psikologi", "psychology", "sejarah", "history",
+        "kebijakan publik", "public policy", "hubungan internasional", "international relations",
+    ],
+}
+
+
+def expand_academic_synonyms(terms: list[str]) -> set[str]:
+    """
+    Mengekspansi daftar istilah menggunakan kamus sinonim dwibahasa (ID-EN).
+    Mengembalikan set kata/frasa sinonim yang relevan.
+    """
+    expanded = set()
+    for t in terms:
+        if not t:
+            continue
+        t_low = t.strip().lower()
+        expanded.add(t_low)
+        for cluster_name, syn_list in BILINGUAL_ACADEMIC_SYNONYMS.items():
+            if t_low == cluster_name or any(s == t_low or t_low in s or s in t_low for s in syn_list):
+                for s in syn_list:
+                    expanded.add(s.lower())
+    return expanded
+
+
+def calculate_keyword_match_score(keyword: str, journal_obj: any, focus_scope_arg: str = "") -> dict:
+    """
+    HITUNG SKOR KESESUAIAN BERBASIS KATA KUNCI (KEYWORD-MODE SCORING - v1.5.0):
+    Digunakan saat pengguna TIDAK mengunggah naskah file docx/pdf.
+    Mencocokkan kata kunci pencarian yang diekspansi kamus sinonim dwibahasa
+    terhadap: Nama Jurnal (bobot x2), Focus & Scope, dan Bidang Keilmuan (Subject Area).
+    
+    Rentang Skor Normalisasi:
+    - Jurnal relevan / cocok di bidangnya: 45% - 95%
+    - Jurnal tidak relevan: 0% - 35%
+    - Kategori: 'Sangat Sesuai' (>= 70%), 'Sesuai' (40% - 69%), 'Kurang Sesuai' (< 40%).
+    
+    Returns:
+    {
+        "score": int (0 - 100),
+        "level": str ("Sangat Sesuai" | "Sesuai" | "Kurang Sesuai"),
+        "matched_terms": list[str],
+        "explanation": str
+    }
+    """
+    if not keyword or not str(keyword).strip():
+        return {
+            "score": 0,
+            "level": "Kurang Sesuai",
+            "matched_terms": [],
+            "explanation": "Kata kunci pencarian kosong",
+        }
+
+    if focus_scope_arg and isinstance(journal_obj, str):
+        nama_jurnal = journal_obj
+        focus_scope = focus_scope_arg
+        bidang = ""
+        penerbit = ""
+    elif isinstance(journal_obj, dict):
+        nama_jurnal = journal_obj.get("nama_jurnal") or journal_obj.get("judul") or journal_obj.get("title") or ""
+        bidang = journal_obj.get("bidang") or journal_obj.get("subject_area") or ""
+        focus_scope = journal_obj.get("focus_scope") or ""
+        penerbit = journal_obj.get("penerbit") or ""
+    else:
+        nama_jurnal = getattr(journal_obj, "nama_jurnal", "") or getattr(journal_obj, "judul", "") or getattr(journal_obj, "title", "") or ""
+        bidang = getattr(journal_obj, "bidang", "") or getattr(journal_obj, "subject_area", "") or ""
+        focus_scope = getattr(journal_obj, "focus_scope", "") or ""
+        penerbit = getattr(journal_obj, "penerbit", "") or ""
+
+    nama_jurnal_low = nama_jurnal.lower()
+    bidang_low = bidang.lower()
+    focus_low = focus_scope.lower()
+
+    kw_clean = keyword.strip().lower()
+    tokens = [w for w in re.findall(r"\b[a-zA-Z]{3,}\b", kw_clean) if w not in ALL_STOPWORDS]
+    if not tokens:
+        tokens = [kw_clean]
+
+    expanded_synonyms = expand_academic_synonyms(tokens + [kw_clean])
+
+    matched_terms = []
+    raw_score = 0
+
+    # 1. Exact Keyword Match
+    if kw_clean in nama_jurnal_low:
+        raw_score += 45
+        matched_terms.append(keyword.strip().title())
+    elif kw_clean in bidang_low:
+        raw_score += 40
+        matched_terms.append(keyword.strip().title())
+    elif kw_clean in focus_low:
+        raw_score += 35
+        matched_terms.append(keyword.strip().title())
+
+    # 2. Individual Tokens Match
+    for tok in tokens:
+        if tok in nama_jurnal_low:
+            raw_score += 25
+            matched_terms.append(tok.title())
+        elif tok in bidang_low:
+            raw_score += 20
+            matched_terms.append(tok.title())
+        elif tok in focus_low:
+            raw_score += 15
+            matched_terms.append(tok.title())
+
+    # 3. Bilingual Synonyms Match
+    for syn in expanded_synonyms:
+        if syn == kw_clean or syn in tokens:
+            continue
+        if syn in nama_jurnal_low:
+            raw_score += 20
+            matched_terms.append(syn.title())
+        elif syn in bidang_low:
+            raw_score += 15
+            matched_terms.append(syn.title())
+        elif syn in focus_low:
+            raw_score += 10
+            matched_terms.append(syn.title())
+
+    # Deduplikasi matched terms
+    unique_matched = []
+    for m in matched_terms:
+        if m not in unique_matched:
+            unique_matched.append(m)
+
+    # Kurva Normalisasi: jika ada kecocokan relevan, skala ke rentang 45% - 95%
+    if raw_score == 0:
+        final_score = 0
+        level = "Kurang Sesuai"
+        explanation = "Tidak ditemukan kata kunci yang beririsan langsung"
+    else:
+        ratio = min(1.0, raw_score / 100.0)
+        final_score = int(round(45 + (ratio * 50)))
+        final_score = min(95, max(45, final_score))
+
+        if final_score >= 70:
+            level = "Sangat Sesuai"
+        elif final_score >= 40:
+            level = "Sesuai"
+        else:
+            level = "Kurang Sesuai"
+
+        explanation = f"Cocok pada topik/istilah: {', '.join(unique_matched[:4])}"
+
+    return {
+        "score": final_score,
+        "level": level,
+        "matched_terms": unique_matched,
+        "explanation": explanation,
+    }
+
+
 def calculate_match_score(manuscript_meta: dict, journal_obj: any) -> dict:
     """
-    HITUNG SKOR KESESUAIAN NASKAH (MATCH SCORE 0–100%) (v1.3.5):
-    Mencocokkan kata kunci, istilah dominan, dan judul naskah terhadap:
+    HITUNG SKOR KESESUAIAN NASKAH (MATCH SCORE 0–100%) (v1.5.0):
+    Mencocokkan kata kunci, istilah dominan, dan judul naskah yang diperkaya
+    sinonim dwibahasa terhadap:
     - Bidang Keilmuan jurnal (Subject Area / Kategori)
-    - Nama Jurnal (Title)
-    - Penerbit / Ruang Lingkup
+    - Nama Jurnal (Title x2)
+    - Focus & Scope
+    - Penerbit
     
     Returns:
     {
@@ -263,14 +469,16 @@ def calculate_match_score(manuscript_meta: dict, journal_obj: any) -> dict:
             "explanation": "Naskah belum dianalisis",
         }
 
-    # Ambil atribut jurnal
-    nama_jurnal = getattr(journal_obj, "nama_jurnal", "") or ""
+    # Ambil atribut jurnal lengkap dengan Focus & Scope
+    nama_jurnal = getattr(journal_obj, "nama_jurnal", "") or getattr(journal_obj, "judul", "") or ""
     bidang = getattr(journal_obj, "bidang", "") or ""
+    focus_scope = getattr(journal_obj, "focus_scope", "") or ""
     penerbit = getattr(journal_obj, "penerbit", "") or ""
 
-    journal_context = f"{nama_jurnal} {bidang} {penerbit}".lower()
+    journal_context = f"{nama_jurnal} {nama_jurnal} {bidang} {focus_scope} {penerbit}".lower()
 
-    keywords = [k.lower() for k in manuscript_meta.get("keywords", []) if k]
+    raw_keywords = [k.lower() for k in manuscript_meta.get("keywords", []) if k]
+    expanded_kw = expand_academic_synonyms(raw_keywords)
     dominant_terms = [d.lower() for d in manuscript_meta.get("dominant_terms", []) if d]
     title_words = [w.lower() for w in re.findall(r"\b[a-zA-Z]{4,}\b", manuscript_meta.get("title", "")) if w.lower() not in ALL_STOPWORDS]
 
@@ -278,31 +486,44 @@ def calculate_match_score(manuscript_meta: dict, journal_obj: any) -> dict:
     score = 0
 
     # 1. Pencocokan Kata Kunci Naskah (Bobot Utama)
-    for kw in keywords:
+    for kw in raw_keywords:
         kw_clean = kw.strip()
         if not kw_clean:
             continue
-        # Cek frasa utuh
         if kw_clean in journal_context:
-            # Jika cocok di bidang keilmuan maupun nama jurnal
             in_bidang = kw_clean in bidang.lower()
             in_title = kw_clean in nama_jurnal.lower()
+            in_focus = kw_clean in focus_scope.lower()
             if in_bidang and in_title:
                 score += 40
-            elif in_bidang or in_title:
+            elif in_bidang or in_title or in_focus:
                 score += 30
             else:
                 score += 20
             matched_terms.append(kw.title())
         else:
-            # Cek pecahan kata dalam multi-word keyword
             sub_words = [sw for sw in kw_clean.split() if sw not in ALL_STOPWORDS and len(sw) >= 4]
             sub_matches = [sw for sw in sub_words if sw in journal_context]
             if sub_matches:
                 score += 15 * len(sub_matches)
                 matched_terms.extend([sm.title() for sm in sub_matches])
 
-    # 2. Pencocokan Istilah Dominan Naskah
+    # 2. Pencocokan Sinonim Dwibahasa
+    for syn in expanded_kw:
+        if syn in [k.lower() for k in raw_keywords] or syn in [m.lower() for m in matched_terms]:
+            continue
+        if syn in journal_context:
+            in_b = syn in bidang.lower()
+            in_t = syn in nama_jurnal.lower()
+            if in_b and in_t:
+                score += 25
+            elif in_b or in_t:
+                score += 18
+            else:
+                score += 12
+            matched_terms.append(syn.title())
+
+    # 3. Pencocokan Istilah Dominan Naskah
     for term in dominant_terms:
         term_clean = term.strip()
         if not term_clean or term_clean in [m.lower() for m in matched_terms]:
@@ -311,7 +532,7 @@ def calculate_match_score(manuscript_meta: dict, journal_obj: any) -> dict:
             score += 15
             matched_terms.append(term.title())
 
-    # 3. Pencocokan Kata dari Judul Naskah
+    # 4. Pencocokan Kata dari Judul Naskah
     for tw in title_words:
         if tw in [m.lower() for m in matched_terms]:
             continue
@@ -351,7 +572,7 @@ def calculate_match_score(manuscript_meta: dict, journal_obj: any) -> dict:
 
 
 # =============================================================================
-# Aliases untuk kompatibilitas JSFS v1.4.0
+# Aliases untuk kompatibilitas JSFS v1.4.0 & v1.5.0
 # =============================================================================
 parse_manuscript = extract_manuscript_metadata
 calculate_manuscript_match = calculate_match_score

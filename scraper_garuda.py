@@ -23,6 +23,7 @@ from rich.console import Console
 import warnings
 import month_parser
 import ai_engine
+import cache_engine
 
 # Nonaktifkan peringatan SSL tidak aman untuk server kampus (.ac.id) dan parser warning
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -67,15 +68,14 @@ RE_EMAIL = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 RE_PHONE = re.compile(r"(?:\+62|62|0)(?:[2-9])[0-9\s-]{7,15}[0-9]")
 RE_DATE_LIKE = re.compile(r"(?:\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{4})")
 
+# RE_FREE_APC v1.5.0: Hanya mencocokkan konteks biaya publikasi/APC eksplisit gratis (bukan submission fee semata)
 RE_FREE_APC = re.compile(
     r"(?:"
-    r"\b(?:gratis|free\s*of\s*(?:charge|cost)|bebas\s*biaya|tidak\s*(?:dipungut|dikenakan)\s*biaya|tanpa\s*biaya|"
-    r"bebas\s*biaya\s*halaman|penyerahan\s*naskah\s*:\s*0|no\s*fee|without\s*any\s*fee|"
-    r"free\s*publication|free\s*publishing|free\s*submission|no\s*charge|apc\s*free|apc\s*:\s*0|"
-    r"no\s*article\s*processing\s*charge|charges?\s*no\s*(?:author|publication)?\s*fees?)\b|"
-    r"(?:(?:rp\.?|idr)\s*0(?:\.00)?(?:\s*\(?idr\)?)?)|"
-    r"(?:0(?:\.00)?\s*\(?(?:idr|rp\.?|usd|\$)\)?)|"
-    r"\b(?:apc|author\s*fees?|publication\s*fees?|submission\s*fees?|biaya\s*publikasi)\s*:\s*(?:0|free|none|gratis)"
+    r"\b(?:free\s*publication|free\s*publishing|no\s*publication\s*fees?|no\s*article\s*processing\s*charges?|"
+    r"apc\s*free|apc\s*:\s*(?:0|free|none|gratis)|biaya\s*publikasi\s*:\s*(?:0|free|none|gratis)|"
+    r"publication\s*fees?\s*:\s*(?:0|free|none|gratis)|bebas\s*biaya\s*publikasi|tanpa\s*biaya\s*publikasi|"
+    r"tidak\s*(?:dipungut|dikenakan)\s*biaya\s*publikasi|charges?\s*no\s*publication\s*fees?)\b|"
+    r"(?:(?:biaya\s*publikasi|apc|publication\s*fee)\s*(?:adalah|sebesar|:)?\s*(?:(?:rp\.?|idr)\s*0(?:\.00)?|0(?:\.00)?\s*(?:idr|rp\.?|usd|\$)?))"
     r")",
     re.IGNORECASE,
 )
@@ -460,44 +460,49 @@ def _ensure_cache_file():
 
 
 def _get_from_cache(url: str) -> Optional[dict]:
-    """Mengambil data OJS dari cache jika belum kadaluwarsa (TTL 7 hari)."""
+    """Mengambil data OJS dari SQLite WAL cache jika belum kadaluwarsa (TTL 14 hari)."""
     if not url or not url.startswith("http"):
         return None
-    _ensure_cache_file()
     try:
-        with _cache_lock:
-            if not os.path.exists(OJS_CACHE_FILE):
-                return None
-            with open(OJS_CACHE_FILE, "r", encoding="utf-8") as f:
-                cache = json.load(f)
-            entry = cache.get(url)
-            if entry and isinstance(entry, dict):
-                cached_time = entry.get("timestamp", 0)
-                if time.time() - cached_time < CACHE_TTL_SECONDS:
-                    data = entry.get("data")
-                    if data and isinstance(data, dict):
-                        # Jangan gunakan cache lama yang belum memiliki raw_about v1.4.0 (kecuali dead link)
-                        if data.get("apc_status") != DEAD_LINK_TEXT and not data.get("raw_about"):
-                            return None
-                        # Jangan gunakan cache jika seluruh field masih bernilai INFO_NOT_FOUND (kegagalan masa lalu)
-                        if not (
-                            data.get("email") == INFO_NOT_FOUND
-                            and data.get("telepon") == INFO_NOT_FOUND
-                            and data.get("apc_status") == INFO_NOT_FOUND
-                            and data.get("frekuensi") == INFO_NOT_FOUND
-                        ):
-                            return data
+        cached = cache_engine.cache_engine.get_journal(url)
+        if cached:
+            email_val = cached.get("email_clean") or INFO_NOT_FOUND
+            tel_val = cached.get("phone_clean") or INFO_NOT_FOUND
+            if not (
+                email_val == INFO_NOT_FOUND
+                and tel_val == INFO_NOT_FOUND
+                and not cached.get("apc_publish")
+                and not cached.get("frequency_str")
+                and not cached.get("focus_scope")
+            ):
+                return {
+                    "ojs_url": cached.get("ojs_url_key") or url,
+                    "email": email_val,
+                    "telepon": tel_val,
+                    "frekuensi": cached.get("frequency_str") or INFO_NOT_FOUND,
+                    "apc_status": cached.get("apc_publish") or INFO_NOT_FOUND,
+                    "apc_amount": cached.get("apc_amount"),
+                    "biaya_submit": int(cached["apc_submit"]) if str(cached.get("apc_submit", "")).isdigit() else None,
+                    "biaya_publikasi": cached.get("apc_amount"),
+                    "mata_uang": cached.get("currency") or "IDR",
+                    "focus_scope": cached.get("focus_scope") or INFO_NOT_FOUND,
+                    "sumber_focus": cached.get("source_focus") or "Regex",
+                    "sumber_apc": cached.get("source_apc") or "Regex",
+                    "status_server": cached.get("server_status") or "Aktif (HTTP)",
+                    "transparansi_kontak": compute_contact_transparency(email_val, tel_val),
+                    "bulan_terbit": cached.get("months") or [],
+                    "raw_about": cached.get("focus_scope") or "",
+                    "raw_submissions": "",
+                }
     except Exception:
         pass
     return None
 
 
 def _save_to_cache(url: str, data: dict):
-    """Menyimpan data OJS yang berhasil diekstrak ke dalam cache JSON."""
+    """Menyimpan data OJS yang berhasil diekstrak ke dalam SQLite WAL cache."""
     if not url or not url.startswith("http") or not data:
         return
-    # JANGAN simpan ke cache jika tidak ada satu pun informasi yang berhasil diekstrak
-    # (misal situs timeout, Cloudflare 403, atau server mati) agar tidak mengunci kegagalan selama 7 hari
     if (
         data.get("email") == INFO_NOT_FOUND
         and data.get("telepon") == INFO_NOT_FOUND
@@ -505,24 +510,34 @@ def _save_to_cache(url: str, data: dict):
         and data.get("frekuensi") == INFO_NOT_FOUND
     ):
         return
-    _ensure_cache_file()
     try:
-        with _cache_lock:
-            cache = {}
-            if os.path.exists(OJS_CACHE_FILE):
-                try:
-                    with open(OJS_CACHE_FILE, "r", encoding="utf-8") as f:
-                        cache = json.load(f)
-                except Exception:
-                    cache = {}
-            cache[url] = {
-                "timestamp": time.time(),
-                "data": data,
-            }
-            with open(OJS_CACHE_FILE, "w", encoding="utf-8") as f:
-                json.dump(cache, f, ensure_ascii=False, indent=2)
+        cache_engine.cache_engine.upsert_journal(url, data)
     except Exception:
         pass
+
+
+NOISE_SELECTORS_FOR_SCOPE = [
+    "nav", "aside", "header", "footer", "script", "style", "noscript",
+    ".pkp_structure_sidebar", ".pkp_navigation_primary", ".pkp_navigation_user",
+    "#customblock", ".block_make_submission", ".obj_article_summary",
+    ".cmp_article_list", ".cmp_announcements", "#sidebar", ".sidebar",
+    ".block_information", ".block_language"
+]
+
+
+def clean_soup_for_scope(soup: BeautifulSoup) -> BeautifulSoup:
+    """
+    Membersihkan elemen berisik khusus sebelum ekstraksi Focus & Scope:
+    Membuang nav, aside, sidebar, dan daftar artikel terkini agar menu navigasi OJS
+    dan judul artikel tidak bocor ke teks Focus & Scope.
+    """
+    if not soup:
+        return soup
+    cloned = BeautifulSoup(str(soup), "lxml")
+    for sel in NOISE_SELECTORS_FOR_SCOPE:
+        for el in cloned.select(sel):
+            el.decompose()
+    return cloned
 
 
 # ── DOM SANITIZATION PIPELINE (Membersihkan derau script, style, & whitespace) ─
@@ -745,9 +760,22 @@ def parse_apc_from_context(context_text: str) -> tuple[str, Optional[int]]:
             except ValueError:
                 pass
 
-    # 3. Deteksi Gratis / Free / Bebas Biaya / Rp 0
+    # 3. Deteksi Gratis / Free / Bebas Biaya / Rp 0 (Khusus Publikasi / APC)
+    low = text.lower()
+    pub_terms = ("publication", "penerbitan", "publikasi", "article processing", "apc", "biaya cetak", "halaman", "page charge")
+    has_pub_context = any(t in low for t in pub_terms)
+
     if RE_FREE_APC.search(text):
         return "Gratis (Rp 0)", 0
+    elif has_pub_context and any(phrase in low for phrase in (
+        "free of charge", "tidak dikenakan biaya", "tidak dipungut biaya", "tanpa biaya", "bebas biaya",
+        "without any fee", "no charge"
+    )):
+        # Pastikan frasa gratis bukan bagian dari kalimat submission fee semata
+        is_sub_free = bool(re.search(r"(?:submission\s*fee|penyerahan\s*naskah)\s*[:\w\s]*(?:free|gratis|0)", low))
+        is_pub_free = bool(re.search(r"(?:publication\s*fee|biaya\s*publikasi|apc)\s*[:\w\s]*(?:free|gratis|0)", low))
+        if not is_sub_free or is_pub_free:
+            return "Gratis (Rp 0)", 0
 
     return INFO_NOT_FOUND, None
 
@@ -837,6 +865,101 @@ def _extract_contacts_from_text(html_text: str, plain_text: str) -> tuple[list[s
     return found_emails, found_phones
 
 
+def clean_contact_list(items: list[str] | str, contact_type: str = "email") -> str:
+    """
+    Sanitasi Rigid Kontak Redaksi (v1.5.0):
+    - Eliminasi mutlak string error/fallback ("tidak dapat diakses", "none", "null", dll).
+    - Validasi format email & buang domain dummy (@example.com, @pkp.sfu.ca, dll).
+    - Normalisasi nomor telepon dan deduplikasi nomor yang hanya berbeda tanda strip / spasi.
+    """
+    if isinstance(items, str):
+        raw_items = [p.strip() for p in re.split(r"[,;]+", items) if p.strip()]
+    elif isinstance(items, (list, tuple, set)):
+        raw_items = [str(p).strip() for p in items if p and str(p).strip()]
+    else:
+        return INFO_NOT_FOUND
+
+    if not raw_items:
+        return INFO_NOT_FOUND
+
+    forbidden_exact = {"none", "null", "n/a", "na", "-", "--", "undefined", "unknown", "tidak ada", "kosong"}
+    forbidden_subs = (
+        "tidak dapat diakses", "tidak ditemukan", "situs tidak", "dead link",
+        "contoh@", "test@"
+    )
+
+    cleaned = []
+    if contact_type.lower() == "email":
+        seen_email = set()
+        email_pattern = re.compile(r"^[^@\s]+@[^@\s]+\.[a-zA-Z]{2,}$")
+        dummy_domains = ("example.com", "domain.com", "pkp.sfu.ca", "invalid", "email.com", "test.com", "gmail.com.com")
+        for it in raw_items:
+            it_clean = it.strip().lower()
+            if it_clean in forbidden_exact or any(sub in it_clean for sub in forbidden_subs):
+                continue
+            if not email_pattern.match(it_clean):
+                continue
+            domain = it_clean.split("@")[-1]
+            if domain in dummy_domains or any(it_clean.startswith(p) for p in ("firstauthor@", "secondauthor@", "thirdauthor@")):
+                continue
+            if it_clean not in seen_email:
+                seen_email.add(it_clean)
+                cleaned.append(it_clean)
+
+    elif contact_type.lower() in ("phone", "telepon"):
+        seen_digits = set()
+        for it in raw_items:
+            it_clean = it.strip()
+            if it_clean.lower() in forbidden_exact or any(sub in it_clean.lower() for sub in forbidden_subs):
+                continue
+            digits = re.sub(r"\D", "", it_clean)
+            if len(digits) == 8 or len(set(digits)) <= 2 or not (10 <= len(digits) <= 15):
+                continue
+
+            if digits.startswith("0"):
+                norm_phone = "+62" + digits[1:]
+            elif digits.startswith("62"):
+                norm_phone = "+" + digits
+            elif it_clean.startswith("+"):
+                norm_phone = "+" + digits
+            else:
+                norm_phone = digits
+
+            norm_digits = re.sub(r"\D", "", norm_phone)
+            if norm_digits not in seen_digits:
+                seen_digits.add(norm_digits)
+                cleaned.append(norm_phone)
+
+    if not cleaned:
+        return INFO_NOT_FOUND
+    return ", ".join(cleaned)
+
+
+def get_whatsapp_link(phone: str, journal_name: str = "") -> Optional[str]:
+    """
+    Membuat tautan WhatsApp Click-to-Chat otomatis jika nomor seluler Indonesia valid.
+    """
+    if not phone or phone == INFO_NOT_FOUND:
+        return None
+    phones = [p.strip() for p in re.split(r"[,;]+", phone)]
+    for p in phones:
+        digits = re.sub(r"\D", "", p)
+        if digits.startswith("08") and 10 <= len(digits) <= 13:
+            wa_num = "62" + digits[1:]
+        elif digits.startswith("628") and 11 <= len(digits) <= 14:
+            wa_num = digits
+        else:
+            continue
+
+        j_name = journal_name or "Jurnal"
+        wa_text = requests.compat.quote(
+            f"Halo Tim Redaksi {j_name}, saya mahasiswa/peneliti yang tertarik mengirimkan naskah ke jurnal Bapak/Ibu. "
+            f"Apakah kuota publikasi untuk terbitan terdekat masih tersedia? Terima kasih."
+        )
+        return f"https://wa.me/{wa_num}?text={wa_text}"
+    return None
+
+
 
 def _extract_meta_tags_info(soup: BeautifulSoup) -> dict:
     """
@@ -896,9 +1019,9 @@ def _extract_meta_tags_info(soup: BeautifulSoup) -> dict:
 
 def normalize_focus_and_scope(text: str) -> str:
     """
-    Normalisasi teks Focus & Scope (v1.3.8):
+    Normalisasi teks Focus & Scope (v1.5.0):
     Membersihkan tag noise, spasi berlebih, dan prefix 'Focus and Scope:',
-    kemudian merangkum menjadi 2-3 kalimat informatif (maksimal 280-300 karakter).
+    serta memvalidasi bahwa teks bukan daftar menu navigasi OJS (Anti-Boilerplate).
     """
     if not text or len(text.strip()) < 15 or text == INFO_NOT_FOUND:
         return INFO_NOT_FOUND
@@ -914,11 +1037,18 @@ def normalize_focus_and_scope(text: str) -> str:
     ).strip()
     clean_txt = re.sub(r"\s+", " ", clean_txt).strip()
 
+    # Validasi Anti-Boilerplate Noise
+    if ai_engine.is_boilerplate_noise(clean_txt):
+        return INFO_NOT_FOUND
+
     # Pisahkan per kalimat (2 - 3 kalimat)
     sentences = re.split(r"(?<=[.!?])\s+", clean_txt)
     short_summary = " ".join(sentences[:3]).strip()
     if not short_summary:
         short_summary = clean_txt
+
+    if ai_engine.is_boilerplate_noise(short_summary):
+        return INFO_NOT_FOUND
 
     if len(short_summary) > 300:
         short_summary = short_summary[:297].rsplit(" ", 1)[0] + "..."
@@ -928,7 +1058,7 @@ def normalize_focus_and_scope(text: str) -> str:
 
 def build_tier3_scope_fallback(entry: JournalEntry) -> str:
     """
-    Tier 3 Fallback Data Mining Focus & Scope (v1.3.8):
+    Tier 3 Fallback Data Mining Focus & Scope (v1.3.8 / v1.5.0):
     Sintesis ruang lingkup resmi berbasis profil SINTA (Subject Area) & Garuda.
     Menjamin 100% jurnal memiliki deskripsi Focus & Scope yang representatif.
     """
@@ -955,12 +1085,14 @@ def build_tier3_scope_fallback(entry: JournalEntry) -> str:
 
 
 def legacy_extract_focus(raw_text: str) -> str:
-    """Ekstraksi Focus & Scope Legacy v1.3.8 berbasis regex dan heuristik OJS."""
+    """Ekstraksi Focus & Scope Legacy v1.5.0 berbasis regex dan heuristik OJS dengan Anti-Boilerplate."""
     if not raw_text or not raw_text.strip():
         return ""
     text = re.sub(r"\s+", " ", raw_text).strip()
     if "<" in text and ">" in text:
         text = re.sub(r"<[^>]+>", " ", text)
+    if ai_engine.is_boilerplate_noise(text):
+        return ""
     m = re.search(
         r"(?:focus\s*(?:and|&)\s*scope|aims\s*(?:and|&)\s*scope|fokus\s*dan\s*ruang\s*lingkup|ruang\s*lingkup)[:\s-]*(.{30,600})",
         text,
@@ -968,16 +1100,17 @@ def legacy_extract_focus(raw_text: str) -> str:
     )
     if m:
         candidate = m.group(1).strip()
-        norm = normalize_focus_and_scope(candidate)
-        if norm and norm != INFO_NOT_FOUND:
-            return norm
+        if not ai_engine.is_boilerplate_noise(candidate):
+            norm = normalize_focus_and_scope(candidate)
+            if norm and norm != INFO_NOT_FOUND:
+                return norm
     norm = normalize_focus_and_scope(text)
     return norm if norm != INFO_NOT_FOUND else ""
 
 
 def legacy_extract_apc_dict(raw_text: str) -> dict:
     """
-    Ekstraksi APC Legacy v1.3.8 dengan pemisahan Biaya Submit vs Publikasi.
+    Ekstraksi APC Legacy v1.5.0 dengan pemisahan Biaya Submit vs Publikasi.
     Returns: {"biaya_submit": int | None, "biaya_publikasi": int | None, "mata_uang": str | None}
     """
     empty = {"biaya_submit": None, "biaya_publikasi": None, "mata_uang": None}
@@ -1019,10 +1152,6 @@ def legacy_extract_apc_dict(raw_text: str) -> dict:
         biaya_pub = num
         if not mata_uang:
             mata_uang = "USD" if ("$" in disp or "USD" in disp) else "IDR"
-    elif RE_FREE_APC.search(text):
-        biaya_pub = 0
-        if not mata_uang:
-            mata_uang = "IDR"
 
     if biaya_submit is None and biaya_pub is None:
         return empty
@@ -1041,23 +1170,26 @@ ai_engine.register_legacy(focus_fn=legacy_extract_focus, apc_fn=legacy_extract_a
 
 def _extract_focus_and_scope_from_soup(soup: BeautifulSoup, is_homepage: bool = False) -> str:
     """
-    Ekstraksi Fokus dan Ruang Lingkup Jurnal (Multi-Tier Mining Engine - v1.3.8):
-    Tier 1: Meta-Tags & Targeted DOM Selectors / Headings
-    Tier 2: OJS Homepage Context Parsing (Paragraf pembuka substantif)
+    Ekstraksi Fokus dan Ruang Lingkup Jurnal (Multi-Tier Mining Engine - v1.5.0):
+    Tier 1: Meta-Tags & Targeted DOM Selectors / Headings (Anti-Boilerplate Sanitization)
+    Tier 2: OJS Homepage Context Parsing (Paragraf pembuka substantif bebas derau)
     """
     if not soup:
         return INFO_NOT_FOUND
 
+    # Pra-pembersihan DOM dari elemen berisik: nav, aside, sidebar, article summaries
+    clean_soup = clean_soup_for_scope(soup)
     scope_candidate = ""
 
     # ── TIER 1A: Meta-Tags (DC.Description, description, og:description) ─────
-    for m in soup.find_all("meta"):
+    for m in clean_soup.find_all("meta"):
         name = (m.get("name") or m.get("property") or "").lower()
         content = (m.get("content") or "").strip()
         if name in ("dc.description", "description", "og:description", "dc.subject") and len(content) >= 30:
             if not any(ign in content.lower() for ign in ("open journal systems", "pkp.sfu.ca", "wordpress", "login to", "register")):
-                scope_candidate = content
-                break
+                if not ai_engine.is_boilerplate_noise(content):
+                    scope_candidate = content
+                    break
 
     # ── TIER 1B: Targeted DOM Selectors ─────────────────────────────────────
     if not scope_candidate:
@@ -1068,7 +1200,7 @@ def _extract_focus_and_scope_from_soup(soup: BeautifulSoup, is_homepage: bool = 
             "#homepageAbout", "div#content div.sub_item", "div.page_about", "div.article-details"
         ]
         for sel in target_selectors:
-            elem = soup.select_one(sel)
+            elem = clean_soup.select_one(sel)
             if elem:
                 p_tags = elem.find_all("p")
                 if p_tags:
@@ -1076,12 +1208,13 @@ def _extract_focus_and_scope_from_soup(soup: BeautifulSoup, is_homepage: bool = 
                 else:
                     txt = elem.get_text(" ", strip=True)
                 if len(txt) >= 30 and not any(ign in txt.lower() for ign in ("open journal systems", "pkp", "login to", "register", "editorial team")):
-                    scope_candidate = txt
-                    break
+                    if not ai_engine.is_boilerplate_noise(txt):
+                        scope_candidate = txt
+                        break
 
     # ── TIER 1C: Heading-based Lookup ────────────────────────────────────────
     if not scope_candidate:
-        headings = soup.find_all(["h1", "h2", "h3", "h4", "h5", "strong", "b"])
+        headings = clean_soup.find_all(["h1", "h2", "h3", "h4", "h5", "strong", "b"])
         for h in headings:
             h_text = h.get_text(" ", strip=True).lower()
             if any(term in h_text for term in ("focus and scope", "fokus dan ruang lingkup", "aims and scope", "ruang lingkup", "focus & scope", "aims & scope", "scope of the journal", "about the journal")):
@@ -1091,7 +1224,7 @@ def _extract_focus_and_scope_from_soup(soup: BeautifulSoup, is_homepage: bool = 
                     name_attr = getattr(curr, "name", None)
                     if name_attr in ("p", "div", "ul", "ol"):
                         p_t = curr.get_text(" ", strip=True)
-                        if len(p_t) > 20:
+                        if len(p_t) > 20 and not ai_engine.is_boilerplate_noise(p_t):
                             collected_p.append(p_t)
                     elif name_attr in ("h1", "h2", "h3", "h4"):
                         break
@@ -1101,23 +1234,26 @@ def _extract_focus_and_scope_from_soup(soup: BeautifulSoup, is_homepage: bool = 
                     break
                 parent_p = h.parent.find_all("p") if h.parent else []
                 if len(parent_p) > 1:
-                    scope_candidate = " ".join(p.get_text(" ", strip=True) for p in parent_p[1:3])
-                    break
+                    cand_p = " ".join(p.get_text(" ", strip=True) for p in parent_p[1:3])
+                    if not ai_engine.is_boilerplate_noise(cand_p):
+                        scope_candidate = cand_p
+                        break
 
     # ── TIER 2: OJS Homepage Context Parsing ────────────────────────────────
     if not scope_candidate and is_homepage:
-        main_containers = soup.select("#content, #main-content, div.page, div.pkp_structure_main, div.page_about, main, body")
-        container = main_containers[0] if main_containers else soup
+        main_containers = clean_soup.select("#content, #main-content, div.page, div.pkp_structure_main, div.page_about, main, body")
+        container = main_containers[0] if main_containers else clean_soup
         for p in container.find_all("p"):
             p_text = p.get_text(" ", strip=True)
             if 35 <= len(p_text) <= 800:
                 p_low = p_text.lower()
                 # Pastikan memuat kata kunci substantif jurnal ilmiah
                 if any(k in p_low for k in ("jurnal", "journal", "menerbitkan", "publishes", "mempublikasikan", "penelitian", "research", "bidang", "field", "artikel", "article", "studi", "study", "fokus", "focus", "ruang lingkup", "scope", "cakupan", "ilmiah", "terbit", "kajian")):
-                    # Abaikan boilerplate login/PKP
+                    # Abaikan boilerplate login/PKP dan menu navigasi
                     if not any(ign in p_low for ign in ("login to", "remember me", "forgot your password", "open journal systems", "pkp.sfu.ca", "developed by")):
-                        scope_candidate = p_text
-                        break
+                        if not ai_engine.is_boilerplate_noise(p_text):
+                            scope_candidate = p_text
+                            break
 
     return normalize_focus_and_scope(scope_candidate)
 
@@ -1207,8 +1343,8 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
             info["ojs_url"] = target_url
             info["apc_status"] = DEAD_LINK_TEXT
             info["frekuensi"] = DEAD_LINK_TEXT
-            info["email"] = DEAD_LINK_TEXT
-            info["telepon"] = DEAD_LINK_TEXT
+            info["email"] = INFO_NOT_FOUND
+            info["telepon"] = INFO_NOT_FOUND
             info["status_server"] = "Non-Aktif"
             info["transparansi_kontak"] = "Tidak Transparan"
             _save_to_cache(target_url, info)
@@ -1230,7 +1366,7 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
             soup = BeautifulSoup(html_text, "lxml")
             plain_text = sanitize_dom(soup)
             freq_contexts.append(plain_text[:2500])
-            raw_about_parts.append(plain_text)
+            raw_about_parts.append(sanitize_dom(clean_soup_for_scope(soup)))
 
             # Jika ini halaman Garuda (/journal/view/{id}), ambil link OJS asli dari artikel
             if "garuda.kemdiktisaintek.go.id" in target_url:
@@ -1304,8 +1440,8 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
                         info["ojs_url"] = effective_ojs_url
                         info["apc_status"] = DEAD_LINK_TEXT
                         info["frekuensi"] = DEAD_LINK_TEXT
-                        info["email"] = DEAD_LINK_TEXT
-                        info["telepon"] = DEAD_LINK_TEXT
+                        info["email"] = INFO_NOT_FOUND
+                        info["telepon"] = INFO_NOT_FOUND
                         info["status_server"] = "Non-Aktif"
                         _save_to_cache(target_url, info)
                         _save_to_cache(effective_ojs_url, info)
@@ -1389,7 +1525,7 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
                             if any(k in sub_url_low for k in ("submission", "author-fee", "author_fee", "/af", "/apc", "fee")):
                                 raw_subs_parts.append(sub_plain)
                             if any(k in sub_url_low for k in ("about", "focus", "scope", "editorialpolicies")):
-                                raw_about_parts.append(sub_plain)
+                                raw_about_parts.append(sanitize_dom(clean_soup_for_scope(sub_soup)))
 
                             # Focus & Scope dari subpath
                             if info["focus_scope"] == INFO_NOT_FOUND:
@@ -1470,15 +1606,20 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
                 with _domain_reachability_lock:
                     _domain_reachability_cache[netloc] = False
 
-    info["email"] = ", ".join(all_emails) if all_emails else INFO_NOT_FOUND
-    info["telepon"] = ", ".join(all_phones) if all_phones else INFO_NOT_FOUND
-    info["frekuensi"] = format_frequency(raw_frequency, " ".join(freq_contexts))
+    info["email"] = clean_contact_list(all_emails, contact_type="email")
+    info["telepon"] = clean_contact_list(all_phones, contact_type="phone")
 
     combined_about = " ".join(raw_about_parts).strip()
     combined_subs = " ".join(raw_subs_parts).strip() or combined_about
     info["raw_about"] = combined_about
     info["raw_submissions"] = combined_subs
-    info["bulan_terbit"] = month_parser.parse_bulan_terbit(combined_about)
+
+    # Unifikasi Satu Pintu Jadwal & Frekuensi (0% Kontradiksi - v1.5.0)
+    sched_info = month_parser.resolve_schedule_and_frequency(
+        raw_text=f"{combined_about} {' '.join(freq_contexts)} {raw_frequency}"
+    )
+    info["bulan_terbit"] = sched_info["months_num"]
+    info["frekuensi"] = sched_info["frequency_str"]
 
     if info["apc_status"] == DEAD_LINK_TEXT:
         info["status_server"] = "Non-Aktif"
