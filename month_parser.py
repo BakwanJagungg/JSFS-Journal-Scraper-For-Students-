@@ -57,6 +57,9 @@ def parse_bulan_terbit(text: str) -> list[int]:
                 continue
             months.add(_LOOKUP[m.lower()])
         if months:
+            # Widget kalender guard: jika terdeteksi >= 11 bulan tanpa teks frekuensi bulanan eksplisit, abaikan
+            if len(months) >= 11 and not any(k in cleaned_text.lower() for k in ("12 kali setahun", "twelve times", "bulanan", "monthly")):
+                return []
             return sorted(months)
 
     for sent in re.split(r"(?<=[.!?])\s+", cleaned_text):
@@ -66,6 +69,11 @@ def parse_bulan_terbit(text: str) -> list[int]:
             if m.lower() == "may" and m == "may":  # 'may' huruf kecil = kata kerja bantu Bahasa Inggris, bukan Mei
                 continue
             months.add(_LOOKUP[m.lower()])
+    
+    # Widget kalender guard: jika terdeteksi >= 11 bulan tanpa teks frekuensi bulanan eksplisit, abaikan
+    if len(months) >= 11 and not any(k in cleaned_text.lower() for k in ("12 kali setahun", "twelve times", "bulanan", "monthly")):
+        return []
+
     return sorted(months)
 
 
@@ -264,18 +272,62 @@ def get_next_issue_estimate(months_num: Any, ref_date: Optional[datetime] = None
 
 def extract_months_from_archive_titles(titles: list[str]) -> list[int]:
     """
-    Ekstraksi jadwal bulan terbit nyata dari daftar judul edisi terbitan (Issue Archive) v1.6.0.
-    Misal: ['Vol. 10 No. 1 (2026): April - Oktober', 'Vol 5 No 2 (2025): Desember'] -> [4, 10, 12].
+    Ekstraksi jadwal bulan terbit nyata dari daftar judul edisi terbitan (Issue Archive) v1.6.2:
+    - Batasi analisis maksimal 4–6 edisi teratas/terbaru untuk mencegah penggabungan historis
+      (menghilangkan anomali jurnal terbit 7–8 kali setahun).
+    - Kelompokkan judul arsip berdasarkan Tahun (2026, 2025, 2024, dst.).
+    - Ambil bulan HANYA dari 1 tahun terbaru yang memiliki >= 2 terbitan atau bulan terbit nyata.
+    - Mengabaikan widget kalender (jika terdeteksi >= 7 bulan berbeda).
     """
     if not titles:
         return []
-    found_months: set[int] = set()
-    for t in titles:
-        if not t or not isinstance(t, str):
+
+    # 1. Batasi maksimal 6 edisi teratas/terbaru jika list panjang
+    top_titles = [t.strip() for t in titles if t and isinstance(t, str) and t.strip()][:6]
+    if not top_titles:
+        return []
+
+    # 2. Kelompokkan berdasarkan tahun
+    year_to_months: dict[int, set[int]] = {}
+    year_to_count: dict[int, int] = {}
+    re_year = re.compile(r"\b(20\d{2})\b")
+
+    for t in top_titles:
+        m_year = re_year.findall(t)
+        ms = parse_bulan_terbit(t)
+        if ms and len(ms) >= 10:
             continue
-        cleaned = t.strip()
-        # Judul edisi umumnya memuat nama bulan (mis: 'Vol 1 No 1: April - Mei 2026')
-        ms = parse_bulan_terbit(cleaned)
-        found_months.update(ms)
-    return sorted(found_months)
+
+        if m_year:
+            # Gunakan tahun terakhir yang disebut di judul
+            yr = int(m_year[-1])
+            year_to_count[yr] = year_to_count.get(yr, 0) + 1
+            if ms:
+                if yr not in year_to_months:
+                    year_to_months[yr] = set()
+                year_to_months[yr].update(ms)
+
+    # Cek apakah ada tahun terbaru dengan >= 2 terbitan atau >= 2 bulan
+    sorted_years = sorted(year_to_months.keys(), reverse=True)
+    for yr in sorted_years:
+        months_in_yr = year_to_months[yr]
+        if len(months_in_yr) >= 2 or year_to_count.get(yr, 0) >= 2:
+            res = sorted(months_in_yr)
+            if 1 <= len(res) <= 6:
+                return res
+
+    # Jika tidak ada tahun dengan >= 2 terbitan, gunakan hasil dari top 4 edisi terbaru
+    fallback_months: set[int] = set()
+    for t in top_titles[:4]:
+        ms = parse_bulan_terbit(t)
+        if ms and len(ms) <= 6:
+            fallback_months.update(ms)
+            if len(fallback_months) >= 6:
+                break
+
+    res_final = sorted(fallback_months)
+    # Jika terdeteksi >= 7 bulan (anomali historis), batasi atau abaikan
+    if len(res_final) >= 7:
+        return []
+    return res_final
 

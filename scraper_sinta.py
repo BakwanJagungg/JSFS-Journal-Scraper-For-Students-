@@ -60,6 +60,8 @@ from scraper_garuda import (
     decode_cfemail,
     is_valid_indonesian_phone,
     strip_ojs_profile_table_noise,
+    is_focus_scope_noise,
+    canonical_journal_key,
     synthesize_focus_scope,
     APC_UNKNOWN,
 )
@@ -204,15 +206,29 @@ def _process_deep_sinta_entry(session: requests.Session, entry: JournalEntry, st
                 return entry
 
             res = extract_ojs_deep_info(session, entry.link_ojs, stop_event=stop_event)
+            if res.get("official_title") and (len(entry.nama_jurnal) > 55 or entry.nama_jurnal.isupper()):
+                entry.nama_jurnal = res["official_title"]
+
             entry.email = clean_contact_list(res.get("email", INFO_NOT_FOUND), contact_type="email", ojs_url=entry.link_ojs)
             entry.telepon = clean_contact_list(res.get("telepon", INFO_NOT_FOUND), contact_type="phone")
             entry.frekuensi = res.get("frekuensi", INFO_NOT_FOUND)
             entry.apc_status = res.get("apc_status", APC_UNKNOWN)
             entry.apc_amount = res.get("apc_amount", None)
+            if res.get("biaya_submit"):
+                entry.biaya_submit = res["biaya_submit"]
+
+            # Smart Fallback Biaya Submit -> Biaya Publikasi (v1.6.2)
+            if (entry.biaya_submit and entry.biaya_submit > 50000) and (entry.biaya_publikasi is None or entry.biaya_publikasi == 0):
+                entry.biaya_publikasi = entry.biaya_submit
+                if entry.apc_status in (APC_UNKNOWN, INFO_NOT_FOUND, ""):
+                    entry.apc_status = f"Rp {entry.biaya_publikasi:,}".replace(",", ".")
+
             if entry.apc_status == "Gratis (Rp 0)" or entry.apc_amount == 0:
                 entry.biaya_publikasi = 0
             elif entry.apc_amount is not None and entry.apc_amount > 0:
                 entry.biaya_publikasi = entry.apc_amount
+            elif (entry.biaya_submit and entry.biaya_submit > 50000) and (entry.biaya_publikasi is None or entry.biaya_publikasi == 0):
+                entry.biaya_publikasi = entry.biaya_submit
 
             entry.focus_scope = res.get("focus_scope", INFO_NOT_FOUND)
             entry.status_server = res.get("status_server", "Aktif (HTTP)")
@@ -231,26 +247,32 @@ def _process_deep_sinta_entry(session: requests.Session, entry: JournalEntry, st
             entry.raw_submissions = res.get("raw_submissions", "")
             entry.bulan_terbit = res.get("bulan_terbit", [])
             # Jika OJS tidak menyediakan Focus & Scope, periksa profil Garuda
-            if (not entry.focus_scope or entry.focus_scope == INFO_NOT_FOUND or "tidak ditemukan" in str(entry.focus_scope).lower()) and entry.garuda_profile_url:
+            if (not entry.focus_scope or entry.focus_scope == INFO_NOT_FOUND or "tidak ditemukan" in str(entry.focus_scope).lower() or is_focus_scope_noise(entry.focus_scope)) and entry.garuda_profile_url:
                 g_meta = resolve_garuda_profile_meta(session, entry.garuda_profile_url)
-                if g_meta.get("focus_scope"):
+                if g_meta.get("focus_scope") and not is_focus_scope_noise(g_meta["focus_scope"]):
                     entry.focus_scope = g_meta["focus_scope"]
 
         # Fallback jika OJS tidak bisa dihubungi atau profil Garuda tersedia
-        if (not entry.focus_scope or entry.focus_scope == INFO_NOT_FOUND or "tidak ditemukan" in str(entry.focus_scope).lower()) and entry.garuda_profile_url:
+        if (not entry.focus_scope or entry.focus_scope == INFO_NOT_FOUND or "tidak ditemukan" in str(entry.focus_scope).lower() or is_focus_scope_noise(entry.focus_scope)) and entry.garuda_profile_url:
             g_meta = resolve_garuda_profile_meta(session, entry.garuda_profile_url)
-            if g_meta.get("focus_scope"):
+            if g_meta.get("focus_scope") and not is_focus_scope_noise(g_meta["focus_scope"]):
                 entry.focus_scope = g_meta["focus_scope"]
 
-        # Zero-Empty Focus & Scope Synthesizer & Profile Table Noise Stripper (v1.6.1)
-        if not entry.focus_scope or entry.focus_scope == INFO_NOT_FOUND or "tidak ditemukan" in str(entry.focus_scope).lower():
+        # Zero-Empty Focus & Scope Synthesizer & Profile Table Noise Stripper (v1.6.2)
+        if not entry.focus_scope or entry.focus_scope == INFO_NOT_FOUND or "tidak ditemukan" in str(entry.focus_scope).lower() or is_focus_scope_noise(entry.focus_scope):
             synth_text, synth_src = synthesize_focus_scope(entry)
             entry.focus_scope = synth_text
             entry.sumber_focus = synth_src
         else:
-            entry.focus_scope = strip_ojs_profile_table_noise(entry.focus_scope)
-            if not getattr(entry, "sumber_focus", ""):
-                entry.sumber_focus = "Regex"
+            cleaned_scope = strip_ojs_profile_table_noise(entry.focus_scope)
+            if is_focus_scope_noise(cleaned_scope):
+                synth_text, synth_src = synthesize_focus_scope(entry)
+                entry.focus_scope = synth_text
+                entry.sumber_focus = synth_src
+            else:
+                entry.focus_scope = cleaned_scope
+                if not getattr(entry, "sumber_focus", ""):
+                    entry.sumber_focus = "Regex"
     except Exception:
         pass
 

@@ -65,49 +65,82 @@ console = Console()
 
 # ── PRE-COMPILED REGEX PATTERNS (Hemat ribuan siklus CPU pada multi-threading) ─
 RE_EMAIL = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
-# RE_PHONE v1.6.1: Menangkap nomor seluler Indonesia dan telepon kabel berpemisah/kode area
+# RE_PHONE v1.6.2: Menangkap nomor seluler Indonesia dan telepon kabel berpemisah/kode area (tanpa rekening/NIP)
 RE_PHONE = re.compile(
     r"(?:"
-    r"(?:\+62[\s.-]*|62[\s.-]*|0)8[1-9][0-9\s.-]{6,12}[0-9]|"
-    r"(?:\+62\s*|62\s*|0)?\(\s*0?[2-9]\d{1,3}\s*\)[\s.-]*[2-9][0-9\s.-]{4,9}[0-9]|"
-    r"(?:\+62[\s.-]*|62[\s.-]*|0)[2-9]\d{1,3}[\s.-]+[2-9][0-9\s.-]{4,9}[0-9]"
+    r"(?:\+62[\s.-]*|62[\s.-]*|0)8[1-9][0-9\s.-]{6,11}[0-9]|"
+    r"(?:\+62\s*|62\s*|0)?\(\s*0?[2-9]\d{1,3}\s*\)[\s.-]*[2-9][0-9\s.-]{4,8}[0-9]|"
+    r"(?:\+62[\s.-]*|62[\s.-]*|0)[2-9]\d{1,3}[\s.-]+[2-9][0-9\s.-]{4,8}[0-9]"
     r")"
 )
 RE_DATE_LIKE = re.compile(r"(?:\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{4})")
 
 AREA_CODES_2_DIGIT = {"21", "22", "24", "31", "61"}
+
+# DAFTAR PUTIH KODE AREA RESMI INDONESIA (v1.6.2) — Mencegah nomor palsu acak/DOI
+VALID_INDONESIAN_AREA_CODES = {
+    # 2-digit (tanpa leading 0)
+    "21", "22", "24", "31", "61",
+    # Jawa Barat & Banten
+    "231", "232", "233", "234", "251", "252", "253", "254", "260", "261", "262", "263", "264", "265", "266", "267",
+    # Jawa Tengah & DIY
+    "271", "272", "273", "274", "275", "276", "281", "282", "283", "284", "285", "286", "287", "289", "291", "292", "293", "294", "295", "296", "297", "298",
+    # Jawa Timur
+    "321", "322", "323", "324", "325", "327", "328", "331", "332", "333", "334", "335", "338", "341", "342", "343", "351", "352", "353", "354", "355", "356", "357", "358",
+    # Bali & Nusa Tenggara
+    "361", "362", "363", "365", "366", "368", "370", "371", "372", "373", "374", "380", "381", "382", "383", "384", "385", "386", "387", "388", "389",
+    # Sumatra
+    "620", "621", "622", "623", "624", "625", "627", "628", "629", "630", "631", "632", "633", "634", "635", "636", "638", "639",
+    "641", "642", "643", "644", "645", "646", "650", "651", "652", "653", "654", "655", "656", "657", "658", "659",
+    "711", "712", "713", "714", "715", "716", "717", "718", "719", "721", "722", "723", "724", "725", "726", "727", "728", "729",
+    "730", "731", "732", "733", "734", "735", "736", "737", "738", "739", "741", "742", "743", "744", "745", "746", "747", "748",
+    "751", "752", "753", "754", "755", "756", "757", "759", "760", "761", "762", "763", "764", "765", "767", "768", "769",
+    "770", "771", "772", "773", "776", "777", "778", "779",
+    # Kalimantan
+    "511", "512", "513", "517", "518", "519", "526", "527", "531", "532", "534", "535", "536", "537", "538", "539",
+    "541", "542", "543", "545", "548", "549", "551", "552", "553", "554", "556", "561", "562", "563", "564", "565", "567", "568",
+    # Sulawesi
+    "410", "411", "413", "414", "417", "418", "419", "420", "421", "422", "423", "426", "427", "428", "430", "431", "432", "434", "435", "438",
+    "443", "450", "451", "452", "453", "457", "458", "461", "462", "463", "464", "465", "471", "472", "473", "474", "475", "481", "482", "484", "485",
+    # Maluku & Papua
+    "901", "902", "910", "911", "913", "914", "915", "916", "917", "918", "921", "922", "923", "924", "927", "929",
+    "951", "952", "955", "956", "957", "967", "969", "971", "975", "980", "981", "983", "984", "986",
+}
+
 CONTACT_CONTEXT_KEYWORDS = (
-    "telp", "telepon", "phone", "call", "wa", "whatsapp", "fax",
+    "telp", "telepon", "phone", "ph:", "tel:", "call", "wa", "whatsapp", "fax",
     "contact", "kontak", "hubungi", "hp", "mobile", "sekretariat", "office"
 )
 
 APC_UNKNOWN = "Cek Web / Belum Terdata"
 
-# Istilah spesifik untuk biaya penerbitan / publikasi (bukan biaya submit semata)
+# Istilah spesifik untuk biaya penerbitan / publikasi (bukan biaya submit semata) v1.6.2
 PUB_TERMS = (
     r"(?:article\s*publication|article\s*processing\s*charges?|apc|publication\s*fees?|"
-    r"publishing\s*fees?|biaya\s*(?:publikasi|penerbitan|pemrosesan\s*artikel)|"
+    r"publishing\s*fees?|biaya\s*(?:publikasi|penerbitan|pemrosesan\s*artikel|artikel|kontribusi)|"
+    r"kontribusi\s*(?:publikasi|penerbitan)?|tarif\s*(?:publikasi|penerbitan)|"
     r"page\s*charges?|biaya\s*(?:halaman|cetak))"
 )
 
-# RE_PUB_FREE_STRICT v1.6.0: Hanya mencocokkan jika biaya publikasi/APC eksplisit gratis (bukan submission fee semata)
+# RE_PUB_FREE_STRICT v1.6.2: Pola gratis eksplisit dengan variasi bahasa Indonesia dan OJS
 RE_PUB_FREE_STRICT = re.compile(
     r"(?:"
-    r"(?:" + PUB_TERMS + r"(?:[^\n\r.,]{0,35}?(?:adalah|sebesar|:|=|-))?\s*"
+    r"(?:" + PUB_TERMS + r"(?:[^\n\r.,]{0,40}?(?:adalah|sebesar|:|=|-))?\s*"
     r"(?:(?:rp\.?|idr)\s*0(?:\.00)?|0(?:\.00)?\s*(?:\(?idr\)?|\(?rp\.?\)|\(?usd\)?|\$)?|"
-    r"gratis|free|none|tidak\s*(?:dipungut|dikenakan)\s*biaya|bebas\s*biaya|tanpa\s*biaya|free\s*of\s*charge)\b)|"
-    r"(?:free\s*of\s*charge|no\s*fees?|tidak\s*(?:dipungut|dikenakan)\s*biaya|tanpa\s*biaya|bebas\s*biaya)\s*(?:for|pada|untuk)?\s*(?:publication|publishing|publikasi|penerbitan)|"
+    r"gratis|free|none|tidak\s*(?:dipungut|dikenakan|memungut|mengenakan)\s*biaya|bebas\s*biaya|tanpa\s*(?:dipungut\s*)?biaya|dibebaskan\s*dari\s*biaya|free\s*of\s*charge)\b)|"
+    r"(?:free\s*of\s*charge|no\s*(?:article\s*processing\s*)?fees?|tidak\s*(?:dipungut|dikenakan|memungut)\s*biaya|tanpa\s*biaya|bebas\s*biaya|dibebaskan\s*dari\s*biaya)\s*(?:for|pada|untuk)?\s*(?:publication|publishing|publikasi|penerbitan)|"
     r"charges?\s*no\s*(?:publication|article\s*processing)\s*fees?|"
+    r"does\s*not\s*charge\s*(?:any\s*)?(?:fees?|apc|article\s*processing\s*charges?)|"
     r"(?:publication|publishing|biaya\s*publikasi)\s*(?:is|adalah|sebesar)?\s*(?:free|gratis|bebas\s*biaya|free\s*of\s*charge)"
     r")",
     re.IGNORECASE,
 )
 
 RE_PUB_AMOUNT = re.compile(
-    PUB_TERMS + r"(?:[^\n\r.,]{0,35}?(?:adalah|sebesar|:|=|-))?\s*"
+    PUB_TERMS + r"(?:[^\n\r.,]{0,40}?(?:adalah|sebesar|:|=|-))?\s*"
     r"(?:"
-    r"(?:Rp\.?|IDR)\s*([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{5,8})|"
-    r"([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{5,8})\s*(?:\(?IDR\)?|Rp\.?)|"
+    r"(?:Rp\.?|IDR)\s*([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{5,8})(?:,-)?|"
+    r"([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{5,8})\s*(?:\(?IDR\)?|Rp\.?)(?:,-)?|"
     r"(?:(?:\$|USD)\s*([0-9]+(?:[.,][0-9]{1,2})?)(?:\s*USD)?)|"
     r"([0-9]+(?:[.,][0-9]{1,2})?)\s*(?:USD|\$)|"
     r"([0-9]+(?:\.[0-9]+)?)\s*(?:rb|ribu|jt|juta)"
@@ -168,12 +201,15 @@ RE_MONTH_TOKENS = re.compile(
     re.IGNORECASE,
 )
 
-# Kamus Kata Kunci Komprehensif
+# Kamus Kata Kunci Komprehensif Biaya Publikasi (v1.6.2)
 APC_KEYWORDS = [
-    "author fees", "publication fee", "biaya publikasi", "article processing charge",
-    "processing fee", "submission fee", "page charge", "biaya cetak", "free of charge",
-    "gratis", "bebas biaya", "0 idr", "usd", "no charge", "without any fee",
-    "penyerahan naskah", "biaya halaman", "biaya pemrosesan", "apc", "biaya penulisan",
+    "author fees", "author fee", "publication fee", "publishing fee", "biaya publikasi",
+    "biaya penerbitan", "article processing charge", "article processing charges", "processing fee",
+    "submission fee", "page charge", "biaya cetak", "free of charge", "gratis", "bebas biaya",
+    "0 idr", "usd", "no charge", "without any fee", "penyerahan naskah", "biaya halaman",
+    "biaya pemrosesan", "apc", "biaya penulisan", "tarif", "payment", "kontribusi",
+    "contribution", "tidak dipungut biaya", "tidak dikenakan biaya", "tidak memungut biaya",
+    "does not charge", "no article processing"
 ]
 
 FREQ_PATTERNS = [
@@ -448,13 +484,27 @@ def deobfuscate_email_text(text: str) -> str:
     return t
 
 
+STUDENT_DOMAIN_SUBSTRINGS = (
+    "@student.", "@students.", "@mail.ugm.", "@mhs.", "@alumni.",
+    "@pasca.", "@pps.", "@mahasiswa."
+)
+
+AUTHOR_USER_PREFIXES = (
+    "firstauthor", "secondauthor", "thirdauthor", "fourthauthor",
+    "author", "authors", "penulis", "correspondence", "korespondensi",
+    "first@", "second@", "third@", "fourth@", "user@", "admin@domain",
+    "sitinurhaliza", "mahasiswa"
+)
+
+
 def rank_and_filter_emails(emails: list[str], ojs_url: str = "") -> list[str]:
     """
-    PRIORITAS EMAIL RESMI & ELIMINASI EMAIL PENULIS (v1.6.0):
-    - Prioritas 1: Email berdomain sama dengan kampus OJS (.ac.id) atau diawali kata kunci redaksi
-      (jurnal, journal, editor, redaksi, ejournal, publikasi, ojs, admin).
-    - Eliminasi mutlak: Menghapus email mahasiswa berformat NIM (diawali >= 8 digit angka)
-      jika sudah ditemukan email resmi redaksi.
+    PRIORITAS EMAIL RESMI & ELIMINASI EMAIL PENULIS / MAHASISWA (v1.6.2):
+    - Filter ketat domain mahasiswa (@student., @students., @mail.ugm., @mhs., @alumni., dsb.).
+    - Eliminasi mutlak: Menghapus email mahasiswa berformat NIM (>= 6 digit angka di username).
+    - Prioritas 1: Email berdomain sama dengan kampus OJS (.ac.id) atau diawali kata kunci redaksi.
+    - Jika sudah ditemukan email resmi kampus, buang seluruh email @gmail/@yahoo pribadi penulis.
+    - Hard Cap: Maksimal 3 email resmi terbaik per jurnal.
     """
     if not emails:
         return []
@@ -473,8 +523,8 @@ def rank_and_filter_emails(emails: list[str], ojs_url: str = "") -> list[str]:
 
     ed_keywords = (
         "jurnal", "journal", "editor", "redaksi", "ejournal",
-        "publikasi", "ojs", "admin", "contact", "secretariat",
-        "pengelola", "dewanredaksi"
+        "publikasi", "ojs", "admin", "contact", "kontak", "secretariat",
+        "sekretariat", "pengelola", "dewanredaksi", "chiefeditor", "managingeditor"
     )
 
     scored: list[tuple[int, bool, str]] = []
@@ -482,53 +532,81 @@ def rank_and_filter_emails(emails: list[str], ojs_url: str = "") -> list[str]:
         em_clean = em.strip().lower()
         if not em_clean or "@" not in em_clean:
             continue
+
+        # 1. Tolak domain mahasiswa / alumni
+        if any(sub in em_clean for sub in STUDENT_DOMAIN_SUBSTRINGS):
+            continue
+
         user, _, dom = em_clean.partition("@")
-        is_nim = bool(re.match(r"^\d{8,}", user))
+
+        # 2. Tolak email penulis generik
+        if any(user.startswith(p) for p in ("firstauthor", "secondauthor", "thirdauthor", "fourthauthor", "author", "authors", "penulis", "user@")):
+            continue
+
+        # 3. Deteksi NIM mahasiswa (>= 6 digit angka dalam username atau berakhiran >= 4 digit)
+        has_nim = bool(re.search(r"\d{6,}", user)) or (bool(re.search(r"\d{4,}$", user)) and not any(k in user for k in ed_keywords))
 
         score = 0
-        if is_nim:
+        if has_nim:
             score -= 100
         if base_domain and (base_domain in dom or dom in base_domain):
-            score += 50
+            score += 60
         if any(user.startswith(k) or k in user for k in ed_keywords):
-            score += 40
+            score += 50
         if dom.endswith(".ac.id") or dom.endswith(".edu"):
-            score += 20
-        elif not is_nim:
+            score += 25
+        elif not has_nim:
             score += 5
 
-        scored.append((score, is_nim, em_clean))
+        scored.append((score, has_nim, em_clean))
 
-    # Buang email NIM mahasiswa jika ditemukan email resmi redaksi
-    has_official = any(s >= 20 for s, is_nim, _ in scored)
+    # Cek apakah ada email resmi kampus / redaksi
+    has_official = any(s >= 25 for s, is_nim, _ in scored if not is_nim)
     if has_official:
+        # Buang semua email ber-NIM
         scored = [x for x in scored if not x[1]]
+        # Buang email gmail/yahoo milik pribadi yang tidak mengandung kata redaksi
+        filtered_scored = []
+        for s, is_nim, em_clean in scored:
+            u, _, d = em_clean.partition("@")
+            if d in ("gmail.com", "yahoo.com", "yahoo.co.id", "hotmail.com", "outlook.com"):
+                if any(k in u for k in ("jurnal", "journal", "editor", "redaksi", "ejournal", "publikasi", "ojs", "admin")):
+                    filtered_scored.append((s, is_nim, em_clean))
+            else:
+                filtered_scored.append((s, is_nim, em_clean))
+        if filtered_scored:
+            scored = filtered_scored
 
     scored.sort(key=lambda x: x[0], reverse=True)
     res: list[str] = []
     for _, _, em in scored:
         if em not in res:
             res.append(em)
-    return res
+
+    # HARD CAP v1.6.2: Maksimal 3 email resmi terbaik
+    return res[:3]
 
 
-# ── VALIDATOR TELEPON/WA, PEMBERSIH TABEL BIODATA & FOCUS SYNTHESIZER (v1.6.1) ──
+# ── VALIDATOR TELEPON/WA, PEMBERSIH TABEL BIODATA & FOCUS SYNTHESIZER (v1.6.2) ──
 def is_valid_indonesian_phone(raw_str: str, has_contact_context: bool = False) -> tuple[bool, str]:
     """
-    VALIDASI NOMOR TELEPON & WHATSAPP INDONESIA (v1.6.1):
+    VALIDASI RIGID NOMOR TELEPON & WHATSAPP INDONESIA (v1.6.2):
     - Seluler/WA: Diawali 08 / +628, prefix operator valid (811-819, 821-823, 831-838,
       851-859, 877-878, 881-889, 895-899), panjang 10-13 digit angka setelah '0'.
-    - Telepon Kabel: Diawali kode area 2-digit (21, 22, 24, 31, 61) atau 3-digit.
-      TOLAK MUTLAK nomor yang nomor pelanggannya diawali '0' atau '1' (misal: +622100..., +622118...).
-    - Telepon kabel non-seluler WAJIB memiliki format tanda kurung / pemisah
-      ATAU memiliki konteks kata kunci kontak di sekitarnya.
+    - Telepon Kabel: Wajib berada dalam DAFTAR PUTIH KODE AREA RESMI INDONESIA (2-digit atau 3-digit).
+      TOLAK MUTLAK:
+      * Kode area palsu / acak dari DOI (misal: 0203, 0300, 0491, dsb.).
+      * Nomor pelanggan yang diawali '0' atau '1' (misal: +622100..., +622118...).
+      * Deretan angka 14–16 digit (nomor rekening bank / NIP / ID artikel).
+      * Panjang total digit kabel WAJIB antara 9 hingga 12 digit (termasuk 62).
+      * Non-seluler WAJIB memiliki format tanda kurung kode area ATAU konteks kata kunci kontak eksplisit.
     Returns: (is_valid: bool, normalized_phone: str)
     """
     if not raw_str:
         return False, ""
     raw_clean = str(raw_str).strip()
     digits = re.sub(r"\D", "", raw_clean)
-    if len(digits) < 9 or len(digits) > 15 or len(set(digits)) <= 2:
+    if len(digits) < 9 or len(digits) > 13 or len(set(digits)) <= 2:
         return False, ""
 
     if digits.startswith("0"):
@@ -549,14 +627,20 @@ def is_valid_indonesian_phone(raw_str: str, has_contact_context: bool = False) -
     if not full_digits.startswith("62"):
         return False, ""
 
+    # Panjang total telepon kabel Indonesia (termasuk 62): 9 s.d. 12 digit
+    if not (9 <= len(full_digits) <= 12):
+        return False, ""
+
     rest = full_digits[2:]
     if not rest:
         return False, ""
 
-    if rest[:2] in AREA_CODES_2_DIGIT:
+    area_code = ""
+    subscriber_num = ""
+    if rest[:2] in VALID_INDONESIAN_AREA_CODES:
         area_code = rest[:2]
         subscriber_num = rest[2:]
-    elif len(rest) >= 4 and rest[0] in "2345679":
+    elif len(rest) >= 4 and rest[:3] in VALID_INDONESIAN_AREA_CODES:
         area_code = rest[:3]
         subscriber_num = rest[3:]
     else:
@@ -570,12 +654,45 @@ def is_valid_indonesian_phone(raw_str: str, has_contact_context: bool = False) -
     if not (5 <= len(subscriber_num) <= 8):
         return False, ""
 
-    # Telepon kabel non-seluler WAJIB berformat eksplisit ATAU berada dekat kata kunci kontak
-    has_explicit_format = bool(re.search(r"[\(\)\s\.\-]", raw_clean))
-    if not (has_explicit_format or has_contact_context):
+    # Telepon kabel non-seluler WAJIB berformat eksplisit tanda kurung ATAU berada dekat kata kunci kontak
+    has_parentheses = bool(re.search(r"\(\s*0?[2-9]\d{1,3}\s*\)", raw_clean))
+    has_separator = bool(re.search(r"[\s.-]", raw_clean))
+    if not (has_parentheses or (has_separator and has_contact_context)):
         return False, ""
 
     return True, "+" + full_digits
+
+
+# ── FILTER NOISE FOCUS & SCOPE (v1.6.2) ──────────────────────────────────────
+FOCUS_NOISE_TERMS = (
+    "scopus id", "sinta id", "google scholar", "diindeks oleh", "indexed by",
+    "view journal", "current issue", "register", "this issue has been available",
+    "all articles in this", "licensed under cc", "creative commons", "copyright ©",
+    "copyright (c)", "telah migrasi ke", "p-issn", "e-issn", "abstract :",
+    "keywords :", "kata kunci :", "this study aims to", "penelitian ini bertujuan",
+    "hasil penelitian menunjukkan", "the results showed", "author guidelines",
+    "editorial team", "open journal systems"
+)
+
+
+def is_focus_scope_noise(text: str) -> bool:
+    """Mendeteksi apakah teks mengandung derau metadata indeksasi, lisensi, atau abstrak artikel."""
+    if not text or not isinstance(text, str):
+        return False
+    t_clean = text.lower()
+    return any(noise in t_clean for noise in FOCUS_NOISE_TERMS)
+
+
+def canonical_journal_key(title: str, publisher: str = "", issn: str = "") -> str:
+    """
+    KUNCI KANONIKAL DEDUPLIKASI CERDAS (v1.6.2):
+    - Menghapus tanda baca, spasi, simbol.
+    - Menghilangkan variasi huruf kapital.
+    - Mengabaikan perbedaan tanda titik dua (':') atau strip ('-').
+    """
+    clean = re.sub(r"[^a-z0-9]", "", (title or "").lower())
+    clean = re.sub(r"^(?:jurnal|journal|ejournal)", "", clean)
+    return clean
 
 
 def strip_ojs_profile_table_noise(text: str) -> str:
@@ -1230,10 +1347,12 @@ def _extract_contacts_from_text(html_text: str, plain_text: str, ojs_url: str = 
         if clean_ph.startswith("020-") or clean_ph.startswith("020 "):
             continue
 
-        # Proximity context: cek apakah ada kata kunci kontak dalam rentang 80 karakter
+        # Proximity context v1.6.2: cek label telepon eksplisit dalam rentang 35 karakter tepat di sebelah kiri atau baris yang sama
         start_pos, end_pos = m.start(), m.end()
-        surrounding = plain_text[max(0, start_pos - 80):min(len(plain_text), end_pos + 80)].lower()
-        has_ctx = any(k in surrounding for k in CONTACT_CONTEXT_KEYWORDS)
+        line_start = plain_text.rfind("\n", 0, start_pos)
+        left_bound = max(0, start_pos - 35, line_start if line_start != -1 else 0)
+        left_snippet = plain_text[left_bound:start_pos].lower()
+        has_ctx = any(k in left_snippet for k in CONTACT_CONTEXT_KEYWORDS)
 
         ok, norm_ph = is_valid_indonesian_phone(clean_ph, has_contact_context=has_ctx)
         if not ok:
@@ -1242,17 +1361,20 @@ def _extract_contacts_from_text(html_text: str, plain_text: str, ojs_url: str = 
         if norm_ph not in found_phones:
             found_phones.append(norm_ph)
 
-    return found_emails, found_phones
+    # Hard Cap awal: utamakan mobile, batasi maksimal 3 nomor di raw pass
+    found_phones.sort(key=lambda x: (0 if x.startswith("+628") or x.startswith("08") else 1))
+    return found_emails[:3], found_phones[:2]
 
 
 def clean_contact_list(items: list[str] | str, contact_type: str = "email", ojs_url: str = "") -> str:
     """
-    Sanitasi Rigid Kontak Redaksi (v1.6.1):
+    Sanitasi Rigid Kontak Redaksi (v1.6.2):
     - Eliminasi mutlak string error/fallback ("tidak dapat diakses", "none", "null", dll).
     - Validasi format email & buang domain dummy (@example.com, @pkp.sfu.ca, dll).
     - Prioritaskan email resmi redaksi/kampus dan buang NIM mahasiswa.
-    - Anti-Fake Phone Validator: Tolak nomor palsu/acak dari DOI/ID (seperti +622100..., +622118...).
-    - Normalisasi nomor telepon dan deduplikasi nomor yang hanya berbeda tanda strip / spasi.
+    - Anti-Fake Phone Validator: Tolak nomor palsu/acak dari DOI/ID/Rekening Bank.
+    - Urutkan telepon dengan prioritas nomor WhatsApp/seluler (+628...) di posisi pertama.
+    - HARD CAP: Maksimal 3 email dan maksimal 2 nomor telepon/WA.
     """
     if isinstance(items, str):
         raw_items = [p.strip() for p in re.split(r"[,;]+", items) if p.strip()]
@@ -1289,6 +1411,10 @@ def clean_contact_list(items: list[str] | str, contact_type: str = "email", ojs_
                 cleaned.append(it_clean)
 
         cleaned = rank_and_filter_emails(cleaned, ojs_url=ojs_url)
+        if not cleaned:
+            return INFO_NOT_FOUND
+        # HARD CAP: Maksimal 3 email terbaik
+        return ", ".join(cleaned[:3])
 
     elif contact_type.lower() in ("phone", "telepon"):
         seen_digits = set()
@@ -1306,9 +1432,13 @@ def clean_contact_list(items: list[str] | str, contact_type: str = "email", ojs_
                 seen_digits.add(norm_digits)
                 cleaned.append(norm_phone)
 
-    if not cleaned:
-        return INFO_NOT_FOUND
-    return ", ".join(cleaned)
+        if not cleaned:
+            return INFO_NOT_FOUND
+
+        # Urutkan: nomor WhatsApp/Seluler (+628...) prioritas pertama
+        cleaned.sort(key=lambda x: (0 if x.startswith("+628") or x.startswith("08") else 1))
+        # HARD CAP: Maksimal 2 nomor telepon/WA terbaik
+        return ", ".join(cleaned[:2])
 
 
 def get_whatsapp_link(phone: str, journal_name: str = "") -> Optional[str]:
@@ -1413,8 +1543,8 @@ def normalize_focus_and_scope(text: str) -> str:
     ).strip()
     clean_txt = re.sub(r"\s+", " ", clean_txt).strip()
 
-    # Validasi Anti-Boilerplate Noise
-    if ai_engine.is_boilerplate_noise(clean_txt):
+    # Validasi Anti-Boilerplate Noise & Anti-Metadata/Licensing Noise (v1.6.2)
+    if ai_engine.is_boilerplate_noise(clean_txt) or is_focus_scope_noise(clean_txt):
         return INFO_NOT_FOUND
 
     # Pisahkan per kalimat (2 - 3 kalimat)
@@ -1423,7 +1553,7 @@ def normalize_focus_and_scope(text: str) -> str:
     if not short_summary:
         short_summary = clean_txt
 
-    if ai_engine.is_boilerplate_noise(short_summary):
+    if ai_engine.is_boilerplate_noise(short_summary) or is_focus_scope_noise(short_summary):
         return INFO_NOT_FOUND
 
     if len(short_summary) > 300:
@@ -2035,7 +2165,13 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
         info["bulan_terbit"] = []
         info["frekuensi"] = sched_info.get("frequency_str") or INFO_NOT_FOUND
 
-    # TAHAP 1.3: FINALISASI STATUS APC (3-Status Accuracy)
+    # TAHAP 1.3: FINALISASI STATUS APC (3-Status Accuracy & Smart Submit Fallback v1.6.2)
+    if (info.get("biaya_submit") and info["biaya_submit"] > 50000) and (not info.get("biaya_publikasi") or info["biaya_publikasi"] == 0):
+        info["biaya_publikasi"] = info["biaya_submit"]
+        if info.get("apc_status") in (APC_UNKNOWN, INFO_NOT_FOUND, ""):
+            info["apc_status"] = f"Rp {info['biaya_publikasi']:,}".replace(",", ".")
+            info["apc_amount"] = info["biaya_publikasi"]
+
     if info["apc_status"] in (INFO_NOT_FOUND, ""):
         info["apc_status"] = APC_UNKNOWN
     if info["apc_status"] == "Gratis (Rp 0)":
@@ -2057,127 +2193,189 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
 
     return info
 
-    if info["apc_status"] == DEAD_LINK_TEXT:
-        info["status_server"] = "Non-Aktif"
-    elif info["status_server"] == "Non-Aktif":
-        info["status_server"] = get_domain_ssl_health(session, effective_ojs_url or target_url)
-
-    info["transparansi_kontak"] = compute_contact_transparency(info["email"], info["telepon"])
-
-    # Simpan ke cache lokal
-    _save_to_cache(target_url, info)
-    if effective_ojs_url != target_url:
-        _save_to_cache(effective_ojs_url, info)
-
-    return info
-
 
 def merge_cross_source_entries(entries: list[JournalEntry]) -> list[JournalEntry]:
     """
-    PENGGABUNGAN DATA LINTAS SUMBER (CROSS-SOURCE FALLBACK MERGING - v1.3.4):
-    Jika jurnal muncul di kedua portal (Garuda dan SINTA), gabungkan field-field
-    yang saling melengkapi sehingga data tidak kosong / bernilai default:
-    - Penerbit, ISSN, E-ISSN, Bidang dari Garuda/SINTA.
-    - Peringkat SINTA dan URL Profil dari SINTA.
-    - Link OJS, APC, Email, Telepon, dan Frekuensi dari sumber terlengkap.
+    PENGGABUNGAN DATA LINTAS SUMBER & DEDUPLIKASI CERDAS v1.6.2:
+    - Mengelompokkan jurnal berdasarkan Kunci Kanonikal (canonical_journal_key),
+      ISSN / E-ISSN terstandarisasi, atau Host URL + path yang identik.
+    - Menggabungkan variasi URL http:// vs https:// (memilih https://).
+    - Memilih data yang paling lengkap (APC, Email, Telepon, Frekuensi, Bulan Terbit).
+    - Smart Fallback: Biaya Submit > 50.000 otomatis menjadi Biaya Publikasi jika Biaya Publikasi kosong.
+    - Menghapus duplikasi migran (seperti Balance UM Palembang).
     """
-    merged_map: dict[str, JournalEntry] = {}
+    if not entries:
+        return []
+
+    merged_list: list[JournalEntry] = []
+
+    def _clean_url_key(u: str) -> str:
+        if not u or not str(u).startswith("http"):
+            return ""
+        clean = re.sub(r"^https?://", "", str(u).lower().strip()).rstrip("/")
+        clean = re.sub(r"/index(\.php)?.*$", "", clean)
+        return clean
+
+    def _is_article_title(title: str) -> bool:
+        if not title:
+            return False
+        clean = title.strip()
+        if len(clean) > 55 and (" " in clean):
+            art_words = ("pada", "tinjauan", "analisis", "pengaruh", "studi", "implementasi", "terhadap", "konsep", "dan", "dalam")
+            matched = sum(1 for w in art_words if f" {w} " in f" {clean.lower()} ")
+            if matched >= 2 or clean.isupper():
+                return True
+        return False
+
     for j in entries:
-        key = j.nama_jurnal.lower().strip()
-        if not key:
+        if not j.nama_jurnal or not j.nama_jurnal.strip():
             continue
-        if key not in merged_map:
-            # Standarisasi nilai awal
-            j.issn = normalize_issn(j.issn)
-            j.e_issn = normalize_issn(j.e_issn)
-            j.bidang = clean_and_merge_subjects(j.bidang)
-            merged_map[key] = j
+
+        # Standarisasi nilai awal
+        j.issn = normalize_issn(j.issn)
+        j.e_issn = normalize_issn(j.e_issn)
+        j.bidang = clean_and_merge_subjects(j.bidang)
+
+        # Smart fallback Biaya Submit -> Biaya Publikasi
+        if (j.biaya_submit and j.biaya_submit > 50000) and (j.biaya_publikasi is None or j.biaya_publikasi == 0):
+            j.biaya_publikasi = j.biaya_submit
+            if j.apc_status in (APC_UNKNOWN, INFO_NOT_FOUND, ""):
+                j.apc_status = f"Rp {j.biaya_publikasi:,}".replace(",", ".")
+
+        j_canon = canonical_journal_key(j.nama_jurnal)
+        j_url_key = _clean_url_key(j.link_ojs)
+        j_issn = j.issn if j.issn != INFO_NOT_FOUND else ""
+        j_eissn = j.e_issn if j.e_issn != INFO_NOT_FOUND else ""
+
+        # Cari existing match
+        match_idx = -1
+        for idx, ex in enumerate(merged_list):
+            ex_canon = canonical_journal_key(ex.nama_jurnal)
+            ex_url_key = _clean_url_key(ex.link_ojs)
+            ex_issn = ex.issn if ex.issn != INFO_NOT_FOUND else ""
+            ex_eissn = ex.e_issn if ex.e_issn != INFO_NOT_FOUND else ""
+
+            # 1. Match ISSN / E-ISSN yang valid
+            if (j_issn and j_issn in (ex_issn, ex_eissn)) or (j_eissn and j_eissn in (ex_issn, ex_eissn)):
+                match_idx = idx
+                break
+
+            # 2. Match Canonical Title (misal: 'balancejurnalakuntansidanbisnis')
+            if j_canon and ex_canon and (j_canon == ex_canon):
+                match_idx = idx
+                break
+
+            # 3. Match URL key (jika host dan path sama, misal migrasi http ke https)
+            if j_url_key and ex_url_key and (j_url_key == ex_url_key) and "kemdiktisaintek" not in j_url_key:
+                match_idx = idx
+                break
+
+        if match_idx == -1:
+            merged_list.append(j)
         else:
-            existing = merged_map[key]
-            # Merge field penerbit
-            if existing.penerbit == INFO_NOT_FOUND and j.penerbit != INFO_NOT_FOUND:
+            existing = merged_list[match_idx]
+
+            # Pilih nama jurnal yang lebih baik (bukan judul artikel)
+            if _is_article_title(existing.nama_jurnal) and not _is_article_title(j.nama_jurnal):
+                existing.nama_jurnal = j.nama_jurnal
+            elif len(j.nama_jurnal) < len(existing.nama_jurnal) and not _is_article_title(j.nama_jurnal) and existing.nama_jurnal.isupper():
+                existing.nama_jurnal = j.nama_jurnal
+
+            # Pilih Link OJS https:// dan yang bukan kemdiktisaintek
+            if (not existing.link_ojs or "kemdiktisaintek" in existing.link_ojs) and (j.link_ojs and "kemdiktisaintek" not in j.link_ojs):
+                existing.link_ojs = j.link_ojs
+            elif existing.link_ojs.startswith("http://") and j.link_ojs.startswith("https://"):
+                existing.link_ojs = j.link_ojs
+
+            # Penerbit
+            if (existing.penerbit == INFO_NOT_FOUND or not existing.penerbit) and j.penerbit != INFO_NOT_FOUND:
                 existing.penerbit = j.penerbit
 
-            # Merge ISSN & E-ISSN terstandarisasi
-            clean_j_issn = normalize_issn(j.issn)
-            clean_j_eissn = normalize_issn(j.e_issn)
-            if existing.issn == INFO_NOT_FOUND and clean_j_issn != INFO_NOT_FOUND:
-                existing.issn = clean_j_issn
-            if existing.e_issn == INFO_NOT_FOUND and clean_j_eissn != INFO_NOT_FOUND:
-                existing.e_issn = clean_j_eissn
+            # ISSN / E-ISSN
+            if existing.issn == INFO_NOT_FOUND and j.issn != INFO_NOT_FOUND:
+                existing.issn = j.issn
+            if existing.e_issn == INFO_NOT_FOUND and j.e_issn != INFO_NOT_FOUND:
+                existing.e_issn = j.e_issn
 
-            # Merge Bidang Keilmuan
+            # Bidang Keilmuan
             existing.bidang = clean_and_merge_subjects(existing.bidang, j.bidang)
 
             # Peringkat SINTA
-            if existing.peringkat_sinta == INFO_NOT_FOUND and j.peringkat_sinta != INFO_NOT_FOUND:
+            if (existing.peringkat_sinta == INFO_NOT_FOUND or not existing.peringkat_sinta) and j.peringkat_sinta != INFO_NOT_FOUND:
                 existing.peringkat_sinta = j.peringkat_sinta
             if not existing.sinta_profile_url and j.sinta_profile_url:
                 existing.sinta_profile_url = j.sinta_profile_url
 
-            # Link OJS Asli
-            if (not existing.link_ojs or "kemdiktisaintek" in existing.link_ojs) and (j.link_ojs and "kemdiktisaintek" not in j.link_ojs):
-                existing.link_ojs = j.link_ojs
-
-            # APC
-            if existing.apc_status == INFO_NOT_FOUND and j.apc_status != INFO_NOT_FOUND:
+            # Biaya Publikasi / APC
+            if (existing.apc_status in (INFO_NOT_FOUND, APC_UNKNOWN) or existing.apc_amount is None) and j.apc_amount is not None:
                 existing.apc_status = j.apc_status
                 existing.apc_amount = j.apc_amount
+                existing.biaya_publikasi = j.biaya_publikasi
+                existing.biaya_submit = j.biaya_submit
+                existing.sumber_apc = j.sumber_apc
 
-            # Email Redaksi
-            if existing.email == INFO_NOT_FOUND and j.email != INFO_NOT_FOUND:
-                existing.email = j.email
-            elif j.email != INFO_NOT_FOUND and existing.email != INFO_NOT_FOUND:
-                em_list = [e.strip() for e in existing.email.split(",") if e.strip()]
-                for em in [e.strip() for e in j.email.split(",") if e.strip()]:
-                    if em not in em_list:
-                        em_list.append(em)
-                existing.email = ", ".join(em_list)
+            # Smart Fallback Biaya Submit -> Biaya Publikasi
+            if (existing.biaya_submit and existing.biaya_submit > 50000) and (existing.biaya_publikasi is None or existing.biaya_publikasi == 0):
+                existing.biaya_publikasi = existing.biaya_submit
+                if existing.apc_status in (APC_UNKNOWN, INFO_NOT_FOUND, ""):
+                    existing.apc_status = f"Rp {existing.biaya_publikasi:,}".replace(",", ".")
 
-            # Telepon / WA Redaksi
-            if existing.telepon == INFO_NOT_FOUND and j.telepon != INFO_NOT_FOUND:
-                existing.telepon = j.telepon
-            elif j.telepon != INFO_NOT_FOUND and existing.telepon != INFO_NOT_FOUND:
-                ph_list = [p.strip() for p in existing.telepon.split(",") if p.strip()]
-                for ph in [p.strip() for p in j.telepon.split(",") if p.strip()]:
-                    if ph not in ph_list:
-                        ph_list.append(ph)
-                existing.telepon = ", ".join(ph_list)
+            # Email Redaksi (Gabungkan dan rapikan, max 3)
+            all_emails = []
+            if existing.email != INFO_NOT_FOUND:
+                all_emails.extend([e.strip() for e in existing.email.split(",") if e.strip()])
+            if j.email != INFO_NOT_FOUND:
+                all_emails.extend([e.strip() for e in j.email.split(",") if e.strip()])
+            if all_emails:
+                existing.email = clean_contact_list(all_emails, contact_type="email", ojs_url=existing.link_ojs)
 
-            # Frekuensi Terbit (Prioritaskan format terlengkap yang memiliki bulan terbit)
-            if existing.frekuensi == INFO_NOT_FOUND and j.frekuensi != INFO_NOT_FOUND:
+            # Telepon / WA (Gabungkan dan rapikan, max 2)
+            all_phones = []
+            if existing.telepon != INFO_NOT_FOUND:
+                all_phones.extend([p.strip() for p in existing.telepon.split(",") if p.strip()])
+            if j.telepon != INFO_NOT_FOUND:
+                all_phones.extend([p.strip() for p in j.telepon.split(",") if p.strip()])
+            if all_phones:
+                existing.telepon = clean_contact_list(all_phones, contact_type="phone")
+
+            # Frekuensi & Bulan Terbit
+            if not existing.bulan_terbit and j.bulan_terbit:
+                existing.bulan_terbit = j.bulan_terbit
                 existing.frekuensi = j.frekuensi
-            elif "(" in j.frekuensi and "(" not in existing.frekuensi and j.frekuensi != INFO_NOT_FOUND:
+            elif existing.frekuensi == INFO_NOT_FOUND and j.frekuensi != INFO_NOT_FOUND:
                 existing.frekuensi = j.frekuensi
 
-            # Focus & Scope (v1.3.8)
-            if (existing.focus_scope == INFO_NOT_FOUND or not existing.focus_scope) and j.focus_scope != INFO_NOT_FOUND:
+            # Focus & Scope
+            if (not existing.focus_scope or existing.focus_scope == INFO_NOT_FOUND or is_focus_scope_noise(existing.focus_scope)) and j.focus_scope != INFO_NOT_FOUND and not is_focus_scope_noise(j.focus_scope):
                 existing.focus_scope = j.focus_scope
+                existing.sumber_focus = j.sumber_focus
 
-            # Status Server OJS (v1.3.8)
+            # Status Server
             if existing.status_server in ("Non-Aktif", INFO_NOT_FOUND) and j.status_server not in ("Non-Aktif", INFO_NOT_FOUND):
                 existing.status_server = j.status_server
 
-            # Transparansi Kontak (v1.3.8)
+            # Transparansi Kontak
             existing.transparansi_kontak = compute_contact_transparency(existing.email, existing.telepon)
 
-            # Kesesuaian Naskah & Match Score (v1.3.5)
-            if j.match_score > existing.match_score:
+            # Match Score
+            if getattr(j, "match_score", 0) > getattr(existing, "match_score", 0):
                 existing.match_score = j.match_score
                 existing.kesesuaian_naskah = j.kesesuaian_naskah
 
-            # Catat sumber
+            # Sumber
             if j.sumber and j.sumber not in existing.sumber:
                 existing.sumber = f"{existing.sumber} + {j.sumber}"
 
-    # Pastikan status server, transparansi kontak, dan Focus & Scope (Tier 3 fallback) terhitung untuk seluruh entri
-    for entry in merged_map.values():
+    # Finalisasi per entri
+    for entry in merged_list:
         if not entry.transparansi_kontak or entry.transparansi_kontak == "Tidak Transparan":
             entry.transparansi_kontak = compute_contact_transparency(entry.email, entry.telepon)
-        if not entry.focus_scope or entry.focus_scope == INFO_NOT_FOUND:
-            entry.focus_scope = build_tier3_scope_fallback(entry)
+        if not entry.focus_scope or entry.focus_scope == INFO_NOT_FOUND or is_focus_scope_noise(entry.focus_scope):
+            synth_text, synth_src = synthesize_focus_scope(entry)
+            entry.focus_scope = synth_text
+            entry.sumber_focus = synth_src
 
-    return list(merged_map.values())
+    return merged_list
 
 
 def parse_search_keywords(raw_keyword: str) -> list[str]:
@@ -2546,20 +2744,37 @@ def _scrape_garuda_single_keyword(
                     try:
                         res = extract_ojs_deep_info(deep_session, entry.link_ojs, stop_event=stop_event)
                         entry.link_ojs = res.get("ojs_url", entry.link_ojs)
+                        if res.get("official_title") and (len(entry.nama_jurnal) > 55 or entry.nama_jurnal.isupper()):
+                            entry.nama_jurnal = res["official_title"]
+
                         entry.email = res.get("email", INFO_NOT_FOUND)
                         entry.telepon = res.get("telepon", INFO_NOT_FOUND)
                         entry.frekuensi = res.get("frekuensi", INFO_NOT_FOUND)
                         entry.apc_status = res.get("apc_status", APC_UNKNOWN)
                         entry.apc_amount = res.get("apc_amount", None)
-                        
+                        if res.get("biaya_submit"):
+                            entry.biaya_submit = res["biaya_submit"]
+
+                        # Smart Fallback Biaya Submit -> Biaya Publikasi (v1.6.2)
+                        if (entry.biaya_submit and entry.biaya_submit > 50000) and (entry.biaya_publikasi is None or entry.biaya_publikasi == 0):
+                            entry.biaya_publikasi = entry.biaya_submit
+                            if entry.apc_status in (APC_UNKNOWN, INFO_NOT_FOUND, ""):
+                                entry.apc_status = f"Rp {entry.biaya_publikasi:,}".replace(",", ".")
+
                         raw_scope = res.get("focus_scope", INFO_NOT_FOUND)
-                        if not raw_scope or raw_scope == INFO_NOT_FOUND or "tidak ditemukan" in str(raw_scope).lower():
+                        if not raw_scope or raw_scope == INFO_NOT_FOUND or "tidak ditemukan" in str(raw_scope).lower() or is_focus_scope_noise(raw_scope):
                             synth_text, synth_src = synthesize_focus_scope(entry)
                             entry.focus_scope = synth_text
                             entry.sumber_focus = synth_src
                         else:
-                            entry.focus_scope = strip_ojs_profile_table_noise(raw_scope)
-                            entry.sumber_focus = res.get("sumber_focus", "Regex") or "Regex"
+                            cleaned_scope = strip_ojs_profile_table_noise(raw_scope)
+                            if is_focus_scope_noise(cleaned_scope):
+                                synth_text, synth_src = synthesize_focus_scope(entry)
+                                entry.focus_scope = synth_text
+                                entry.sumber_focus = synth_src
+                            else:
+                                entry.focus_scope = cleaned_scope
+                                entry.sumber_focus = res.get("sumber_focus", "Regex") or "Regex"
 
                         entry.status_server = res.get("status_server", "Aktif (HTTP)")
                         entry.transparansi_kontak = res.get("transparansi_kontak", "Tidak Transparan")
@@ -2579,6 +2794,8 @@ def _scrape_garuda_single_keyword(
                             entry.biaya_publikasi = 0
                         elif entry.apc_amount is not None and entry.apc_amount > 0:
                             entry.biaya_publikasi = entry.apc_amount
+                        elif (entry.biaya_submit and entry.biaya_submit > 50000) and (entry.biaya_publikasi is None or entry.biaya_publikasi == 0):
+                            entry.biaya_publikasi = entry.biaya_submit
 
                         with matched_lock:
                             if free_only:

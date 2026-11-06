@@ -416,12 +416,25 @@ def _focus_job(raw_text: str) -> Dict:
 
         if is_boilerplate_noise(cleaned_text) and len(cleaned_text.strip()) < 400:
             return {"focus_scope": "", "sumber": "Kosong"}
+        try:
+            from scraper_garuda import is_focus_scope_noise
+            if is_focus_scope_noise(cleaned_text) and len(cleaned_text.strip()) < 500:
+                return {"focus_scope": "", "sumber": "Kosong"}
+        except Exception:
+            pass
+
         res = _try_ai(PROMPT_FOCUS, cleaned_text, _FOCUS_RX, _validate_focus)
         if res is not None:
             return {"focus_scope": res, "sumber": "AI"}
         legacy_val = _safe_legacy("focus", cleaned_text, "")
-        if legacy_val and is_boilerplate_noise(legacy_val):
-            legacy_val = ""
+        if legacy_val:
+            try:
+                from scraper_garuda import is_focus_scope_noise
+                if is_boilerplate_noise(legacy_val) or is_focus_scope_noise(legacy_val):
+                    legacy_val = ""
+            except Exception:
+                if is_boilerplate_noise(legacy_val):
+                    legacy_val = ""
         sumber = "Regex" if legacy_val else "Kosong"
         return {"focus_scope": legacy_val, "sumber": sumber}
     except Exception as e:
@@ -513,7 +526,13 @@ def enrich_records(
         if kind == "focus":
             f_val = (res.get("focus_scope") or "").strip()
             f_src = res.get("sumber", "Regex")
-            if not f_val or f_val == "Informasi tidak ditemukan dalam situs jurnal" or "tidak ditemukan" in f_val.lower():
+            try:
+                from scraper_garuda import is_focus_scope_noise
+                has_noise = is_focus_scope_noise(f_val)
+            except Exception:
+                has_noise = False
+
+            if not f_val or f_val == "Informasi tidak ditemukan dalam situs jurnal" or "tidak ditemukan" in f_val.lower() or has_noise:
                 try:
                     from scraper_garuda import synthesize_focus_scope
                     f_val, f_src = synthesize_focus_scope(rec)
@@ -521,17 +540,29 @@ def enrich_records(
                     pass
             else:
                 try:
-                    from scraper_garuda import strip_ojs_profile_table_noise
-                    f_val = strip_ojs_profile_table_noise(f_val)
+                    from scraper_garuda import strip_ojs_profile_table_noise, is_focus_scope_noise
+                    cleaned_val = strip_ojs_profile_table_noise(f_val)
+                    if is_focus_scope_noise(cleaned_val):
+                        from scraper_garuda import synthesize_focus_scope
+                        f_val, f_src = synthesize_focus_scope(rec)
+                    else:
+                        f_val = cleaned_val
                 except Exception:
                     pass
 
             _set_val(rec, focus_scope=f_val, sumber_focus=f_src)
         else:
+            b_sub = res.get("biaya_submit")
+            b_pub = res.get("biaya_publikasi")
+
+            # Smart Fallback Biaya Submit -> Biaya Publikasi (v1.6.2)
+            if (b_sub and b_sub > 50000) and (b_pub is None or b_pub == 0):
+                b_pub = b_sub
+
             _set_val(
                 rec,
-                biaya_submit=res.get("biaya_submit"),
-                biaya_publikasi=res.get("biaya_publikasi"),
+                biaya_submit=b_sub,
+                biaya_publikasi=b_pub,
                 mata_uang=res.get("mata_uang"),
                 sumber_apc=res.get("sumber", "Regex"),
             )

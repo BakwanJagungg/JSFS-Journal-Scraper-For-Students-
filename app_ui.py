@@ -251,7 +251,7 @@ def run_scraper(params: dict, on_progress, cancel: threading.Event) -> list[Jour
         records.extend(s_results)
         on_progress(len(records), target)
 
-    if use_garuda and use_sinta:
+    if records:
         records = merge_cross_source_entries(records)
 
     on_progress(len(records), target)

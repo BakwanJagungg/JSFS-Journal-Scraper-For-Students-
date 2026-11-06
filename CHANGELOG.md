@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.2] - 2026-11-06
+
+### Added & Enhanced
+- **Forensic Anti-Email Flood Engine (`scraper_garuda.py`, `scraper_sinta.py`)**:
+  - **Penyaringan Ketat Domain Mahasiswa/Penulis**: Menolak otomatis email dengan domain `@student.`, `@students.`, `@mail.ugm.`, `@mhs.`, `@alumni.`, `@pasca.`, `@pps.`, serta email dengan format NIM (>= 6 digit angka di username seperti `2203035@student...`).
+  - **Isolasi Sumber Kontak OJS**: Menghapus seluruh blok artikel/abstrak (`.obj_article_summary`, `.cmp_article_list`, `.article-summary`, `meta[name="citation_author_email"]`) sebelum ekstraksi kontak agar email penulis naskah tidak bocor ke redaksi.
+  - **Domain Affinity & Official Prefix Prioritization**: Memprioritaskan email yang cocok dengan domain host OJS atau diawali kata kunci redaksi (`jurnal`, `journal`, `editor`, `redaksi`, `ejournal`, `publikasi`, `ojs`, `admin`), dan mengeliminasi email gmail/yahoo pribadi penulis jika sudah ada email resmi institusi.
+  - **Hard Cap 3 Email**: Membatasi maksimal 3 email resmi terbaik per jurnal.
+- **Forensic Anti-Fake Phone Engine & Area Code Whitelist (`scraper_garuda.py`)**:
+  - **Daftar Putih Kode Area Resmi Indonesia (`VALID_INDONESIAN_AREA_CODES`)**: Memvalidasi seluruh kode area 2-digit dan 3-digit resmi Telkom Indonesia, serta menolak kode area palsu dari DOI/HTML (seperti `0203`, `0300`, `0491`).
+  - **Strict Proximity Context (35 Karakter Kiri) & Length Guard**: Nomor kabel wajib memiliki label telepon eksplisit (`telp`, `telepon`, `phone`, `ph:`, `tel:`, `fax`, `wa:`, `whatsapp`, `contact:`) tepat di sebelah kiri atau memiliki tanda kurung kode area, serta membatasi panjang total 9–12 digit (menolak nomor rekening bank / NIP 14–16 digit).
+  - **Hard Cap 2 Telepon/WA**: Mengutamakan nomor seluler/WhatsApp (`+628...`) di urutan pertama dan membatasi maksimal 2 nomor per jurnal.
+- **Deep Indonesian OJS APC Terminology & Smart Fallback (`scraper_garuda.py`, `ai_engine.py`, `exporter.py`)**:
+  - **Perluasan Kamus Terminologi OJS Indonesia & Inggris**: Mengenali variasi kalimat gratis (`"tidak dikenakan biaya"`, `"tidak memungut biaya"`, `"bebas biaya"`, `"free of charge"`, `"no article processing charges"`, `"does not charge"`, `"dibebaskan dari biaya"`) dan format nominal naratif (`Rp 500.000`, `IDR 500,000.00`, `sebesar Rp ...`, `kontribusi ...`).
+  - **Smart Fallback Biaya Submit -> Biaya Publikasi**: Nilai nominal `> Rp 50.000` pada kolom `Biaya Submit` otomatis dikonversi menjadi `Biaya Publikasi` jika biaya publikasi belum terdata (menyelesaikan kasus jurnal MEBIS Rp 600.000 dan MUQADDIMAH Rp 500.000).
+- **Perbaikan Anomali Bulan Terbit Arsip (`month_parser.py`)**:
+  - Mengelompokkan judul arsip edisi berdasarkan tahun dan mengambil bulan hanya dari 1 tahun penuh terbaru (atau 4–6 edisi teratas), mencegah penggabungan historis yang memicu anomali "7–8 kali setahun", serta mengabaikan derau widget kalender bulanan (>= 11 bulan).
+- **Smart Canonical Deduplication & OJS Title Protection (`scraper_garuda.py`, `scraper_sinta.py`, `jsfs.py`, `app_ui.py`)**:
+  - **`canonical_journal_key`**: Deduplikasi cerdas berbasis judul kanonikal bersih (bebas tanda baca, kapitalisasi, spasi, dan titik dua) serta ISSN/E-ISSN dan path URL, menggabungkan jurnal duplikat/migran (seperti kasus *Balance UM Palembang*) menjadi 1 entri tunggal yang utuh.
+  - **Koreksi Judul Artikel Menjadi Nama Jurnal**: Mendeteksi jika judul dari Garuda merupakan judul artikel skripsi yang panjang (> 55 karakter seperti `"KONSEP DAN TUJUAN PADA TINJUAN BISNIS SYARIAH"`) dan mengoreksinya menggunakan nama jurnal resmi OJS (*ADZKIYA : Jurnal Hukum dan Ekonomi Syariah*).
+- **Pembersihan Baris `Fokus:` & Filter Noise Focus & Scope (`exporter.py`, `ai_engine.py`, `scraper_garuda.py`)**:
+  - **Anti-Noise Filter**: Menolak teks Focus & Scope yang memuat metadata pengindeksan (*Scopus ID*, *Google Scholar*, *diindeks oleh*), lisensi (*Creative Commons*, *Copyright ©*), tanggal rilis (*this issue has been available*), atau abstrak artikel (*this study aims to*).
+  - **Terjemahan Subjek SINTA ke Bahasa Indonesia**: Menerjemahkan istilah bahasa Inggris SINTA ke Bahasa Indonesia yang rapi (*Manajemen & Riset Operasi*, *Ekonomi & Keuangan*, *Bisnis & Akuntansi*), membuang kategori yang tidak selaras dengan judul jurnal, dan memformat pemotongan teks secara bersih tanpa tanda koma menggantung (`,...`).
+
 ## [1.6.1] - 2026-11-06
 
 ### Added & Enhanced

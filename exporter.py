@@ -112,10 +112,14 @@ def generate_copypaste_list(journals: list) -> str:
         if tel and tel != INFO_NOT_FOUND and "tidak dapat diakses" not in str(tel).lower() and "tidak ditemukan" not in str(tel).lower():
             lines.append(f"Telepon/WA: {tel}")
 
-        # Biaya Publikasi
+        # Biaya Publikasi (Smart Fallback Biaya Submit v1.6.2)
         b_pub = _get_entry_val(j, "biaya_publikasi", default=None)
         if b_pub is None:
             b_pub = _get_entry_val(j, "apc_amount", default=None)
+        b_sub = _get_entry_val(j, "biaya_submit", default=None)
+        if (b_pub is None or b_pub == 0) and (b_sub is not None and b_sub > 50000):
+            b_pub = b_sub
+
         cur = _get_entry_val(j, "mata_uang", default="IDR") or "IDR"
         apc_status = _get_entry_val(j, "apc_status", default="")
 
@@ -147,14 +151,96 @@ def generate_copypaste_list(journals: list) -> str:
 
         lines.append(f"Biaya Publikasi: {biaya_str} | Terbit: {terbit_str}")
 
-        # Fokus Keilmuan (Ringkas) v1.6.1
-        fokus = _get_entry_val(j, "bidang", default="")
-        if not fokus or fokus == INFO_NOT_FOUND or "tidak ditemukan" in str(fokus).lower():
-            fokus = _get_entry_val(j, "focus_scope", default="")
-        if fokus and fokus != INFO_NOT_FOUND and "tidak ditemukan" not in str(fokus).lower():
-            fokus_clean = re.sub(r"\s+", " ", str(fokus)).strip()
-            if len(fokus_clean) > 100:
-                fokus_clean = fokus_clean[:97].rsplit(" ", 1)[0] + "..."
+        # Fokus Keilmuan (Ringkas, Terjemahan Bersih & Anti-Noise) v1.6.2
+        fokus_clean = ""
+        f_scope = _get_entry_val(j, "focus_scope", default="")
+        try:
+            from scraper_garuda import is_focus_scope_noise
+        except Exception:
+            is_focus_scope_noise = lambda x: False
+
+        # 1. Coba kalimat deskriptif jika bersih dan bebas derau
+        if f_scope and f_scope != INFO_NOT_FOUND and "tidak ditemukan" not in str(f_scope).lower() and not is_focus_scope_noise(str(f_scope)):
+            f_txt = re.sub(r"\s+", " ", str(f_scope)).strip()
+            first_sent = re.split(r"(?<=[.!?])\s+", f_txt)[0].strip()
+            if 20 <= len(first_sent) <= 110:
+                fokus_clean = first_sent
+            elif len(f_txt) <= 110:
+                fokus_clean = f_txt
+
+        # 2. Jika belum ada atau terlalu panjang, gunakan Bidang Keilmuan (Subject Area) dengan terjemahan rapi
+        if not fokus_clean:
+            raw_bidang = _get_entry_val(j, "bidang", default="")
+            if raw_bidang and raw_bidang != INFO_NOT_FOUND and "tidak ditemukan" not in str(raw_bidang).lower():
+                s_txt = str(raw_bidang)
+                # Normalisasi frasa majemuk SINTA sebelum di-split oleh koma
+                s_txt = re.sub(r"decision\s*sciences,\s*operations\s*research\s*(?:&|and)\s*management", "Manajemen & Riset Operasi", s_txt, flags=re.I)
+                s_txt = re.sub(r"economics,\s*econometrics\s*(?:&|and)\s*finance", "Ekonomi & Keuangan", s_txt, flags=re.I)
+                s_txt = re.sub(r"business,\s*management\s*(?:&|and)\s*accounting", "Bisnis & Akuntansi", s_txt, flags=re.I)
+                s_txt = re.sub(r"agricultural\s*(?:&|and)\s*biological\s*sciences", "Pertanian & Hayati", s_txt, flags=re.I)
+                s_txt = re.sub(r"social\s*sciences", "Ilmu Sosial", s_txt, flags=re.I)
+                s_txt = re.sub(r"computer\s*science", "Ilmu Komputer", s_txt, flags=re.I)
+
+                term_map = {
+                    "manajemen & riset operasi": "Manajemen & Riset Operasi",
+                    "ekonomi & keuangan": "Ekonomi & Keuangan",
+                    "bisnis & akuntansi": "Bisnis & Akuntansi",
+                    "pertanian & hayati": "Pertanian & Hayati",
+                    "ilmu sosial": "Ilmu Sosial",
+                    "ilmu komputer": "Ilmu Komputer",
+                    "accounting": "Akuntansi",
+                    "management": "Manajemen",
+                    "finance": "Keuangan",
+                    "economics": "Ekonomi",
+                    "economy": "Ekonomi",
+                    "education": "Pendidikan",
+                    "law": "Hukum",
+                    "engineering": "Teknik",
+                    "health professions": "Kesehatan",
+                    "agricultural and biological sciences": "Pertanian",
+                    "islamic studies": "Studi Islam",
+                    "religious studies": "Agama",
+                }
+
+                parts = re.split(r"[,;|/]+", s_txt)
+                mapped_terms: list[str] = []
+                j_title_low = str(name).lower()
+                is_biz_econ = any(k in j_title_low for k in ("bisnis", "business", "ekonomi", "economic", "manajemen", "management", "akuntansi", "accounting", "keuangan", "finance"))
+
+                for p in parts:
+                    p_clean = p.strip()
+                    if not p_clean or len(p_clean) < 3:
+                        continue
+                    p_low = p_clean.lower()
+
+                    # Jika jurnal bisnis/ekonomi, buang anomali pertanian/teknik sipil
+                    if is_biz_econ and any(ign in p_low for ign in ("agriculture", "biological", "forestry", "civil engineering", "mechanical", "pertanian", "hayati")):
+                        continue
+
+                    t_id = term_map.get(p_low)
+                    if not t_id:
+                        for k_term, v_term in term_map.items():
+                            if k_term in p_low:
+                                t_id = v_term
+                                break
+                    final_t = t_id if t_id else p_clean.title()
+                    if final_t not in mapped_terms:
+                        mapped_terms.append(final_t)
+
+                if mapped_terms:
+                    fokus_clean = ", ".join(mapped_terms[:4])
+
+        # 3. Fallback jika masih kosong
+        if not fokus_clean and f_scope and f_scope != INFO_NOT_FOUND and not is_focus_scope_noise(str(f_scope)):
+            f_txt = re.sub(r"\s+", " ", str(f_scope)).strip()
+            if len(f_txt) > 105:
+                fokus_clean = f_txt[:102].rsplit(" ", 1)[0].rstrip(" ,.-") + "..."
+            else:
+                fokus_clean = f_txt
+
+        if fokus_clean:
+            if len(fokus_clean) > 110:
+                fokus_clean = fokus_clean[:107].rsplit(" ", 1)[0].rstrip(" ,.-") + "..."
             lines.append(f"Fokus: {fokus_clean}")
 
         # Link OJS
@@ -354,16 +440,17 @@ def select_top_recommendations(journals: list[JournalEntry], top_n: int = 3) -> 
 
 
 def _ensure_entry_enrichment(journals: list[JournalEntry], keyword: str = "") -> None:
-    """Memastikan match_score dan focus_scope terisi 100% sebelum diekspor (v1.6.1)."""
+    """Memastikan match_score, focus_scope, dan penyelarasan APC terisi 100% sebelum diekspor (v1.6.2)."""
     try:
         from doc_reader import calculate_keyword_match_score
     except Exception:
         calculate_keyword_match_score = None
 
     try:
-        from scraper_garuda import synthesize_focus_scope
+        from scraper_garuda import synthesize_focus_scope, is_focus_scope_noise
     except Exception:
         synthesize_focus_scope = None
+        is_focus_scope_noise = lambda x: False
 
     for j in journals:
         # 1. Match score & Kesesuaian
@@ -375,9 +462,18 @@ def _ensure_entry_enrichment(journals: list[JournalEntry], keyword: str = "") ->
             except Exception:
                 pass
 
-        # 2. Focus & Scope synthesizer
+        # 2. Smart Fallback Biaya Submit -> Biaya Publikasi (v1.6.2)
+        b_sub = getattr(j, "biaya_submit", None)
+        b_pub = getattr(j, "biaya_publikasi", None)
+        if (b_sub and b_sub > 50000) and (b_pub is None or b_pub == 0):
+            j.biaya_publikasi = b_sub
+            if getattr(j, "apc_status", "") in (APC_UNKNOWN, INFO_NOT_FOUND, ""):
+                j.apc_status = f"Rp {b_sub:,}".replace(",", ".")
+
+        # 3. Focus & Scope synthesizer (bebas noise)
         f_scope = getattr(j, "focus_scope", "")
-        if synthesize_focus_scope and (not f_scope or f_scope == INFO_NOT_FOUND or "tidak ditemukan" in str(f_scope).lower()):
+        has_noise = is_focus_scope_noise(f_scope) if f_scope else False
+        if synthesize_focus_scope and (not f_scope or f_scope == INFO_NOT_FOUND or "tidak ditemukan" in str(f_scope).lower() or has_noise):
             try:
                 synth_text, synth_src = synthesize_focus_scope(j)
                 j.focus_scope = synth_text

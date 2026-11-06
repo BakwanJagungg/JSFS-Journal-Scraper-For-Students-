@@ -222,12 +222,12 @@ def run(args):
         unique_results = unique_results[:limit_val]
     console.print(f"\n[bold]📦 Total unik: {len(unique_results)} jurnal[/bold]")
 
-    # Zero-Empty Focus & Scope Synthesizer (v1.6.1)
+    # Zero-Empty Focus & Scope Synthesizer & Anti-Noise (v1.6.2)
     try:
-        from scraper_garuda import synthesize_focus_scope
+        from scraper_garuda import synthesize_focus_scope, is_focus_scope_noise
         for j in unique_results:
             f_sc = getattr(j, "focus_scope", "")
-            if not f_sc or f_sc == "Informasi tidak ditemukan dalam situs jurnal" or "tidak ditemukan" in str(f_sc).lower():
+            if not f_sc or f_sc == "Informasi tidak ditemukan dalam situs jurnal" or "tidak ditemukan" in str(f_sc).lower() or is_focus_scope_noise(str(f_sc)):
                 synth_text, synth_src = synthesize_focus_scope(j)
                 j.focus_scope = synth_text
                 j.sumber_focus = synth_src
