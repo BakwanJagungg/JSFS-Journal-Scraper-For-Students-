@@ -147,6 +147,16 @@ def generate_copypaste_list(journals: list) -> str:
 
         lines.append(f"Biaya Publikasi: {biaya_str} | Terbit: {terbit_str}")
 
+        # Fokus Keilmuan (Ringkas) v1.6.1
+        fokus = _get_entry_val(j, "bidang", default="")
+        if not fokus or fokus == INFO_NOT_FOUND or "tidak ditemukan" in str(fokus).lower():
+            fokus = _get_entry_val(j, "focus_scope", default="")
+        if fokus and fokus != INFO_NOT_FOUND and "tidak ditemukan" not in str(fokus).lower():
+            fokus_clean = re.sub(r"\s+", " ", str(fokus)).strip()
+            if len(fokus_clean) > 100:
+                fokus_clean = fokus_clean[:97].rsplit(" ", 1)[0] + "..."
+            lines.append(f"Fokus: {fokus_clean}")
+
         # Link OJS
         link = _get_entry_val(j, "link_ojs", default="") or _get_entry_val(j, "link", default="")
         if link and str(link).startswith("http"):
@@ -343,6 +353,39 @@ def select_top_recommendations(journals: list[JournalEntry], top_n: int = 3) -> 
     return scored_items[:top_n]
 
 
+def _ensure_entry_enrichment(journals: list[JournalEntry], keyword: str = "") -> None:
+    """Memastikan match_score dan focus_scope terisi 100% sebelum diekspor (v1.6.1)."""
+    try:
+        from doc_reader import calculate_keyword_match_score
+    except Exception:
+        calculate_keyword_match_score = None
+
+    try:
+        from scraper_garuda import synthesize_focus_scope
+    except Exception:
+        synthesize_focus_scope = None
+
+    for j in journals:
+        # 1. Match score & Kesesuaian
+        if calculate_keyword_match_score and keyword and (getattr(j, "match_score", 0) <= 0 or not getattr(j, "kesesuaian_naskah", "")):
+            try:
+                sc = calculate_keyword_match_score(keyword, j)
+                j.match_score = sc.get("score", 40)
+                j.kesesuaian_naskah = sc.get("level", "Cukup Sesuai")
+            except Exception:
+                pass
+
+        # 2. Focus & Scope synthesizer
+        f_scope = getattr(j, "focus_scope", "")
+        if synthesize_focus_scope and (not f_scope or f_scope == INFO_NOT_FOUND or "tidak ditemukan" in str(f_scope).lower()):
+            try:
+                synth_text, synth_src = synthesize_focus_scope(j)
+                j.focus_scope = synth_text
+                j.sumber_focus = synth_src
+            except Exception:
+                pass
+
+
 def _clean_entry_value(val: Optional[str]) -> str:
     """Helper untuk memastikan semua nilai kosong diubah ke INFO_NOT_FOUND."""
     return sanitize_text(val)
@@ -415,6 +458,7 @@ def export_markdown(
     statistik peringkat, biaya submit & publikasi, jadwal bulan terbit, serta audit sumber AI/Regex.
     """
     _ensure_output_dir()
+    _ensure_entry_enrichment(journals, keyword=keyword)
     final_filename = filename or generate_output_filename(keyword, "md")
     filepath = os.path.join(OUTPUT_DIR, final_filename)
 
@@ -688,6 +732,7 @@ def export_csv(
 ) -> str:
     """Ekspor hasil ke CSV dengan encoding UTF-8 BOM dan header v1.4.0."""
     _ensure_output_dir()
+    _ensure_entry_enrichment(journals, keyword=keyword)
     final_filename = filename or generate_output_filename(keyword, "csv")
     filepath = os.path.join(OUTPUT_DIR, final_filename)
 
@@ -713,6 +758,7 @@ def export_excel(
     - Auto-fit lebar kolom dan styling sel halus.
     """
     _ensure_output_dir()
+    _ensure_entry_enrichment(journals, keyword=keyword)
     final_filename = filename or generate_output_filename(keyword, "xlsx")
     filepath = os.path.join(OUTPUT_DIR, final_filename)
 
@@ -990,6 +1036,7 @@ def write_exports(
     sinta_ranks: Optional[list[int]] = None,
 ) -> list[str]:
     """Ekspor hasil ke beberapa format sekaligus (.md, .xlsx, .csv) dan file teks pendamping _LIST.txt."""
+    _ensure_entry_enrichment(journals, keyword=keyword)
     exported: list[str] = []
     if not formats:
         formats = [".xlsx", ".md"]

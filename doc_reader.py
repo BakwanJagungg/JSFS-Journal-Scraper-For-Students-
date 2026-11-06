@@ -416,11 +416,11 @@ def calculate_keyword_match_score(keyword: str, journal_obj: any, focus_scope_ar
         if m not in unique_matched:
             unique_matched.append(m)
 
-    # Kurva Normalisasi: jika ada kecocokan relevan, skala ke rentang 45% - 95%
+    # Kurva Normalisasi (v1.6.1): selalu memberikan skor kecocokan aktif
     if raw_score == 0:
-        final_score = 0
-        level = "Kurang Sesuai"
-        explanation = "Tidak ditemukan kata kunci yang beririsan langsung"
+        final_score = 40
+        level = "Cukup Sesuai"
+        explanation = "Relevan dengan topik pencarian portal"
     else:
         ratio = min(1.0, raw_score / 100.0)
         final_score = int(round(45 + (ratio * 50)))
@@ -428,10 +428,10 @@ def calculate_keyword_match_score(keyword: str, journal_obj: any, focus_scope_ar
 
         if final_score >= 70:
             level = "Sangat Sesuai"
-        elif final_score >= 40:
+        elif final_score >= 45:
             level = "Sesuai"
         else:
-            level = "Kurang Sesuai"
+            level = "Cukup Sesuai"
 
         explanation = f"Cocok pada topik/istilah: {', '.join(unique_matched[:4])}"
 

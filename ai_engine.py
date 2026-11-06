@@ -407,12 +407,19 @@ def _focus_job(raw_text: str) -> Dict:
     try:
         if not (raw_text or "").strip():
             return {"focus_scope": "", "sumber": "Kosong"}
-        if is_boilerplate_noise(raw_text) and len(raw_text.strip()) < 400:
+        # Bersihkan derau tabel profil OJS (v1.6.1)
+        try:
+            from scraper_garuda import strip_ojs_profile_table_noise
+            cleaned_text = strip_ojs_profile_table_noise(raw_text)
+        except Exception:
+            cleaned_text = raw_text
+
+        if is_boilerplate_noise(cleaned_text) and len(cleaned_text.strip()) < 400:
             return {"focus_scope": "", "sumber": "Kosong"}
-        res = _try_ai(PROMPT_FOCUS, raw_text, _FOCUS_RX, _validate_focus)
+        res = _try_ai(PROMPT_FOCUS, cleaned_text, _FOCUS_RX, _validate_focus)
         if res is not None:
             return {"focus_scope": res, "sumber": "AI"}
-        legacy_val = _safe_legacy("focus", raw_text, "")
+        legacy_val = _safe_legacy("focus", cleaned_text, "")
         if legacy_val and is_boilerplate_noise(legacy_val):
             legacy_val = ""
         sumber = "Regex" if legacy_val else "Kosong"
@@ -504,7 +511,22 @@ def enrich_records(
             }
 
         if kind == "focus":
-            _set_val(rec, focus_scope=res.get("focus_scope", ""), sumber_focus=res.get("sumber", "Regex"))
+            f_val = (res.get("focus_scope") or "").strip()
+            f_src = res.get("sumber", "Regex")
+            if not f_val or f_val == "Informasi tidak ditemukan dalam situs jurnal" or "tidak ditemukan" in f_val.lower():
+                try:
+                    from scraper_garuda import synthesize_focus_scope
+                    f_val, f_src = synthesize_focus_scope(rec)
+                except Exception:
+                    pass
+            else:
+                try:
+                    from scraper_garuda import strip_ojs_profile_table_noise
+                    f_val = strip_ojs_profile_table_noise(f_val)
+                except Exception:
+                    pass
+
+            _set_val(rec, focus_scope=f_val, sumber_focus=f_src)
         else:
             _set_val(
                 rec,

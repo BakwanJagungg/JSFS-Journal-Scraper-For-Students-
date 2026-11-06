@@ -1,6 +1,6 @@
-# 📚 JSFS — Journal Scraper For Students (v1.6.0 Human-Parity Accuracy Engine)
+# 📚 JSFS — Journal Scraper For Students (v1.6.1 High-Yield Recall & Human-Parity Precision)
 
-> **Alat otomatisasi pencarian jurnal SINTA & Garuda untuk mahasiswa & peneliti: Human-Parity Accuracy Engine (Dynamic OJS Menu Discovery, Archive Schedule Verification, Cloudflare Email Decoder, 3-State APC Accuracy), Zero-Crash & Anti-Freeze Architecture, 1-Click Copy-Paste Share List Generator, Hybrid AI Engine (Ollama qwen2.5:3b + Smart Regex), Mode Simpel & 4 Preset Mahasiswa, Top 3 AI Advisor, dan Smart SQLite WAL Cache.**
+> **Alat otomatisasi pencarian jurnal SINTA & Garuda untuk mahasiswa & peneliti: High-Yield Recall Multiplier (3x Candidate Pool & Smart APC Filter), Anti-Fake Phone Validator, OJS Profile Table Noise Stripper, Zero-Empty Focus & Scope Synthesizer, Always-On Keyword Match Score, Human-Parity Accuracy Engine, 1-Click Copy-Paste Share List Generator, Hybrid AI Engine (Ollama qwen2.5:3b + Smart Regex), Mode Simpel & 4 Preset Mahasiswa, dan Smart SQLite WAL Cache.**
 
 ---
 
@@ -14,22 +14,30 @@ Mencari jurnal yang tepat di portal **SINTA** dan **Garuda** secara manual serin
 - ❌ Sulit mencocokkan jadwal bulan terbit jurnal (*call for papers*) dengan tenggat waktu sidang/kelulusan.
 - ❌ Kontak redaksi (Email/WA) sering disembunyikan di balik proteksi Cloudflare atau terselubung di menu navigasi.
 
-**JSFS (Journal Scraper For Students) v1.6.0** hadir untuk menyelesaikan seluruh masalah tersebut:
-1. 🧠 **Human-Parity Accuracy Engine (Baru di v1.6.0)**:
+**JSFS (Journal Scraper For Students) v1.6.1** hadir untuk menyelesaikan seluruh masalah tersebut:
+1. 🚀 **High-Yield Recall Engine (Baru di v1.6.1)**:
+   - 📈 **Adaptive Candidate Pool Multiplier (3x Over-Fetching)**: Pengambilan kandidat awal `max(target * 3, 60)` menjamin hasil pencarian topik populer (seperti *bisnis*, *akuntansi*, *teknologi*) melimpah (>20 jurnal).
+   - 🛡️ **Smart APC Preservation**: Jurnal berstatus `"Cek Web / Belum Terdata"` tidak dibuang secara agresif; otomatis lolos seleksi saat menyetel rentang biaya (`max_rp = 1.500.000`) dan melengkapi kuota target saat memilih *"Hanya Gratis (Rp 0)"*.
+2. 🎯 **Presisi Kontak & Metadata Setara Manusia (Baru di v1.6.1)**:
+   - 📵 **Anti-Fake Phone Validator**: Menolak mutlak deretan angka acak dari URL, DOI prefix, atau ID artikel yang diawali angka `0` atau `1` setelah kode area (seperti `+6221005162` dan `+62211892256` pada UNESA).
+   - ✂️ **OJS Profile Table Noise Stripper**: Memotong dan membuang header tabel biodata OJS (`Journal Title`, `ISSN/E-ISSN`, `DOI Prefix`, `Editor in Chief`, `Publisher`, `Frequency`), hanya menyisakan deskripsi ilmiah intinya.
+   - 🧬 **Zero-Empty Focus & Scope Synthesizer (100% Terisi)**: Jika halaman OJS tidak memuat ruang lingkup, otomatis menyintesis deskripsi dari data *Bidang Keilmuan* SINTA/Garuda (`Menerbitkan riset ilmiah di bidang {subject_area}`).
+   - 📊 **Always-On Keyword Match Score**: Kolom `Skor` dan `Kesesuaian` selalu aktif dan terisi skor persentase proporsional yang nyata untuk setiap jurnal saat mencari dengan kata kunci tanpa upload file naskah.
+3. 🧠 **Human-Parity Accuracy Engine**:
    - 🔍 **Dynamic Menu Anchor Discovery**: Memindai link menu navigasi & sidebar OJS secara dinamis untuk melacak halaman APC tersembunyi (`fee`, `apc`, `biaya`, `tarif`) dan kontak resmi redaksi.
    - 📅 **Verifikasi Jadwal Terbit via Arsip (`/issue/archive`)**: Membaca judul edisi terbitan riil pada arsip jurnal saat halaman About tidak mencantumkan bulan terbit secara eksplisit.
    - 💰 **Akurasi Biaya Publikasi (APC) 3-Status**: Standarisasi status `Gratis (Rp 0)`, `Rp X.XXX.XXX`, dan `Cek Web / Belum Terdata`. Eliminasi mutlak *false positive* Gratis dari biaya submit Rp 0.
-   - 🔓 **Dekoder Cloudflare & Email Redaksi Resmi**: Dekripsi tag hex `<a class="__cf_email__">`, deobfuskasi format `[at]`/`[dot]`, prioritas email domain kampus/redaksi, pembersihan otomatis NIM mahasiswa, dan regex nomor telepon kampus `(021)`/`(0271)` & WhatsApp.
-2. 📋 **1-Click Copy-Paste List Generator (Baru di v1.6.0)**:
-   - Generator daftar bernomor siap *share* ke WhatsApp/Telegram grup rekan mahasiswa/dosen.
+   - 🔓 **Dekoder Cloudflare & Email Redaksi Resmi**: Dekripsi tag hex `<a class="__cf_email__">`, deobfuskasi format `[at]`/`[dot]`, prioritas email domain kampus/redaksi, pembersihan otomatis NIM mahasiswa.
+4. 📋 **1-Click Copy-Paste List Generator**:
+   - Generator daftar bernomor siap *share* ke WhatsApp/Telegram grup rekan mahasiswa/dosen lengkap dengan baris `Fokus:` bidang keilmuan.
    - Tombol instan `📋 Salin Semua Daftar (Format Share)` pada jendela previewer data dengan animasi konfirmasi 2.5 detik.
    - Blok daftar copy-paste di dalam file Markdown (`.md`) dan pembuatan otomatis berkas teks pendamping `JSFS_<keyword>_<timestamp>_LIST.txt`.
-3. 🛡️ **Zero-Crash & Anti-Freeze Architecture (Baru di v1.6.0)**:
+5. 🛡️ **Zero-Crash & Anti-Freeze Architecture**:
    - `safe_fetch_html`: Filter Content-Type ketat (hanya memproses HTML) dan pembatas ukuran respons maksimal 1.5 MB untuk mencegah freeze akibat crawler mengunduh file PDF atau ZIP besar.
    - Pelindung multi-layer `try...except Exception:` di seluruh thread scraper dan worker.
-4. ✨ **Mode Simpel & 4 Quick Presets Mahasiswa**:
+6. ✨ **Mode Simpel & 4 Quick Presets Mahasiswa**:
    - 🎓 **Target Skripsi S1**: SINTA 3–5, biaya murah/gratis, jadwal teratur.
-   - 💰 **Jurnal Gratis (Rp 0)**: Hanya jurnal bebas biaya publikasi (Bebas APC).
+   - 💰 **Jurnal Gratis (Rp 0)**: Prioritas jurnal bebas biaya publikasi (Bebas APC) + Cek Web pelengkap kuota.
    - ⚡ **Terbit Terdekat**: Memfilter jurnal dengan edisi terbit 1–3 bulan ke depan agar pas dengan jadwal yudisium.
    - 🏆 **Reputasi Tinggi**: SINTA 1 & 2 (Akreditasi A / Scopus) untuk mahasiswa magister, doktoral, atau hibah.
 5. 💬 **Salin Draf Chat Editor**: Satu klik pada pop-up previewer untuk menyalin draf pesan WhatsApp/Email yang sopan ke redaksi menanyakan kuota edisi terdekat.
@@ -147,7 +155,8 @@ Setelah build selesai, berkas executable siap pakai berada di direktori **`dist/
 | **v1.4.0 (AI Hybrid)** | ✅ Selesai | Hybrid AI Engine (Ollama qwen2.5:3b + Smart Regex), 1-Click AI Setup, Dual Progress |
 | **v1.5.0 (Intelligence)** | ✅ Selesai | SQLite WAL Cache, Top 3 AI Advisor, Match Score dwibahasa, Schedule Estimator |
 | **v1.5.1 (Stability & UX)** | ✅ Selesai | Progressive Disclosure (4 Quick Presets), Eliminasi GUI Blackout & MEI lock, Salin Draf Chat Editor, Panduan Singkat |
-| **v1.6.0 (Human-Parity)** | 🚀 Rilis Ini | Human-Parity Accuracy Engine (Dynamic OJS Menu Discovery, CF Email Decoder, Archive Schedule Parser), 3-State APC Accuracy, Zero-Crash Guard, dan 1-Click Copy-Paste Share List |
+| **v1.6.0 (Human-Parity)** | ✅ Selesai | Human-Parity Accuracy Engine (Dynamic OJS Menu Discovery, CF Email Decoder, Archive Schedule Parser), 3-State APC Accuracy, Zero-Crash Guard, dan 1-Click Copy-Paste Share List |
+| **v1.6.1 (High-Yield Recall)** | 🚀 Rilis Ini | High-Yield Recall Multiplier (3x Candidate Pool & Smart APC Filter), Anti-Fake Phone Validator, OJS Profile Table Stripper & Always-On Keyword Match Score |
 | **v2.0.0** | 💡 Rencana | Versi Web App Multi-user (FastAPI + React/Vite) untuk akses bersama dalam lab/kampus |
 
 ---

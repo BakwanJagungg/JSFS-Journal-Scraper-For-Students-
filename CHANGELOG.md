@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2026-11-06
+
+### Added & Enhanced
+- **High-Yield Recall Engine (`scraper_garuda.py`, `scraper_sinta.py`, `app_ui.py`, `jsfs.py`)**:
+  - **Smart APC & Status Preservation**: Jurnal berstatus `"Cek Web / Belum Terdata"` tidak dibuang secara agresif; wajib lolos filter secara default saat `include_na=True` atau saat pengguna menyetel batas biaya (`max_rp = 1.500.000`), serta otomatis melengkapi kuota target pengguna saat memilih *"Hanya Gratis (Rp 0)"*. Hasil pencarian topik seperti "bisnis" kembali melimpah (>20 jurnal).
+  - **Adaptive Candidate Pool Multiplier (3x Over-Fetching)**: Pengambilan kandidat awal sebanyak `max(target_results * 3, 60)` secara konkuren dari halaman paginasi portal Garuda & SINTA, menjamin pool kandidat tidak habis terpotong sebelum melewati tahapan pre-filter SINTA dan deep OJS scraping.
+- **Anti-Fake Phone Validator & Proximity Context (`scraper_garuda.py`, `scraper_sinta.py`)**:
+  - **Eliminasi Total Nomor Telepon Palsu**: Menolak mutlak deretan angka acak dari URL, DOI prefix, atau ID artikel yang diawali angka `0` atau `1` tepat setelah kode area (seperti kasus `+6221005162` dan `+62211892256` pada UNESA).
+  - **Strict Proximity Context & Formatting Guard**: Nomor telepon kabel (*landline*) non-seluler wajib memiliki format pemisah kode area eksplisit `(0271) xxx` / `021-xxx` atau berada dalam radius konteks kata kunci kontak (`telp`, `telepon`, `phone`, `call`, `wa`, `whatsapp`, `contact`, `hubungi`).
+  - **Validasi Prefix Operator Seluler**: Verifikasi ketat prefix seluler/WA Indonesia (`811`–`819`, `821`–`823`, `831`–`838`, `851`–`859`, `877`–`878`, `881`–`889`, `895`–`899`) dengan panjang total 10–13 digit setelah `0`.
+- **OJS Profile Table Noise Stripper & Zero-Empty Synthesizer (`scraper_garuda.py`, `scraper_sinta.py`, `ai_engine.py`, `exporter.py`)**:
+  - **`strip_ojs_profile_table_noise`**: Memotong dan membuang header tabel biodata OJS (`Journal Title`, `ISSN/E-ISSN`, `DOI Prefix`, `Editor in Chief`, `Publisher`, `Frequency`), hanya mempertahankan kalimat deskriptif intinya.
+  - **`synthesize_focus_scope` (100% Terisi Akurat)**: Jika halaman OJS tidak memuat Focus & Scope eksplisit, otomatis menyintesis ruang lingkup dari data *Bidang Keilmuan* SINTA/Garuda (`Menerbitkan riset ilmiah di bidang {subject_area}`) dan menyematkan label `Sumber Focus = "SINTA/Garuda"`.
+- **Always-On Keyword Match Score (`doc_reader.py`, `scraper_garuda.py`, `exporter.py`, `app_ui.py`, `jsfs.py`)**:
+  - Penyesuaian rentang kategori skor kata kunci: `>= 70%` (`Sangat Sesuai`), `45–69%` (`Sesuai`), dan `< 45%` (`Cukup Sesuai`).
+  - Memastikan `calculate_keyword_match_score` selalu dipanggil untuk setiap jurnal saat pengguna mencari dengan kata kunci tanpa upload file naskah, melenyapkan skor kosong (`—`) dan salah label `Kurang Sesuai` pada jurnal yang relevan.
+- **Penyempurnaan Format Copy-Paste List (`exporter.py`)**:
+  - Penambahan baris ringkas `Fokus:` pada `generate_copypaste_list` untuk memberikan konteks bidang keilmuan jurnal saat dibagikan ke WhatsApp/Telegram.
+
 ## [1.6.0] - 2026-11-06
 
 ### Added & Enhanced

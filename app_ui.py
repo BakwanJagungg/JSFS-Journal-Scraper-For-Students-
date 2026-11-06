@@ -201,9 +201,11 @@ def run_scraper(params: dict, on_progress, cancel: threading.Event) -> list[Jour
     """
     Fase 1: Fast Broad Scraping (128 workers HTTP/Selenium).
     Mengumpulkan data mentah (raw_about, raw_submissions, bulan_terbit) tanpa menyentuh LLM.
+    v1.6.1: High-Yield Candidate Pool Multiplier (3x over-fetching / minimal 60 kandidat).
     """
     keyword = params["keyword"]
     target = int(params["target"])
+    candidate_target = max(target * 3, 60)
     sinta_ranks = sorted(list(params["sinta"]))
     use_garuda = params.get("garuda", True)
     use_sinta = params.get("sinta_src", True)
@@ -217,7 +219,7 @@ def run_scraper(params: dict, on_progress, cancel: threading.Event) -> list[Jour
             keyword=keyword,
             sinta_ranks=sinta_ranks,
             deep_detail=True,
-            max_results=target,
+            max_results=candidate_target,
             turbo_mode=turbo,
             free_only=False,
             include_unknown_apc=True,
@@ -231,7 +233,7 @@ def run_scraper(params: dict, on_progress, cancel: threading.Event) -> list[Jour
                 keyword=keyword,
                 sinta_ranks=sinta_ranks,
                 deep_detail=True,
-                max_results=target,
+                max_results=candidate_target,
                 turbo_mode=turbo,
                 free_only=False,
                 include_unknown_apc=True,
@@ -241,7 +243,7 @@ def run_scraper(params: dict, on_progress, cancel: threading.Event) -> list[Jour
                 keyword=keyword,
                 sinta_ranks=sinta_ranks,
                 deep_detail=True,
-                max_results=target,
+                max_results=candidate_target,
                 turbo_mode=turbo,
                 free_only=False,
                 include_unknown_apc=True,
@@ -1742,8 +1744,10 @@ class JSFSApp(ctk.CTk):
                     continue
                 survivors.append(r)
 
-            if len(survivors) > p["target"]:
-                survivors = survivors[:p["target"]]
+            # Jaga pool kandidat tetap kaya untuk deep scrape & filter biaya (v1.6.1)
+            pool_limit = max(p["target"] * 2, 40)
+            if len(survivors) > pool_limit:
+                survivors = survivors[:pool_limit]
 
             q.put(("log", f"Fase 2: Pre-filter -> {len(survivors)}/{len(records)} jurnal lolos seleksi SINTA & Bulan."))
 
@@ -1766,49 +1770,68 @@ class JSFSApp(ctk.CTk):
                 q.put(("done", None))
                 return
 
-            # Analisis Naskah & Skor Kesesuaian (v1.5.0)
+            # Analisis Naskah & Skor Kesesuaian (v1.5.0 / v1.6.1)
             if p.get("match") and p.get("manuscript") and os.path.exists(p["manuscript"]):
                 q.put(("log", f"Menganalisis kesesuaian naskah: {os.path.basename(p['manuscript'])}..."))
                 ms_data = parse_manuscript(p["manuscript"])
                 if ms_data:
                     for s in survivors:
                         match_res = calculate_manuscript_match(ms_data, s)
-                        s.match_score = match_res.get("score", 0)
-                        s.kesesuaian_naskah = match_res.get("level", "Kurang Sesuai")
+                        s.match_score = match_res.get("score", 40)
+                        s.kesesuaian_naskah = match_res.get("level", "Cukup Sesuai")
             else:
-                # Mode Pencocokan Berbasis Kata Kunci (Keyword-Mode Scoring - v1.5.0)
+                # Mode Pencocokan Berbasis Kata Kunci (Keyword-Mode Scoring - v1.5.0 / v1.6.1)
                 q.put(("log", f"Menghitung skor kesesuaian berbasis kata kunci '{p['keyword']}' (Kamus Dwibahasa)..."))
                 for s in survivors:
                     kw_res = calculate_keyword_match_score(p["keyword"], s)
-                    s.match_score = kw_res.get("score", 0)
-                    s.kesesuaian_naskah = kw_res.get("level", "Kurang Sesuai")
+                    s.match_score = kw_res.get("score", 40)
+                    s.kesesuaian_naskah = kw_res.get("level", "Cukup Sesuai")
 
             n_ai = sum(1 for r in survivors if r.get("sumber_focus") == "AI")
             n_ai_apc = sum(1 for r in survivors if r.get("sumber_apc") == "AI")
             q.put(("log", f"Hasil AI Enrichment: Focus via AI {n_ai}/{len(survivors)}, APC via AI {n_ai_apc}/{len(survivors)}."))
 
-            # Filter biaya pengguna jika diminta
-            final_survivors: list[JournalEntry] = []
+            # Filter biaya pengguna jika diminta (v1.6.1 High-Yield Recall)
+            free_survivors: list[JournalEntry] = []
+            unknown_survivors: list[JournalEntry] = []
+            paid_survivors: list[JournalEntry] = []
+
             for r in survivors:
                 b_pub = r.get("biaya_publikasi")
-                if p.get("only_free"):
-                    if b_pub == 0:
-                        final_survivors.append(r)
-                    elif b_pub is None and p.get("include_na"):
-                        final_survivors.append(r)
+                if b_pub is None and r.get("apc_amount") is not None:
+                    b_pub = r.get("apc_amount")
+                apc_status = str(r.get("apc_status", "")).lower()
+
+                is_free = (b_pub == 0) or ("gratis" in apc_status) or ("rp 0" in apc_status) or ("bebas biaya" in apc_status)
+                is_unk = (b_pub is None) or ("cek web" in apc_status) or ("belum terdata" in apc_status) or (r.get("apc_status") in (INFO_NOT_FOUND, "Cek Web / Belum Terdata"))
+
+                if is_free:
+                    free_survivors.append(r)
+                elif is_unk:
+                    unknown_survivors.append(r)
                 else:
-                    if b_pub is not None and b_pub > 0:
-                        if p.get("min_rp", 0) <= b_pub <= p.get("max_rp", 15_000_000):
-                            final_survivors.append(r)
-                    elif b_pub == 0:
-                        if p.get("min_rp", 0) == 0:
-                            final_survivors.append(r)
-                    else:
-                        if p.get("include_na", True):
-                            final_survivors.append(r)
+                    if p.get("min_rp", 0) <= b_pub <= p.get("max_rp", 15_000_000):
+                        paid_survivors.append(r)
+
+            final_survivors: list[JournalEntry] = []
+            if p.get("only_free"):
+                # Prioritaskan jurnal murni Gratis (Rp 0)
+                final_survivors.extend(free_survivors)
+                # Jika include_na aktif ATAU kuota target belum tercapai, sertakan Cek Web / Belum Terdata
+                if p.get("include_na", True) or len(final_survivors) < p["target"]:
+                    final_survivors.extend(unknown_survivors)
+            else:
+                final_survivors.extend(free_survivors)
+                final_survivors.extend(paid_survivors)
+                # Cek Web / Belum Terdata WAJIB lolos jika include_na=True atau sedang memfilter max_rp
+                if p.get("include_na", True) or p.get("max_rp", 15_000_000) < 15_000_000:
+                    final_survivors.extend(unknown_survivors)
 
             if not final_survivors and survivors:
                 final_survivors = survivors
+
+            if len(final_survivors) > p["target"]:
+                final_survivors = final_survivors[:p["target"]]
 
             self._latest_results = final_survivors
 

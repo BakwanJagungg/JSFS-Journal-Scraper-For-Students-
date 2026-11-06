@@ -65,15 +65,21 @@ console = Console()
 
 # ── PRE-COMPILED REGEX PATTERNS (Hemat ribuan siklus CPU pada multi-threading) ─
 RE_EMAIL = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
+# RE_PHONE v1.6.1: Menangkap nomor seluler Indonesia dan telepon kabel berpemisah/kode area
 RE_PHONE = re.compile(
     r"(?:"
-    r"(?:\+62|62|0)8[1-9][0-9\s.-]{6,13}[0-9]|"
-    r"(?:\+62\s*|62\s*|0)?\(\s*0?[2-9]\d{1,3}\s*\)[\s.-]*[0-9\s.-]{5,10}[0-9]|"
-    r"(?:\+62|62|0)[2-9]\d{1,3}[\s.-]+[0-9\s.-]{5,10}[0-9]|"
-    r"(?:\+62|62|0)(?:[2-9])[0-9\s-]{7,15}[0-9]"
+    r"(?:\+62[\s.-]*|62[\s.-]*|0)8[1-9][0-9\s.-]{6,12}[0-9]|"
+    r"(?:\+62\s*|62\s*|0)?\(\s*0?[2-9]\d{1,3}\s*\)[\s.-]*[2-9][0-9\s.-]{4,9}[0-9]|"
+    r"(?:\+62[\s.-]*|62[\s.-]*|0)[2-9]\d{1,3}[\s.-]+[2-9][0-9\s.-]{4,9}[0-9]"
     r")"
 )
 RE_DATE_LIKE = re.compile(r"(?:\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{4})")
+
+AREA_CODES_2_DIGIT = {"21", "22", "24", "31", "61"}
+CONTACT_CONTEXT_KEYWORDS = (
+    "telp", "telepon", "phone", "call", "wa", "whatsapp", "fax",
+    "contact", "kontak", "hubungi", "hp", "mobile", "sekretariat", "office"
+)
 
 APC_UNKNOWN = "Cek Web / Belum Terdata"
 
@@ -504,6 +510,167 @@ def rank_and_filter_emails(emails: list[str], ojs_url: str = "") -> list[str]:
         if em not in res:
             res.append(em)
     return res
+
+
+# ── VALIDATOR TELEPON/WA, PEMBERSIH TABEL BIODATA & FOCUS SYNTHESIZER (v1.6.1) ──
+def is_valid_indonesian_phone(raw_str: str, has_contact_context: bool = False) -> tuple[bool, str]:
+    """
+    VALIDASI NOMOR TELEPON & WHATSAPP INDONESIA (v1.6.1):
+    - Seluler/WA: Diawali 08 / +628, prefix operator valid (811-819, 821-823, 831-838,
+      851-859, 877-878, 881-889, 895-899), panjang 10-13 digit angka setelah '0'.
+    - Telepon Kabel: Diawali kode area 2-digit (21, 22, 24, 31, 61) atau 3-digit.
+      TOLAK MUTLAK nomor yang nomor pelanggannya diawali '0' atau '1' (misal: +622100..., +622118...).
+    - Telepon kabel non-seluler WAJIB memiliki format tanda kurung / pemisah
+      ATAU memiliki konteks kata kunci kontak di sekitarnya.
+    Returns: (is_valid: bool, normalized_phone: str)
+    """
+    if not raw_str:
+        return False, ""
+    raw_clean = str(raw_str).strip()
+    digits = re.sub(r"\D", "", raw_clean)
+    if len(digits) < 9 or len(digits) > 15 or len(set(digits)) <= 2:
+        return False, ""
+
+    if digits.startswith("0"):
+        full_digits = "62" + digits[1:]
+    elif digits.startswith("62"):
+        full_digits = digits
+    else:
+        full_digits = "62" + digits
+
+    # 1. Mobile / WhatsApp (08xx / +628xx)
+    if full_digits.startswith("628"):
+        m = re.match(r"^628(1[1-9]|2[1-3]|3[1-38]|5[1-35-9]|7[78]|8[1-9]|9[5-9])\d{6,9}$", full_digits)
+        if m:
+            return True, "+" + full_digits
+        return False, ""
+
+    # 2. Landline Kabel (Kode Area Indonesia)
+    if not full_digits.startswith("62"):
+        return False, ""
+
+    rest = full_digits[2:]
+    if not rest:
+        return False, ""
+
+    if rest[:2] in AREA_CODES_2_DIGIT:
+        area_code = rest[:2]
+        subscriber_num = rest[2:]
+    elif len(rest) >= 4 and rest[0] in "2345679":
+        area_code = rest[:3]
+        subscriber_num = rest[3:]
+    else:
+        return False, ""
+
+    # Di Indonesia nomor pelanggan lokal telepon kabel TIDAK PERNAH diawali angka 0 atau 1
+    if subscriber_num.startswith("0") or subscriber_num.startswith("1"):
+        return False, ""
+
+    # Panjang nomor pelanggan lokal telepon kabel umumnya 5 s.d. 8 digit
+    if not (5 <= len(subscriber_num) <= 8):
+        return False, ""
+
+    # Telepon kabel non-seluler WAJIB berformat eksplisit ATAU berada dekat kata kunci kontak
+    has_explicit_format = bool(re.search(r"[\(\)\s\.\-]", raw_clean))
+    if not (has_explicit_format or has_contact_context):
+        return False, ""
+
+    return True, "+" + full_digits
+
+
+def strip_ojs_profile_table_noise(text: str) -> str:
+    """
+    PEMBERSIH HEADER TABEL BIODATA OJS PADA FOCUS & SCOPE (v1.6.1):
+    Memotong header tabel metadata profil (Journal Title, ISSN/E-ISSN, DOI Prefix, Editor in Chief,
+    Managing Editor, Publisher, Frequency) dan hanya mengambil kalimat deskriptif intinya.
+    """
+    if not text or not text.strip():
+        return ""
+    clean = re.sub(r"\s+", " ", text).strip()
+
+    meta_patterns = [
+        r"journal\s+title", r"issn(?:/e-issn)?", r"doi\s+prefix", r"editor\s+in\s+chief",
+        r"managing\s+editor", r"publisher", r"frequency", r"about\s+the\s+journal",
+        r"penerbit", r"frekuensi", r"judul\s+jurnal"
+    ]
+
+    has_meta = sum(1 for p in meta_patterns if re.search(r"\b" + p + r"\b", clean, re.IGNORECASE)) >= 2
+    if not has_meta:
+        return clean
+
+    triggers = [
+        r"(?:(?:is\s+a(?:n)?|merupakan|adalah)\s+(?:peer-reviewed|jurnal|journal|scholarly|open\s+access)?)",
+        r"(?:publishes|menerbitkan|memuat)\b",
+        r"(?:aims\s+to|bertujuan\s+untuk)\b",
+        r"(?:fokus|focus(?:es|ing)?|scope|ruang\s+lingkup)\b",
+        r"(?:peer-reviewed\s+journal|jurnal\s+ilmiah)\b",
+    ]
+
+    best_pos = -1
+    for tr in triggers:
+        m = re.search(tr, clean, re.IGNORECASE)
+        if m:
+            pos = m.start()
+            if best_pos == -1 or pos < best_pos:
+                best_pos = pos
+
+    if best_pos != -1:
+        pre_chunk = clean[:best_pos]
+        m_title = re.search(r"((?:[A-Z][a-zA-Z0-9]*\s+(?:dan|and|of|in|the|di|pada|untuk|[A-Z][a-zA-Z0-9]*)\s*)+)$", pre_chunk)
+        if m_title and not any(re.search(r"\b" + mp + r"\b", m_title.group(1), re.IGNORECASE) for mp in meta_patterns):
+            start_idx = pre_chunk.rfind(m_title.group(1).strip())
+            candidate = clean[start_idx:].strip()
+        else:
+            candidate = clean[best_pos:].strip()
+
+        candidate = re.sub(r"^(?:(?:january|february|march|april|may|june|july|august|september|october|november|december|januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember)\b[,\s]*)+", "", candidate, flags=re.IGNORECASE).strip()
+        candidate = candidate[:1].upper() + candidate[1:]
+        if len(candidate) >= 20:
+            return candidate
+
+    return clean
+
+
+def synthesize_focus_scope(entry_or_dict: any) -> tuple[str, str]:
+    """
+    ZERO-EMPTY FOCUS & SCOPE SYNTHESIZER (v1.6.1):
+    Menjamin 100% jurnal memiliki Focus & Scope yang representatif.
+    Menggunakan data Bidang Keilmuan (subject_area) dari SINTA/Garuda dan judul/penerbit jurnal.
+    Returns: (synthesized_text, "SINTA/Garuda")
+    """
+    if isinstance(entry_or_dict, dict):
+        sub = entry_or_dict.get("bidang") or entry_or_dict.get("subject_area") or ""
+        pub = entry_or_dict.get("penerbit") or ""
+        name = entry_or_dict.get("nama_jurnal") or entry_or_dict.get("judul") or ""
+        rank = entry_or_dict.get("peringkat_sinta") or ""
+    else:
+        sub = getattr(entry_or_dict, "bidang", "") or getattr(entry_or_dict, "subject_area", "") or ""
+        pub = getattr(entry_or_dict, "penerbit", "") or ""
+        name = getattr(entry_or_dict, "nama_jurnal", "") or getattr(entry_or_dict, "judul", "") or ""
+        rank = getattr(entry_or_dict, "peringkat_sinta", "") or ""
+
+    sub = str(sub).strip()
+    pub = str(pub).strip()
+    if sub == INFO_NOT_FOUND or "tidak ditemukan" in sub.lower():
+        sub = ""
+    if pub == INFO_NOT_FOUND or "tidak ditemukan" in pub.lower():
+        pub = ""
+
+    if sub and pub:
+        text = f"Menerbitkan riset ilmiah di bidang {sub}, dikelola dan diterbitkan secara berkala oleh {pub}."
+    elif sub:
+        text = f"Menerbitkan riset ilmiah di bidang {sub}."
+    elif pub:
+        text = f"Mempublikasikan artikel hasil riset dan kajian ilmiah berkualitas, diterbitkan secara resmi oleh {pub}."
+    elif name:
+        if rank and rank != INFO_NOT_FOUND:
+            text = f"Jurnal ilmiah berkala terakreditasi {rank} yang memuat artikel hasil penelitian dan kajian teoritis/empiris."
+        else:
+            text = f"Jurnal ilmiah berkala yang mempublikasikan artikel hasil penelitian dan telaah keilmuan bereputasi."
+    else:
+        text = "Menerbitkan artikel ilmiah hasil penelitian dan telaah akademis berkala."
+
+    return text, "SINTA/Garuda"
 
 
 # ── OJS ROOT DOMAIN REACHABILITY CIRCUIT BREAKER (v1.3.6) ─────────────────────
@@ -1045,8 +1212,9 @@ def _extract_contacts_from_text(html_text: str, plain_text: str, ojs_url: str = 
     # Ranking dan eliminasi email mahasiswa (NIM)
     found_emails = rank_and_filter_emails(clean_em_candidates, ojs_url=ojs_url)
 
-    # 3. Regex Telepon / WhatsApp dengan filter anti-tanggal, anti-tahun & anti-ISSN
-    for ph in RE_PHONE.findall(plain_text):
+    # 3. Regex Telepon / WhatsApp dengan Anti-Fake Phone Validator & Proximity Context (v1.6.1)
+    for m in RE_PHONE.finditer(plain_text):
+        ph = m.group(0)
         clean_ph = re.sub(r"\s+", " ", ph).strip()
         # Buang derau pola tanggal (contoh: 2024-05-12, 12-05-2024, 026 2026-04-07, 022-12-28-11050)
         if RE_DATE_LIKE.search(clean_ph):
@@ -1062,41 +1230,28 @@ def _extract_contacts_from_text(html_text: str, plain_text: str, ojs_url: str = 
         if clean_ph.startswith("020-") or clean_ph.startswith("020 "):
             continue
 
-        digits = re.sub(r"\D", "", clean_ph)
-        # Buang jika panjang digit 8 (kemungkinan besar format ISSN seperti 2527-3027)
-        if len(digits) == 8:
-            continue
-        # Validasi panjang nomor telepon valid Indonesia (9 s.d. 15 digit, mencakup telepon kabel area 021/0271)
-        if not (9 <= len(digits) <= 15):
-            continue
+        # Proximity context: cek apakah ada kata kunci kontak dalam rentang 80 karakter
+        start_pos, end_pos = m.start(), m.end()
+        surrounding = plain_text[max(0, start_pos - 80):min(len(plain_text), end_pos + 80)].lower()
+        has_ctx = any(k in surrounding for k in CONTACT_CONTEXT_KEYWORDS)
 
-        # Cek kode prefix valid Indonesia (+62, 62, 0, atau area code diawali [2-9])
-        if clean_ph.startswith("+62") or clean_ph.startswith("62"):
-            pref = digits[2:3] if len(digits) > 2 else ""
-        elif clean_ph.startswith("0"):
-            pref = digits[1:2] if len(digits) > 1 else ""
-        else:
-            pref = digits[0:1] if len(digits) > 0 else ""
-
-        if pref not in "2345789":
+        ok, norm_ph = is_valid_indonesian_phone(clean_ph, has_contact_context=has_ctx)
+        if not ok:
             continue
 
-        # Buang nomor dengan karakter repetitif dummy (seperti 0800000000)
-        if len(set(digits)) <= 2:
-            continue
-
-        if clean_ph not in found_phones:
-            found_phones.append(clean_ph)
+        if norm_ph not in found_phones:
+            found_phones.append(norm_ph)
 
     return found_emails, found_phones
 
 
 def clean_contact_list(items: list[str] | str, contact_type: str = "email", ojs_url: str = "") -> str:
     """
-    Sanitasi Rigid Kontak Redaksi (v1.6.0):
+    Sanitasi Rigid Kontak Redaksi (v1.6.1):
     - Eliminasi mutlak string error/fallback ("tidak dapat diakses", "none", "null", dll).
     - Validasi format email & buang domain dummy (@example.com, @pkp.sfu.ca, dll).
     - Prioritaskan email resmi redaksi/kampus dan buang NIM mahasiswa.
+    - Anti-Fake Phone Validator: Tolak nomor palsu/acak dari DOI/ID (seperti +622100..., +622118...).
     - Normalisasi nomor telepon dan deduplikasi nomor yang hanya berbeda tanda strip / spasi.
     """
     if isinstance(items, str):
@@ -1141,18 +1296,10 @@ def clean_contact_list(items: list[str] | str, contact_type: str = "email", ojs_
             it_clean = it.strip()
             if it_clean.lower() in forbidden_exact or any(sub in it_clean.lower() for sub in forbidden_subs):
                 continue
-            digits = re.sub(r"\D", "", it_clean)
-            if len(digits) == 8 or len(set(digits)) <= 2 or not (9 <= len(digits) <= 15):
-                continue
 
-            if digits.startswith("0"):
-                norm_phone = "+62" + digits[1:]
-            elif digits.startswith("62"):
-                norm_phone = "+" + digits
-            elif it_clean.startswith("+"):
-                norm_phone = "+" + digits
-            else:
-                norm_phone = digits
+            ok, norm_phone = is_valid_indonesian_phone(it_clean, has_contact_context=True)
+            if not ok:
+                continue
 
             norm_digits = re.sub(r"\D", "", norm_phone)
             if norm_digits not in seen_digits:
@@ -2344,10 +2491,22 @@ def _scrape_garuda_single_keyword(
         console.print(f"[green]   ✓ Ditemukan {len(page_journals)} jurnal di halaman {page}[/green]")
         all_journals.extend(page_journals)
 
-        if len(all_journals) >= max_results:
-            all_journals = all_journals[:max_results]
-            console.print(f"[dim]   Target {max_results} hasil Garuda tercapai.[/dim]")
-            break
+        # High-Yield Candidate Pool (v1.6.1): Over-fetch minimal 3x atau 60 jurnal
+        pool_target = max(max_results * 3, 60)
+        if sinta_ranks:
+            rank_labels = [f"S{r}" for r in sinta_ranks] + [f"Sinta {r}" for r in sinta_ranks] + [str(r) for r in sinta_ranks]
+            cur_matching = [
+                j for j in all_journals
+                if any(r in j.peringkat_sinta for r in rank_labels)
+                or j.peringkat_sinta == INFO_NOT_FOUND
+            ]
+            if len(cur_matching) >= max(max_results * 2, 40) or len(all_journals) >= pool_target:
+                console.print(f"[dim]   Pool kandidat Garuda memadai ({len(cur_matching)} lolos SINTA / {len(all_journals)} total).[/dim]")
+                break
+        else:
+            if len(all_journals) >= pool_target:
+                console.print(f"[dim]   Target pool {pool_target} kandidat Garuda tercapai.[/dim]")
+                break
 
         delay = random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX)
         time.sleep(delay)
@@ -2363,8 +2522,10 @@ def _scrape_garuda_single_keyword(
     else:
         filtered = all_journals
 
-    if len(filtered) > max_results:
-        filtered = filtered[:max_results]
+    # Pertahankan candidate pool yang melimpah untuk deep scrape & filter biaya hilir
+    pool_limit = max(max_results * 2, 40) if deep_detail else max_results
+    if len(filtered) > pool_limit:
+        filtered = filtered[:pool_limit]
 
     console.print(f"\n[bold]📊 Hasil Garuda: {len(filtered)} jurnal dihimpun[/bold]")
 
@@ -2390,9 +2551,16 @@ def _scrape_garuda_single_keyword(
                         entry.frekuensi = res.get("frekuensi", INFO_NOT_FOUND)
                         entry.apc_status = res.get("apc_status", APC_UNKNOWN)
                         entry.apc_amount = res.get("apc_amount", None)
-                        entry.focus_scope = res.get("focus_scope", INFO_NOT_FOUND)
-                        if not entry.focus_scope or entry.focus_scope == INFO_NOT_FOUND:
-                            entry.focus_scope = build_tier3_scope_fallback(entry)
+                        
+                        raw_scope = res.get("focus_scope", INFO_NOT_FOUND)
+                        if not raw_scope or raw_scope == INFO_NOT_FOUND or "tidak ditemukan" in str(raw_scope).lower():
+                            synth_text, synth_src = synthesize_focus_scope(entry)
+                            entry.focus_scope = synth_text
+                            entry.sumber_focus = synth_src
+                        else:
+                            entry.focus_scope = strip_ojs_profile_table_noise(raw_scope)
+                            entry.sumber_focus = res.get("sumber_focus", "Regex") or "Regex"
+
                         entry.status_server = res.get("status_server", "Aktif (HTTP)")
                         entry.transparansi_kontak = res.get("transparansi_kontak", "Tidak Transparan")
                         if entry.issn == INFO_NOT_FOUND and res.get("issn") and res.get("issn") != INFO_NOT_FOUND:
@@ -2431,6 +2599,17 @@ def _scrape_garuda_single_keyword(
                     f.result()
         except Exception:
             pass
+
+    # Selalu hitung keyword match score untuk setiap jurnal agar kolom Kesesuaian & Skor terisi (v1.6.1)
+    try:
+        from doc_reader import calculate_keyword_match_score
+        for entry in filtered:
+            if entry.match_score <= 0 or not entry.kesesuaian_naskah:
+                sc = calculate_keyword_match_score(keyword, entry)
+                entry.match_score = sc.get("score", 40)
+                entry.kesesuaian_naskah = sc.get("level", "Cukup Sesuai")
+    except Exception:
+        pass
 
     return filtered
 

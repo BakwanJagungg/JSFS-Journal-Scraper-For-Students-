@@ -203,21 +203,36 @@ def run(args):
     deep_mode = getattr(args, "deep", False)
     limit_val = getattr(args, "limit", 50)
     turbo_val = getattr(args, "turbo", True)
+    candidate_limit = max(limit_val * 3, 60)
 
     if args.source in ("garuda", "both"):
-        garuda_results = scrape_garuda(keyword, sinta_ranks, deep_detail=deep_mode, max_results=limit_val, turbo_mode=turbo_val)
+        garuda_results = scrape_garuda(keyword, sinta_ranks, deep_detail=deep_mode, max_results=candidate_limit, turbo_mode=turbo_val)
         all_results.extend(garuda_results)
 
     if args.source in ("sinta", "both"):
         if args.selenium:
-            sinta_results = scrape_sinta_selenium(keyword, sinta_ranks, deep_detail=deep_mode, max_results=limit_val, turbo_mode=turbo_val)
+            sinta_results = scrape_sinta_selenium(keyword, sinta_ranks, deep_detail=deep_mode, max_results=candidate_limit, turbo_mode=turbo_val)
         else:
-            sinta_results = scrape_sinta(keyword, sinta_ranks, deep_detail=deep_mode, max_results=limit_val, turbo_mode=turbo_val)
+            sinta_results = scrape_sinta(keyword, sinta_ranks, deep_detail=deep_mode, max_results=candidate_limit, turbo_mode=turbo_val)
         all_results.extend(sinta_results)
 
     # Deduplikasi & Penggabungan Data Lintas Sumber (Cross-Source Fallback Merging)
     unique_results = merge_cross_source_entries(all_results)
+    if len(unique_results) > limit_val:
+        unique_results = unique_results[:limit_val]
     console.print(f"\n[bold]📦 Total unik: {len(unique_results)} jurnal[/bold]")
+
+    # Zero-Empty Focus & Scope Synthesizer (v1.6.1)
+    try:
+        from scraper_garuda import synthesize_focus_scope
+        for j in unique_results:
+            f_sc = getattr(j, "focus_scope", "")
+            if not f_sc or f_sc == "Informasi tidak ditemukan dalam situs jurnal" or "tidak ditemukan" in str(f_sc).lower():
+                synth_text, synth_src = synthesize_focus_scope(j)
+                j.focus_scope = synth_text
+                j.sumber_focus = synth_src
+    except Exception:
+        pass
 
     # ── Analisis Naskah & Rekomendasi Jurnal (v1.3.5) ──────────────────────────
     if getattr(args, "manuscript", None):

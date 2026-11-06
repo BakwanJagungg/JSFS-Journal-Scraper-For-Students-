@@ -58,6 +58,9 @@ from scraper_garuda import (
     build_tier3_scope_fallback,
     resolve_garuda_profile_meta,
     decode_cfemail,
+    is_valid_indonesian_phone,
+    strip_ojs_profile_table_noise,
+    synthesize_focus_scope,
     APC_UNKNOWN,
 )
 
@@ -228,21 +231,26 @@ def _process_deep_sinta_entry(session: requests.Session, entry: JournalEntry, st
             entry.raw_submissions = res.get("raw_submissions", "")
             entry.bulan_terbit = res.get("bulan_terbit", [])
             # Jika OJS tidak menyediakan Focus & Scope, periksa profil Garuda
-            if (not entry.focus_scope or entry.focus_scope == INFO_NOT_FOUND) and entry.garuda_profile_url:
+            if (not entry.focus_scope or entry.focus_scope == INFO_NOT_FOUND or "tidak ditemukan" in str(entry.focus_scope).lower()) and entry.garuda_profile_url:
                 g_meta = resolve_garuda_profile_meta(session, entry.garuda_profile_url)
                 if g_meta.get("focus_scope"):
                     entry.focus_scope = g_meta["focus_scope"]
-            if not entry.focus_scope or entry.focus_scope == INFO_NOT_FOUND:
-                entry.focus_scope = build_tier3_scope_fallback(entry)
 
         # Fallback jika OJS tidak bisa dihubungi atau profil Garuda tersedia
-        if (not entry.focus_scope or entry.focus_scope == INFO_NOT_FOUND) and entry.garuda_profile_url:
+        if (not entry.focus_scope or entry.focus_scope == INFO_NOT_FOUND or "tidak ditemukan" in str(entry.focus_scope).lower()) and entry.garuda_profile_url:
             g_meta = resolve_garuda_profile_meta(session, entry.garuda_profile_url)
             if g_meta.get("focus_scope"):
                 entry.focus_scope = g_meta["focus_scope"]
 
-        if not entry.focus_scope or entry.focus_scope == INFO_NOT_FOUND:
-            entry.focus_scope = build_tier3_scope_fallback(entry)
+        # Zero-Empty Focus & Scope Synthesizer & Profile Table Noise Stripper (v1.6.1)
+        if not entry.focus_scope or entry.focus_scope == INFO_NOT_FOUND or "tidak ditemukan" in str(entry.focus_scope).lower():
+            synth_text, synth_src = synthesize_focus_scope(entry)
+            entry.focus_scope = synth_text
+            entry.sumber_focus = synth_src
+        else:
+            entry.focus_scope = strip_ojs_profile_table_noise(entry.focus_scope)
+            if not getattr(entry, "sumber_focus", ""):
+                entry.sumber_focus = "Regex"
     except Exception:
         pass
 
@@ -455,13 +463,15 @@ def _scrape_sinta_single_keyword(
                 console.print(f"[green]   ✓ Ditemukan {len(p_journals)} jurnal di halaman {p}[/green]")
                 all_journals.extend(p_journals)
 
+                # High-Yield Candidate Pool (v1.6.1): Over-fetch minimal 3x atau 60 jurnal
+                pool_target = max(max_results * 3, 60)
                 if sinta_ranks:
                     cur_matching = [j for j in all_journals if any(r in j.peringkat_sinta for r in rank_labels)]
-                    if len(cur_matching) >= max_results:
+                    if len(cur_matching) >= max(max_results * 2, 40) or len(all_journals) >= pool_target:
                         stop_scraping = True
                         break
                 else:
-                    if len(all_journals) >= max_results:
+                    if len(all_journals) >= pool_target:
                         stop_scraping = True
                         break
 
@@ -471,8 +481,10 @@ def _scrape_sinta_single_keyword(
     else:
         filtered = all_journals
 
-    if len(filtered) > max_results:
-        filtered = filtered[:max_results]
+    # Pertahankan candidate pool yang melimpah untuk deep scrape & filter biaya hilir
+    pool_limit = max(max_results * 2, 40) if deep_detail else max_results
+    if len(filtered) > pool_limit:
+        filtered = filtered[:pool_limit]
 
     console.print(f"\n[bold]📊 Hasil SINTA terfilter: {len(filtered)} jurnal[/bold]")
 
@@ -511,6 +523,17 @@ def _scrape_sinta_single_keyword(
                     f.result()
         except Exception:
             pass
+
+    # Selalu hitung keyword match score untuk setiap jurnal agar kolom Kesesuaian & Skor terisi (v1.6.1)
+    try:
+        from doc_reader import calculate_keyword_match_score
+        for entry in filtered:
+            if entry.match_score <= 0 or not entry.kesesuaian_naskah:
+                sc = calculate_keyword_match_score(keyword, entry)
+                entry.match_score = sc.get("score", 40)
+                entry.kesesuaian_naskah = sc.get("level", "Cukup Sesuai")
+    except Exception:
+        pass
 
     return filtered
 
@@ -689,8 +712,10 @@ def scrape_sinta_selenium(
     else:
         filtered = all_journals
 
-    if len(filtered) > max_results:
-        filtered = filtered[:max_results]
+    # Pertahankan candidate pool yang melimpah untuk deep scrape & filter biaya hilir
+    pool_limit = max(max_results * 2, 40) if deep_detail else max_results
+    if len(filtered) > pool_limit:
+        filtered = filtered[:pool_limit]
 
     if filtered and deep_detail:
         console.print(f"[bold cyan]🔍 Menjalankan Quad-Pass Deep Scraping Selenium ({len(filtered)} jurnal) [{active_workers} workers]...[/bold cyan]")
@@ -726,6 +751,17 @@ def scrape_sinta_selenium(
                     f.result()
         except Exception:
             pass
+
+    # Selalu hitung keyword match score untuk setiap jurnal agar kolom Kesesuaian & Skor terisi (v1.6.1)
+    try:
+        from doc_reader import calculate_keyword_match_score
+        for entry in filtered:
+            if entry.match_score <= 0 or not entry.kesesuaian_naskah:
+                sc = calculate_keyword_match_score(keyword, entry)
+                entry.match_score = sc.get("score", 40)
+                entry.kesesuaian_naskah = sc.get("level", "Cukup Sesuai")
+    except Exception:
+        pass
 
     return filtered
 
