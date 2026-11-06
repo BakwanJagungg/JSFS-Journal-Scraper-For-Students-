@@ -1,6 +1,6 @@
-# 📚 JSFS — Journal Scraper For Students (v1.5.1 Hybrid AI Engine)
+# 📚 JSFS — Journal Scraper For Students (v1.6.0 Human-Parity Accuracy Engine)
 
-> **Alat otomatisasi pencarian jurnal SINTA & Garuda untuk mahasiswa & peneliti: Hybrid AI Engine (Ollama qwen2.5:3b + Fallback Regex Legacy), Mode Simpel & 4 Preset Mahasiswa (Target Skripsi, Jurnal Gratis, Terbit Terdekat, Reputasi Tinggi), Top 3 AI Advisor, Next Issue Estimator, Salin Draf Chat Editor, Smart SQLite WAL Cache, dan Eliminasi Total GUI Blackout & MEI Directory Lock.**
+> **Alat otomatisasi pencarian jurnal SINTA & Garuda untuk mahasiswa & peneliti: Human-Parity Accuracy Engine (Dynamic OJS Menu Discovery, Archive Schedule Verification, Cloudflare Email Decoder, 3-State APC Accuracy), Zero-Crash & Anti-Freeze Architecture, 1-Click Copy-Paste Share List Generator, Hybrid AI Engine (Ollama qwen2.5:3b + Smart Regex), Mode Simpel & 4 Preset Mahasiswa, Top 3 AI Advisor, dan Smart SQLite WAL Cache.**
 
 ---
 
@@ -12,18 +12,27 @@ Mencari jurnal yang tepat di portal **SINTA** dan **Garuda** secara manual serin
 - ❌ Sulit memfilter peringkat SINTA yang realistis untuk target publikasi mahasiswa (misal: SINTA 3–5).
 - ❌ Informasi biaya naskah sering ambigu antara biaya submit (*submission fee*) dan biaya publikasi (*publication charge / APC*).
 - ❌ Sulit mencocokkan jadwal bulan terbit jurnal (*call for papers*) dengan tenggat waktu sidang/kelulusan.
-- ❌ Kontak redaksi (Email/WA) dan link OJS sering mati tanpa peringatan sebelumnya.
+- ❌ Kontak redaksi (Email/WA) sering disembunyikan di balik proteksi Cloudflare atau terselubung di menu navigasi.
 
-**JSFS (Journal Scraper For Students) v1.5.1** hadir untuk menyelesaikan seluruh masalah tersebut:
-1. ✨ **Mode Simpel & 4 Quick Presets Mahasiswa (Baru di v1.5.1)**:
+**JSFS (Journal Scraper For Students) v1.6.0** hadir untuk menyelesaikan seluruh masalah tersebut:
+1. 🧠 **Human-Parity Accuracy Engine (Baru di v1.6.0)**:
+   - 🔍 **Dynamic Menu Anchor Discovery**: Memindai link menu navigasi & sidebar OJS secara dinamis untuk melacak halaman APC tersembunyi (`fee`, `apc`, `biaya`, `tarif`) dan kontak resmi redaksi.
+   - 📅 **Verifikasi Jadwal Terbit via Arsip (`/issue/archive`)**: Membaca judul edisi terbitan riil pada arsip jurnal saat halaman About tidak mencantumkan bulan terbit secara eksplisit.
+   - 💰 **Akurasi Biaya Publikasi (APC) 3-Status**: Standarisasi status `Gratis (Rp 0)`, `Rp X.XXX.XXX`, dan `Cek Web / Belum Terdata`. Eliminasi mutlak *false positive* Gratis dari biaya submit Rp 0.
+   - 🔓 **Dekoder Cloudflare & Email Redaksi Resmi**: Dekripsi tag hex `<a class="__cf_email__">`, deobfuskasi format `[at]`/`[dot]`, prioritas email domain kampus/redaksi, pembersihan otomatis NIM mahasiswa, dan regex nomor telepon kampus `(021)`/`(0271)` & WhatsApp.
+2. 📋 **1-Click Copy-Paste List Generator (Baru di v1.6.0)**:
+   - Generator daftar bernomor siap *share* ke WhatsApp/Telegram grup rekan mahasiswa/dosen.
+   - Tombol instan `📋 Salin Semua Daftar (Format Share)` pada jendela previewer data dengan animasi konfirmasi 2.5 detik.
+   - Blok daftar copy-paste di dalam file Markdown (`.md`) dan pembuatan otomatis berkas teks pendamping `JSFS_<keyword>_<timestamp>_LIST.txt`.
+3. 🛡️ **Zero-Crash & Anti-Freeze Architecture (Baru di v1.6.0)**:
+   - `safe_fetch_html`: Filter Content-Type ketat (hanya memproses HTML) dan pembatas ukuran respons maksimal 1.5 MB untuk mencegah freeze akibat crawler mengunduh file PDF atau ZIP besar.
+   - Pelindung multi-layer `try...except Exception:` di seluruh thread scraper dan worker.
+4. ✨ **Mode Simpel & 4 Quick Presets Mahasiswa**:
    - 🎓 **Target Skripsi S1**: SINTA 3–5, biaya murah/gratis, jadwal teratur.
    - 💰 **Jurnal Gratis (Rp 0)**: Hanya jurnal bebas biaya publikasi (Bebas APC).
    - ⚡ **Terbit Terdekat**: Memfilter jurnal dengan edisi terbit 1–3 bulan ke depan agar pas dengan jadwal yudisium.
    - 🏆 **Reputasi Tinggi**: SINTA 1 & 2 (Akreditasi A / Scopus) untuk mahasiswa magister, doktoral, atau hibah.
-2. 💬 **Salin Draf Chat Editor (Baru di v1.5.1)**: Satu klik pada pop-up previewer untuk menyalin draf pesan WhatsApp/Email yang sopan ke redaksi menanyakan kuota edisi terdekat.
-3. ❓ **Modal Panduan Singkat (Baru di v1.5.1)**: Akses panduan praktis memilih jurnal, memahami SINTA, dan tips publikasi langsung dari tombol di header GUI.
-4. 🚀 **Stabilitas Ekstrem & Anti-Blackout (Baru di v1.5.1)**: Arsitektur non-blocking event loop dengan batch queue polling (80 ms) dan memory-bounded log buffer (500 baris) mencegah Windows `WM_PAINT` render starvation.
-5. 🛡️ **Zero Lock PyInstaller (Baru di v1.5.1)**: Direktori cache terisolasi pada folder aplikasi dan graceful SQLite checkpoint (`PRAGMA wal_checkpoint(TRUNCATE);`) saat keluar, melenyapkan error `_MEIxxxxxx` lock.
+5. 💬 **Salin Draf Chat Editor**: Satu klik pada pop-up previewer untuk menyalin draf pesan WhatsApp/Email yang sopan ke redaksi menanyakan kuota edisi terdekat.
 6. 🏆 **Top 3 Rekomendasi Jurnal (AI Advisor)**: Scoring multi-kriteria (Relevansi 40%, Biaya 25%, Kecepatan 20%, SINTA 15%) dengan justifikasi keunggulan jurnal.
 7. 🤖 **Hybrid AI Engine (Ollama qwen2.5:3b + Smart Regex Fallback)**: Ekstraksi cerdas Focus & Scope dan pemisahan Author Fees (Submit vs Publikasi) dengan filter anti-halusinasi.
 8. ⚡ **Smart SQLite WAL Cache**: Caching lokal metadata jurnal OJS dengan TTL 14 hari, mempercepat pencarian berulang hingga 80-90%.
@@ -111,10 +120,11 @@ python jsfs.py --keyword "sistem informasi" --source sinta --selenium
 Semua berkas hasil scraping tersimpan secara otomatis di folder **`output/`** dengan penamaan unik:
 `JSFS_<keyword>_<YYYYMMDD_HHMMSS>.<ext>` (Contoh: `JSFS_bisnis_20261020_210000.xlsx`)
 
-| Format | Keunggulan & Fitur Visual v1.5.1 |
+| Format | Keunggulan & Fitur Visual v1.6.0 |
 |:---:|---|
+| **Text List (`_LIST.txt`)** | Format bernomor 1-klik ringkas (Nama Jurnal, Sinta, Penerbit, Email, Telepon/WA, Biaya Publikasi, Bulan Terbit, Link OJS) yang siap copy-paste langsung ke grup WhatsApp/Telegram rekan mahasiswa. |
+| **Markdown (`.md`)** | Tabel terstruktur, seksi Top 3 Rekomendasi Jurnal dengan justifikasi skor, Direktori Kontak Cepat Redaksi Jurnal dengan tautan WhatsApp, dan blok kode khusus `📋 Daftar Ringkas Siap Copy-Paste`. |
 | **Excel (`.xlsx`)** | Header Navy Blue elegan, sheet terpisah `🏆 Rekomendasi AI` (Top 3 Advisor), kolom Kesesuaian & Skor, tautan OJS aktif (`=HYPERLINK`), dan auto-fit lebar kolom. |
-| **Markdown (`.md`)** | Tabel terstruktur, seksi Top 3 Rekomendasi Jurnal dengan justifikasi skor, dan Direktori Kontak Cepat Redaksi Jurnal dengan tautan WhatsApp interaktif. |
 | **CSV (`.csv`)** | Format tabel standar dengan UTF-8 BOM untuk integrasi ke Google Sheets, database, atau pengolah data statistik. |
 
 ---
@@ -136,7 +146,8 @@ Setelah build selesai, berkas executable siap pakai berada di direktori **`dist/
 | **v1.1.0 – v1.3.8** | ✅ Selesai | GUI CustomTkinter Dark Mode, Zero Clipping, OJS Deep Scrape, Focus & Scope multi-tier |
 | **v1.4.0 (AI Hybrid)** | ✅ Selesai | Hybrid AI Engine (Ollama qwen2.5:3b + Smart Regex), 1-Click AI Setup, Dual Progress |
 | **v1.5.0 (Intelligence)** | ✅ Selesai | SQLite WAL Cache, Top 3 AI Advisor, Match Score dwibahasa, Schedule Estimator |
-| **v1.5.1 (Stability & UX)** | 🚀 Rilis Ini | Progressive Disclosure (4 Quick Presets), Eliminasi GUI Blackout & MEI lock, Salin Draf Chat Editor, Panduan Singkat |
+| **v1.5.1 (Stability & UX)** | ✅ Selesai | Progressive Disclosure (4 Quick Presets), Eliminasi GUI Blackout & MEI lock, Salin Draf Chat Editor, Panduan Singkat |
+| **v1.6.0 (Human-Parity)** | 🚀 Rilis Ini | Human-Parity Accuracy Engine (Dynamic OJS Menu Discovery, CF Email Decoder, Archive Schedule Parser), 3-State APC Accuracy, Zero-Crash Guard, dan 1-Click Copy-Paste Share List |
 | **v2.0.0** | 💡 Rencana | Versi Web App Multi-user (FastAPI + React/Vite) untuk akses bersama dalam lab/kampus |
 
 ---

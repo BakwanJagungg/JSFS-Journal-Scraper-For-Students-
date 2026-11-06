@@ -260,3 +260,22 @@ def get_next_issue_estimate(months_num: Any, ref_date: Optional[datetime] = None
     if delta == 0:
         return f"{m_str} {target_year} (Bulan Ini)"
     return f"{m_str} {target_year} ({delta} bln lagi)"
+
+
+def extract_months_from_archive_titles(titles: list[str]) -> list[int]:
+    """
+    Ekstraksi jadwal bulan terbit nyata dari daftar judul edisi terbitan (Issue Archive) v1.6.0.
+    Misal: ['Vol. 10 No. 1 (2026): April - Oktober', 'Vol 5 No 2 (2025): Desember'] -> [4, 10, 12].
+    """
+    if not titles:
+        return []
+    found_months: set[int] = set()
+    for t in titles:
+        if not t or not isinstance(t, str):
+            continue
+        cleaned = t.strip()
+        # Judul edisi umumnya memuat nama bulan (mis: 'Vol 1 No 1: April - Mei 2026')
+        ms = parse_bulan_terbit(cleaned)
+        found_months.update(ms)
+    return sorted(found_months)
+

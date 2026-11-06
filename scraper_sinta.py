@@ -57,6 +57,8 @@ from scraper_garuda import (
     merge_cross_source_entries,
     build_tier3_scope_fallback,
     resolve_garuda_profile_meta,
+    decode_cfemail,
+    APC_UNKNOWN,
 )
 
 console = Console()
@@ -161,81 +163,88 @@ def resolve_sinta_ojs_url(session: requests.Session, profile_url: str) -> str:
 
 def _process_deep_sinta_entry(session: requests.Session, entry: JournalEntry, stop_event: Optional[threading.Event] = None) -> JournalEntry:
     """
-    Worker untuk menuntaskan resolusi URL OJS dan deep detail extraction secara paralel (v1.3.6).
-    Dilengkapi Fast-Fail Circuit Breaker dan Stop Event short-circuiting.
+    Worker untuk menuntaskan resolusi URL OJS dan deep detail extraction secara paralel (v1.6.0).
+    Dilengkapi Fast-Fail Circuit Breaker, Stop Event short-circuiting, dan Multi-layered Exception Shield.
     """
     if stop_event and stop_event.is_set():
         return entry
 
-    # 1. Jika link_ojs belum ditemukan atau masih mengarah ke SINTA, ambil dari profil SINTA
-    if (not entry.link_ojs or "kemdiktisaintek.go.id" in entry.link_ojs) and entry.sinta_profile_url:
-        p_meta = resolve_sinta_profile_meta(session, entry.sinta_profile_url)
-        if p_meta.get("ojs_url"):
-            entry.link_ojs = p_meta["ojs_url"]
-        if entry.issn == INFO_NOT_FOUND and p_meta.get("issn") and p_meta.get("issn") != INFO_NOT_FOUND:
-            entry.issn = p_meta["issn"]
-        if entry.e_issn == INFO_NOT_FOUND and p_meta.get("e_issn") and p_meta.get("e_issn") != INFO_NOT_FOUND:
-            entry.e_issn = p_meta["e_issn"]
-        if p_meta.get("subject") and p_meta.get("subject") != INFO_NOT_FOUND:
-            entry.bidang = clean_and_merge_subjects(entry.bidang, p_meta["subject"])
+    try:
+        # 1. Jika link_ojs belum ditemukan atau masih mengarah ke SINTA, ambil dari profil SINTA
+        if (not entry.link_ojs or "kemdiktisaintek.go.id" in entry.link_ojs) and entry.sinta_profile_url:
+            p_meta = resolve_sinta_profile_meta(session, entry.sinta_profile_url)
+            if p_meta.get("ojs_url"):
+                entry.link_ojs = p_meta["ojs_url"]
+            if entry.issn == INFO_NOT_FOUND and p_meta.get("issn") and p_meta.get("issn") != INFO_NOT_FOUND:
+                entry.issn = p_meta["issn"]
+            if entry.e_issn == INFO_NOT_FOUND and p_meta.get("e_issn") and p_meta.get("e_issn") != INFO_NOT_FOUND:
+                entry.e_issn = p_meta["e_issn"]
+            if p_meta.get("subject") and p_meta.get("subject") != INFO_NOT_FOUND:
+                entry.bidang = clean_and_merge_subjects(entry.bidang, p_meta["subject"])
 
-    # 2. Jika link OJS valid dan tidak mengarah ke SINTA, lakukan Quad-Pass Deep Scraping
-    if entry.link_ojs and "kemdiktisaintek.go.id" not in entry.link_ojs and entry.link_ojs.startswith("http"):
-        # Fast-Fail Circuit Breaker: Uji ketersediaan domain induk sebelum crawling sub-jalur
-        if not check_ojs_domain_reachable(session, entry.link_ojs):
-            entry.apc_status = DEAD_LINK_TEXT
-            entry.frekuensi = DEAD_LINK_TEXT
-            entry.email = INFO_NOT_FOUND
-            entry.telepon = INFO_NOT_FOUND
-            entry.status_server = "Non-Aktif"
-            entry.transparansi_kontak = "Tidak Transparan"
-            # Coba ambil focus_scope dari garuda_profile_url jika ada sebelum fallback ke Tier 3B
-            if entry.garuda_profile_url:
+        # 2. Jika link OJS valid dan tidak mengarah ke SINTA, lakukan Quad-Pass Deep Scraping
+        if entry.link_ojs and "kemdiktisaintek.go.id" not in entry.link_ojs and entry.link_ojs.startswith("http"):
+            # Fast-Fail Circuit Breaker: Uji ketersediaan domain induk sebelum crawling sub-jalur
+            if not check_ojs_domain_reachable(session, entry.link_ojs):
+                entry.apc_status = DEAD_LINK_TEXT
+                entry.frekuensi = DEAD_LINK_TEXT
+                entry.email = INFO_NOT_FOUND
+                entry.telepon = INFO_NOT_FOUND
+                entry.status_server = "Non-Aktif"
+                entry.transparansi_kontak = "Tidak Transparan"
+                if entry.garuda_profile_url:
+                    g_meta = resolve_garuda_profile_meta(session, entry.garuda_profile_url)
+                    if g_meta.get("focus_scope"):
+                        entry.focus_scope = g_meta["focus_scope"]
+                if not entry.focus_scope or entry.focus_scope == INFO_NOT_FOUND:
+                    entry.focus_scope = build_tier3_scope_fallback(entry)
+                return entry
+
+            res = extract_ojs_deep_info(session, entry.link_ojs, stop_event=stop_event)
+            entry.email = clean_contact_list(res.get("email", INFO_NOT_FOUND), contact_type="email", ojs_url=entry.link_ojs)
+            entry.telepon = clean_contact_list(res.get("telepon", INFO_NOT_FOUND), contact_type="phone")
+            entry.frekuensi = res.get("frekuensi", INFO_NOT_FOUND)
+            entry.apc_status = res.get("apc_status", APC_UNKNOWN)
+            entry.apc_amount = res.get("apc_amount", None)
+            if entry.apc_status == "Gratis (Rp 0)" or entry.apc_amount == 0:
+                entry.biaya_publikasi = 0
+            elif entry.apc_amount is not None and entry.apc_amount > 0:
+                entry.biaya_publikasi = entry.apc_amount
+
+            entry.focus_scope = res.get("focus_scope", INFO_NOT_FOUND)
+            entry.status_server = res.get("status_server", "Aktif (HTTP)")
+            entry.transparansi_kontak = res.get("transparansi_kontak", "Tidak Transparan")
+            if entry.issn == INFO_NOT_FOUND and res.get("issn") and res.get("issn") != INFO_NOT_FOUND:
+                entry.issn = res.get("issn")
+            if entry.e_issn == INFO_NOT_FOUND and res.get("e_issn") and res.get("e_issn") != INFO_NOT_FOUND:
+                entry.e_issn = res.get("e_issn")
+            if res.get("bidang") and res.get("bidang") != INFO_NOT_FOUND:
+                entry.bidang = clean_and_merge_subjects(entry.bidang, res.get("bidang"))
+            if not entry.penerbit and res.get("publisher"):
+                entry.penerbit = res.get("publisher")
+            if entry.link_ojs != res.get("ojs_url", entry.link_ojs) and res.get("ojs_url"):
+                entry.link_ojs = res.get("ojs_url", entry.link_ojs)
+            entry.raw_about = res.get("raw_about", "")
+            entry.raw_submissions = res.get("raw_submissions", "")
+            entry.bulan_terbit = res.get("bulan_terbit", [])
+            # Jika OJS tidak menyediakan Focus & Scope, periksa profil Garuda
+            if (not entry.focus_scope or entry.focus_scope == INFO_NOT_FOUND) and entry.garuda_profile_url:
                 g_meta = resolve_garuda_profile_meta(session, entry.garuda_profile_url)
                 if g_meta.get("focus_scope"):
                     entry.focus_scope = g_meta["focus_scope"]
             if not entry.focus_scope or entry.focus_scope == INFO_NOT_FOUND:
                 entry.focus_scope = build_tier3_scope_fallback(entry)
-            return entry
 
-        res = extract_ojs_deep_info(session, entry.link_ojs, stop_event=stop_event)
-        entry.email = clean_contact_list(res.get("email", INFO_NOT_FOUND), contact_type="email")
-        entry.telepon = clean_contact_list(res.get("telepon", INFO_NOT_FOUND), contact_type="phone")
-        entry.frekuensi = res.get("frekuensi", INFO_NOT_FOUND)
-        entry.apc_status = res.get("apc_status", INFO_NOT_FOUND)
-        entry.apc_amount = res.get("apc_amount", None)
-        entry.focus_scope = res.get("focus_scope", INFO_NOT_FOUND)
-        entry.status_server = res.get("status_server", "Aktif (HTTP)")
-        entry.transparansi_kontak = res.get("transparansi_kontak", "Tidak Transparan")
-        if entry.issn == INFO_NOT_FOUND and res.get("issn") and res.get("issn") != INFO_NOT_FOUND:
-            entry.issn = res.get("issn")
-        if entry.e_issn == INFO_NOT_FOUND and res.get("e_issn") and res.get("e_issn") != INFO_NOT_FOUND:
-            entry.e_issn = res.get("e_issn")
-        if res.get("bidang") and res.get("bidang") != INFO_NOT_FOUND:
-            entry.bidang = clean_and_merge_subjects(entry.bidang, res.get("bidang"))
-        if not entry.penerbit and res.get("publisher"):
-            entry.penerbit = res.get("publisher")
-        if entry.link_ojs != res.get("ojs_url", entry.link_ojs) and res.get("ojs_url"):
-            entry.link_ojs = res.get("ojs_url", entry.link_ojs)
-        entry.raw_about = res.get("raw_about", "")
-        entry.raw_submissions = res.get("raw_submissions", "")
-        entry.bulan_terbit = res.get("bulan_terbit", [])
-        # Jika OJS tidak menyediakan Focus & Scope, periksa profil Garuda
+        # Fallback jika OJS tidak bisa dihubungi atau profil Garuda tersedia
         if (not entry.focus_scope or entry.focus_scope == INFO_NOT_FOUND) and entry.garuda_profile_url:
             g_meta = resolve_garuda_profile_meta(session, entry.garuda_profile_url)
             if g_meta.get("focus_scope"):
                 entry.focus_scope = g_meta["focus_scope"]
+
         if not entry.focus_scope or entry.focus_scope == INFO_NOT_FOUND:
             entry.focus_scope = build_tier3_scope_fallback(entry)
-
-    # Fallback jika OJS tidak bisa dihubungi atau profil Garuda tersedia
-    if (not entry.focus_scope or entry.focus_scope == INFO_NOT_FOUND) and entry.garuda_profile_url:
-        g_meta = resolve_garuda_profile_meta(session, entry.garuda_profile_url)
-        if g_meta.get("focus_scope"):
-            entry.focus_scope = g_meta["focus_scope"]
-
-    if not entry.focus_scope or entry.focus_scope == INFO_NOT_FOUND:
-        entry.focus_scope = build_tier3_scope_fallback(entry)
+    except Exception:
+        pass
 
     return entry
 
@@ -481,18 +490,21 @@ def _scrape_sinta_single_keyword(
                     nonlocal matched_count
                     if stop_event.is_set():
                         return
-                    _process_deep_sinta_entry(deep_session, entry, stop_event=stop_event)
-                    with matched_lock:
-                        if free_only:
-                            apc_low = entry.apc_status.lower()
-                            is_free = (entry.apc_amount == 0) or ("gratis" in apc_low) or ("rp 0" in apc_low) or ("free" in apc_low)
-                            is_unk = (entry.apc_amount is None) or (entry.apc_status == INFO_NOT_FOUND)
-                            if is_free or (is_unk and include_unknown_apc):
+                    try:
+                        _process_deep_sinta_entry(deep_session, entry, stop_event=stop_event)
+                        with matched_lock:
+                            if free_only:
+                                apc_low = entry.apc_status.lower()
+                                is_free = (entry.apc_amount == 0) or ("gratis" in apc_low) or ("rp 0" in apc_low) or ("free" in apc_low)
+                                is_unk = (entry.apc_amount is None) or (entry.apc_status in (INFO_NOT_FOUND, APC_UNKNOWN))
+                                if is_free or (is_unk and include_unknown_apc):
+                                    matched_count += 1
+                            else:
                                 matched_count += 1
-                        else:
-                            matched_count += 1
-                        if matched_count >= max_results:
-                            stop_event.set()
+                            if matched_count >= max_results:
+                                stop_event.set()
+                    except Exception:
+                        pass
 
                 futures = [executor.submit(_do_sinta_deep, entry) for entry in filtered]
                 for f in futures:
@@ -693,18 +705,21 @@ def scrape_sinta_selenium(
                     nonlocal matched_count
                     if stop_event.is_set():
                         return
-                    _process_deep_sinta_entry(deep_session, entry, stop_event=stop_event)
-                    with matched_lock:
-                        if free_only:
-                            apc_low = entry.apc_status.lower()
-                            is_free = (entry.apc_amount == 0) or ("gratis" in apc_low) or ("rp 0" in apc_low) or ("free" in apc_low)
-                            is_unk = (entry.apc_amount is None) or (entry.apc_status == INFO_NOT_FOUND)
-                            if is_free or (is_unk and include_unknown_apc):
+                    try:
+                        _process_deep_sinta_entry(deep_session, entry, stop_event=stop_event)
+                        with matched_lock:
+                            if free_only:
+                                apc_low = entry.apc_status.lower()
+                                is_free = (entry.apc_amount == 0) or ("gratis" in apc_low) or ("rp 0" in apc_low) or ("free" in apc_low)
+                                is_unk = (entry.apc_amount is None) or (entry.apc_status in (INFO_NOT_FOUND, APC_UNKNOWN))
+                                if is_free or (is_unk and include_unknown_apc):
+                                    matched_count += 1
+                            else:
                                 matched_count += 1
-                        else:
-                            matched_count += 1
-                        if matched_count >= max_results:
-                            stop_event.set()
+                            if matched_count >= max_results:
+                                stop_event.set()
+                    except Exception:
+                        pass
 
                 futures = [executor.submit(_do_sel_deep, entry) for entry in filtered]
                 for f in futures:

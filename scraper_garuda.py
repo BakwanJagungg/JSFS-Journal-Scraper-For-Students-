@@ -65,17 +65,46 @@ console = Console()
 
 # ── PRE-COMPILED REGEX PATTERNS (Hemat ribuan siklus CPU pada multi-threading) ─
 RE_EMAIL = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
-RE_PHONE = re.compile(r"(?:\+62|62|0)(?:[2-9])[0-9\s-]{7,15}[0-9]")
+RE_PHONE = re.compile(
+    r"(?:"
+    r"(?:\+62|62|0)8[1-9][0-9\s.-]{6,13}[0-9]|"
+    r"(?:\+62\s*|62\s*|0)?\(\s*0?[2-9]\d{1,3}\s*\)[\s.-]*[0-9\s.-]{5,10}[0-9]|"
+    r"(?:\+62|62|0)[2-9]\d{1,3}[\s.-]+[0-9\s.-]{5,10}[0-9]|"
+    r"(?:\+62|62|0)(?:[2-9])[0-9\s-]{7,15}[0-9]"
+    r")"
+)
 RE_DATE_LIKE = re.compile(r"(?:\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{4})")
 
-# RE_FREE_APC v1.5.0: Hanya mencocokkan konteks biaya publikasi/APC eksplisit gratis (bukan submission fee semata)
-RE_FREE_APC = re.compile(
+APC_UNKNOWN = "Cek Web / Belum Terdata"
+
+# Istilah spesifik untuk biaya penerbitan / publikasi (bukan biaya submit semata)
+PUB_TERMS = (
+    r"(?:article\s*publication|article\s*processing\s*charges?|apc|publication\s*fees?|"
+    r"publishing\s*fees?|biaya\s*(?:publikasi|penerbitan|pemrosesan\s*artikel)|"
+    r"page\s*charges?|biaya\s*(?:halaman|cetak))"
+)
+
+# RE_PUB_FREE_STRICT v1.6.0: Hanya mencocokkan jika biaya publikasi/APC eksplisit gratis (bukan submission fee semata)
+RE_PUB_FREE_STRICT = re.compile(
     r"(?:"
-    r"\b(?:free\s*publication|free\s*publishing|no\s*publication\s*fees?|no\s*article\s*processing\s*charges?|"
-    r"apc\s*free|apc\s*:\s*(?:0|free|none|gratis)|biaya\s*publikasi\s*:\s*(?:0|free|none|gratis)|"
-    r"publication\s*fees?\s*:\s*(?:0|free|none|gratis)|bebas\s*biaya\s*publikasi|tanpa\s*biaya\s*publikasi|"
-    r"tidak\s*(?:dipungut|dikenakan)\s*biaya\s*publikasi|charges?\s*no\s*publication\s*fees?)\b|"
-    r"(?:(?:biaya\s*publikasi|apc|publication\s*fee)\s*(?:adalah|sebesar|:)?\s*(?:(?:rp\.?|idr)\s*0(?:\.00)?|0(?:\.00)?\s*(?:idr|rp\.?|usd|\$)?))"
+    r"(?:" + PUB_TERMS + r"(?:[^\n\r.,]{0,35}?(?:adalah|sebesar|:|=|-))?\s*"
+    r"(?:(?:rp\.?|idr)\s*0(?:\.00)?|0(?:\.00)?\s*(?:\(?idr\)?|\(?rp\.?\)|\(?usd\)?|\$)?|"
+    r"gratis|free|none|tidak\s*(?:dipungut|dikenakan)\s*biaya|bebas\s*biaya|tanpa\s*biaya|free\s*of\s*charge)\b)|"
+    r"(?:free\s*of\s*charge|no\s*fees?|tidak\s*(?:dipungut|dikenakan)\s*biaya|tanpa\s*biaya|bebas\s*biaya)\s*(?:for|pada|untuk)?\s*(?:publication|publishing|publikasi|penerbitan)|"
+    r"charges?\s*no\s*(?:publication|article\s*processing)\s*fees?|"
+    r"(?:publication|publishing|biaya\s*publikasi)\s*(?:is|adalah|sebesar)?\s*(?:free|gratis|bebas\s*biaya|free\s*of\s*charge)"
+    r")",
+    re.IGNORECASE,
+)
+
+RE_PUB_AMOUNT = re.compile(
+    PUB_TERMS + r"(?:[^\n\r.,]{0,35}?(?:adalah|sebesar|:|=|-))?\s*"
+    r"(?:"
+    r"(?:Rp\.?|IDR)\s*([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{5,8})|"
+    r"([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{5,8})\s*(?:\(?IDR\)?|Rp\.?)|"
+    r"(?:(?:\$|USD)\s*([0-9]+(?:[.,][0-9]{1,2})?)(?:\s*USD)?)|"
+    r"([0-9]+(?:[.,][0-9]{1,2})?)\s*(?:USD|\$)|"
+    r"([0-9]+(?:\.[0-9]+)?)\s*(?:rb|ribu|jt|juta)"
     r")",
     re.IGNORECASE,
 )
@@ -324,6 +353,157 @@ def get_high_capacity_session(is_deep_scrape: bool = False) -> requests.Session:
     session.mount("http://", adapter)
     session.mount("https://", adapter)
     return session
+
+
+# ── ZERO-CRASH & ANTI-FREEZE HTTP FETCHER (v1.6.0) ───────────────────────────
+def safe_fetch_html(
+    session: requests.Session,
+    url: str,
+    timeout=DEEP_SCRAPE_TIMEOUT,
+    max_bytes: int = 1_500_000,
+) -> tuple[int, str, dict]:
+    """
+    ZERO-CRASH & ANTI-FREEZE HTTP FETCHER (v1.6.0):
+    - Content-Type guard: hanya memproses text/html, application/xhtml+xml, atau text/plain.
+    - Response size guard: batasi pembacaan maksimal 1.5 MB per halaman OJS.
+    - Exception shield: tangani TooManyRedirects, UnicodeDecodeError, SSLError, ConnectionError tanpa melempar crash.
+    Returns: (status_code, html_text, headers)
+    """
+    if not url or not str(url).startswith("http"):
+        return 0, "", {}
+    try:
+        resp = session.get(
+            url,
+            timeout=timeout,
+            verify=False,
+            allow_redirects=True,
+            stream=True,
+        )
+        status_code = resp.status_code
+        headers = dict(resp.headers)
+
+        # 1. Content-Type Guard
+        ct = (headers.get("Content-Type") or "").lower()
+        if not any(allowed in ct for allowed in ("text/html", "application/xhtml", "text/plain")):
+            resp.close()
+            return status_code or 415, "", headers
+
+        # 2. Content-Length preliminary check (> 5 MB skip upfront)
+        cl = headers.get("Content-Length")
+        if cl and cl.isdigit() and int(cl) > 5_000_000:
+            resp.close()
+            return 413, "", headers
+
+        # 3. Size Guard (baca max 1.5 MB)
+        raw_bytes = resp.raw.read(max_bytes, decode_content=True)
+        resp.close()
+
+        # 4. Safe Encoding Decode
+        enc = resp.encoding or "utf-8"
+        try:
+            html_text = raw_bytes.decode(enc, errors="replace")
+        except Exception:
+            html_text = raw_bytes.decode("utf-8", errors="replace")
+
+        return status_code, html_text, headers
+    except requests.exceptions.TooManyRedirects:
+        return 310, "", {}
+    except (requests.exceptions.RequestException, UnicodeDecodeError, Exception):
+        return 0, "", {}
+
+
+# ── CLOUDFLARE EMAIL & OBFUSCATION DECODER (v1.6.0) ───────────────────────────
+def decode_cfemail(cf_hex_string: str) -> str:
+    """
+    CLOUDFLARE EMAIL PROTECTION DECODER (v1.6.0):
+    Mendekode email dari atribut data-cfemail="__cf_email__".
+    Formula: 2 karakter hex pertama adalah XOR key, selanjutnya adalah karakter ASCII.
+    """
+    if not cf_hex_string or len(cf_hex_string) < 4:
+        return ""
+    try:
+        k = int(cf_hex_string[:2], 16)
+        return "".join(chr(int(cf_hex_string[i:i+2], 16) ^ k) for i in range(2, len(cf_hex_string), 2))
+    except Exception:
+        return ""
+
+
+def deobfuscate_email_text(text: str) -> str:
+    """
+    DEOBFUSCATION EMAIL REDAKSI (v1.6.0):
+    Mengubah format perlindungan teks manusia seperti:
+    'jurnal [at] kampus.ac.id' atau 'jurnal(at)kampus[dot]ac[dot]id'
+    menjadi email standar 'jurnal@kampus.ac.id'.
+    """
+    if not text:
+        return ""
+    t = re.sub(r"[\s\[\(\{<]+(?:at|commat)[\s\]\}\)>]+", "@", text, flags=re.IGNORECASE)
+    t = re.sub(r"[\s\[\(\{<]+dot[\s\]\}\)>]+", ".", t, flags=re.IGNORECASE)
+    return t
+
+
+def rank_and_filter_emails(emails: list[str], ojs_url: str = "") -> list[str]:
+    """
+    PRIORITAS EMAIL RESMI & ELIMINASI EMAIL PENULIS (v1.6.0):
+    - Prioritas 1: Email berdomain sama dengan kampus OJS (.ac.id) atau diawali kata kunci redaksi
+      (jurnal, journal, editor, redaksi, ejournal, publikasi, ojs, admin).
+    - Eliminasi mutlak: Menghapus email mahasiswa berformat NIM (diawali >= 8 digit angka)
+      jika sudah ditemukan email resmi redaksi.
+    """
+    if not emails:
+        return []
+
+    base_domain = ""
+    if ojs_url and str(ojs_url).startswith("http"):
+        parsed = requests.compat.urlparse(ojs_url)
+        netloc = (parsed.netloc or "").lower()
+        parts = netloc.split(".")
+        if len(parts) >= 3 and parts[-2] == "ac" and parts[-1] == "id":
+            base_domain = ".".join(parts[-3:])
+        elif len(parts) >= 2:
+            base_domain = ".".join(parts[-2:])
+        else:
+            base_domain = netloc
+
+    ed_keywords = (
+        "jurnal", "journal", "editor", "redaksi", "ejournal",
+        "publikasi", "ojs", "admin", "contact", "secretariat",
+        "pengelola", "dewanredaksi"
+    )
+
+    scored: list[tuple[int, bool, str]] = []
+    for em in emails:
+        em_clean = em.strip().lower()
+        if not em_clean or "@" not in em_clean:
+            continue
+        user, _, dom = em_clean.partition("@")
+        is_nim = bool(re.match(r"^\d{8,}", user))
+
+        score = 0
+        if is_nim:
+            score -= 100
+        if base_domain and (base_domain in dom or dom in base_domain):
+            score += 50
+        if any(user.startswith(k) or k in user for k in ed_keywords):
+            score += 40
+        if dom.endswith(".ac.id") or dom.endswith(".edu"):
+            score += 20
+        elif not is_nim:
+            score += 5
+
+        scored.append((score, is_nim, em_clean))
+
+    # Buang email NIM mahasiswa jika ditemukan email resmi redaksi
+    has_official = any(s >= 20 for s, is_nim, _ in scored)
+    if has_official:
+        scored = [x for x in scored if not x[1]]
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    res: list[str] = []
+    for _, _, em in scored:
+        if em not in res:
+            res.append(em)
+    return res
 
 
 # ── OJS ROOT DOMAIN REACHABILITY CIRCUIT BREAKER (v1.3.6) ─────────────────────
@@ -723,77 +903,119 @@ def normalize_frequency(raw: str, context_text: str = "") -> str:
 
 def parse_apc_from_context(context_text: str) -> tuple[str, Optional[int]]:
     """
-    Ekstrak dan validasi biaya APC dari teks yang memiliki konteks author/publication fee.
+    HUMAN-PARITY APC & 3-STATUS ACCURACY (v1.6.0):
+    1. 'Gratis (Rp 0)' -> HANYA jika tertulis eksplisit bahwa Publication Fee / APC / Biaya Penerbitan / Article Processing Charge adalah Rp 0 / Gratis / Free / Tidak dipungut biaya / Bebas biaya.
+    2. 'Rp X.XXX.XXX' -> Jika terdeteksi nominal biaya penerbitan (baik ditulis sebagai Rp 500.000, IDR 500,000.00, 500rb, atau 500.000 IDR atau USD).
+    3. 'Cek Web / Belum Terdata' -> Jika halaman tidak mencantumkan angka biaya publikasi secara spesifik.
+    Anti-False-Positive Mutlak: JANGAN menandai gratis hanya karena submission fee Rp 0 atau ketiadaan angka.
     Returns: (display_str, numeric_idr_or_none)
     """
     if not context_text:
-        return INFO_NOT_FOUND, None
+        return APC_UNKNOWN, None
 
     text = context_text.strip()
-
-    # 1. Cek biaya berbayar USD terlebih dahulu (dengan konversi kurs tetap Rp 17.500 / USD)
-    m_usd = RE_USD_1.search(text) or RE_USD_2.search(text)
-    if m_usd:
-        usd_candidate = m_usd.group(1) or (m_usd.group(2) if m_usd.lastindex and m_usd.lastindex >= 2 else "")
-        if usd_candidate:
-            num_str = usd_candidate.replace(",", ".")
-            try:
-                usd_val = float(num_str)
-                idr_val = int(round(usd_val * USD_TO_IDR_RATE))
-                if APC_SANITY_MIN_IDR <= idr_val <= APC_SANITY_MAX_IDR:
-                    usd_repr = f"${int(usd_val)} USD" if usd_val.is_integer() else f"${usd_val:.2f} USD"
-                    idr_repr = f"Rp {idr_val:,}".replace(",", ".")
-                    return f"{idr_repr} ({usd_repr})", idr_val
-            except ValueError:
-                pass
-
-    # 2. Cek biaya berbayar IDR / Rupiah
-    m_idr = RE_IDR_1.search(text) or RE_IDR_2.search(text)
-    if m_idr:
-        raw_num = (m_idr.group(1) or m_idr.group(2) or "").replace(".", "").replace(",", "").strip()
-        if raw_num:
-            try:
-                idr_val = int(raw_num)
-                if APC_SANITY_MIN_IDR <= idr_val <= APC_SANITY_MAX_IDR:
-                    idr_repr = f"Rp {idr_val:,}".replace(",", ".")
-                    return idr_repr, idr_val
-            except ValueError:
-                pass
-
-    # 3. Deteksi Gratis / Free / Bebas Biaya / Rp 0 (Khusus Publikasi / APC)
     low = text.lower()
-    pub_terms = ("publication", "penerbitan", "publikasi", "article processing", "apc", "biaya cetak", "halaman", "page charge")
-    has_pub_context = any(t in low for t in pub_terms)
 
-    if RE_FREE_APC.search(text):
+    # 1. Prioritas 1: Nominal Biaya Publikasi Eksplisit via Regex Targeted
+    m_amt = RE_PUB_AMOUNT.search(text)
+    if m_amt:
+        # IDR
+        idr_raw = m_amt.group(1) or m_amt.group(2)
+        if idr_raw:
+            clean = idr_raw.replace(".", "").replace(",", "")
+            try:
+                val = int(clean)
+                if val == 0:
+                    return "Gratis (Rp 0)", 0
+                if APC_SANITY_MIN_IDR <= val <= APC_SANITY_MAX_IDR:
+                    return f"Rp {val:,}".replace(",", "."), val
+            except ValueError:
+                pass
+        # USD
+        usd_raw = m_amt.group(3) or m_amt.group(4)
+        if usd_raw:
+            try:
+                uval = float(usd_raw.replace(",", "."))
+                val = int(round(uval * USD_TO_IDR_RATE))
+                if APC_SANITY_MIN_IDR <= val <= APC_SANITY_MAX_IDR:
+                    urepr = f"${int(uval)} USD" if uval.is_integer() else f"${uval:.2f} USD"
+                    return f"Rp {val:,}".replace(",", ".") + f" ({urepr})", val
+            except ValueError:
+                pass
+        # Pengali (rb, ribu, jt, juta)
+        mult_raw = m_amt.group(5)
+        if mult_raw:
+            mult_kw = m_amt.group(0).lower()
+            mult_factor = 1000 if ("rb" in mult_kw or "ribu" in mult_kw) else 1_000_000
+            try:
+                val = int(round(float(mult_raw) * mult_factor))
+                if APC_SANITY_MIN_IDR <= val <= APC_SANITY_MAX_IDR:
+                    return f"Rp {val:,}".replace(",", "."), val
+            except ValueError:
+                pass
+
+    # 2. Prioritas 2: Biaya Publikasi Eksplisit Gratis / Free / Rp 0
+    if RE_PUB_FREE_STRICT.search(text):
         return "Gratis (Rp 0)", 0
-    elif has_pub_context and any(phrase in low for phrase in (
-        "free of charge", "tidak dikenakan biaya", "tidak dipungut biaya", "tanpa biaya", "bebas biaya",
-        "without any fee", "no charge"
-    )):
-        # Pastikan frasa gratis bukan bagian dari kalimat submission fee semata
-        is_sub_free = bool(re.search(r"(?:submission\s*fee|penyerahan\s*naskah)\s*[:\w\s]*(?:free|gratis|0)", low))
-        is_pub_free = bool(re.search(r"(?:publication\s*fee|biaya\s*publikasi|apc)\s*[:\w\s]*(?:free|gratis|0)", low))
-        if not is_sub_free or is_pub_free:
-            return "Gratis (Rp 0)", 0
 
-    return INFO_NOT_FOUND, None
+    # 3. Fallback jika ada nominal USD atau IDR dengan konteks publikasi di dekatnya
+    # Pastikan BUKAN submission fee semata
+    is_sub_only = bool(re.search(r"(?:submission\s*fee|penyerahan\s*naskah|biaya\s*pendaftaran)\s*[:\w\s]*(?:0|free|gratis)", low))
+    has_pub_word = any(w in low for w in ("publication", "publikasi", "penerbitan", "publishing", "apc", "processing charge"))
+
+    if has_pub_word and not is_sub_only:
+        m_usd = RE_USD_1.search(text) or RE_USD_2.search(text)
+        if m_usd:
+            usd_candidate = m_usd.group(1) or (m_usd.group(2) if m_usd.lastindex and m_usd.lastindex >= 2 else "")
+            if usd_candidate:
+                try:
+                    usd_val = float(usd_candidate.replace(",", "."))
+                    idr_val = int(round(usd_val * USD_TO_IDR_RATE))
+                    if APC_SANITY_MIN_IDR <= idr_val <= APC_SANITY_MAX_IDR:
+                        usd_repr = f"${int(usd_val)} USD" if usd_val.is_integer() else f"${usd_val:.2f} USD"
+                        return f"Rp {idr_val:,}".replace(",", ".") + f" ({usd_repr})", idr_val
+                except ValueError:
+                    pass
+
+        m_idr = RE_IDR_1.search(text) or RE_IDR_2.search(text)
+        if m_idr:
+            raw_num = (m_idr.group(1) or m_idr.group(2) or "").replace(".", "").replace(",", "").strip()
+            if raw_num:
+                try:
+                    idr_val = int(raw_num)
+                    if APC_SANITY_MIN_IDR <= idr_val <= APC_SANITY_MAX_IDR:
+                        return f"Rp {idr_val:,}".replace(",", "."), idr_val
+                except ValueError:
+                    pass
+
+    return APC_UNKNOWN, None
 
 
-def _extract_contacts_from_text(html_text: str, plain_text: str) -> tuple[list[str], list[str]]:
+def _extract_contacts_from_text(html_text: str, plain_text: str, ojs_url: str = "") -> tuple[list[str], list[str]]:
     """
-    PENINGKATAN CAKUPAN TELEPON/WA & EMAIL REDAKSI (v1.3.5):
-    Mengekstrak seluruh email dan telepon/WhatsApp unik dari teks HTML & polos.
-    Penyaringan ketat terhadap format tanggal (YYYY-MM-DD), nomor ISSN 8-digit, derau tahun,
-    dan email template/dummy OJS sintetis.
+    PENINGKATAN CAKUPAN TELEPON/WA & EMAIL REDAKSI (v1.6.0):
+    - Dekoder email terproteksi Cloudflare (data-cfemail) dan deobfuscation format manusia ([at], (at), [dot]).
+    - Prioritas email resmi kampus/redaksi & eliminasi email artikel/penulis serta NIM mahasiswa.
+    - Ekstraksi nomor telepon kampus kabel kode area (021, 0271, dsb.) dan WhatsApp (08xx, +628xx).
     """
-    found_emails = []
-    found_phones = []
+    found_emails: list[str] = []
+    found_phones: list[str] = []
 
     clean_html = html_text.replace("&#64;", "@").replace("&commat;", "@")
 
-    # Regex Email pada HTML dan plain text
-    raw_emails = RE_EMAIL.findall(clean_html) + RE_EMAIL.findall(plain_text)
+    # 1. Dekode Cloudflare Protected Email (data-cfemail)
+    for cf_hex in re.findall(r'data-cfemail=["\']([a-fA-F0-9]+)["\']', html_text):
+        dec = decode_cfemail(cf_hex)
+        if dec and "@" in dec:
+            clean_em = dec.strip().lower()
+            if clean_em not in found_emails:
+                found_emails.append(clean_em)
+
+    # 2. Deobfuscation Email Teks (misal: 'jurnal [at] kampus.ac.id')
+    deobf_html = deobfuscate_email_text(clean_html)
+    deobf_plain = deobfuscate_email_text(plain_text)
+
+    raw_emails = found_emails + RE_EMAIL.findall(deobf_html) + RE_EMAIL.findall(deobf_plain)
 
     # Ekstraksi eksplisit dari href="mailto:..."
     for m in re.findall(r"mailto:([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})", clean_html, re.IGNORECASE):
@@ -806,6 +1028,7 @@ def _extract_contacts_from_text(html_text: str, plain_text: str) -> tuple[list[s
         "author@", "authors@", "support@", "john.doe@", "yourname@"
     )
 
+    clean_em_candidates = []
     for em in raw_emails:
         clean_em = em.strip().lower()
         if any(clean_em.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".css", ".js", ".pdf", ".zip")):
@@ -816,10 +1039,13 @@ def _extract_contacts_from_text(html_text: str, plain_text: str) -> tuple[list[s
             continue
         if any(d in clean_em for d in ("firstauthor", "secondauthor", "thirdauthor", "second@gmail", "third@gmail", "first@gmail", "author@", "pkp.sfu.ca")):
             continue
-        if len(clean_em) <= 60 and clean_em not in found_emails:
-            found_emails.append(clean_em)
+        if len(clean_em) <= 60 and clean_em not in clean_em_candidates:
+            clean_em_candidates.append(clean_em)
 
-    # Regex Telepon / WhatsApp dengan filter anti-tanggal, anti-tahun & anti-ISSN
+    # Ranking dan eliminasi email mahasiswa (NIM)
+    found_emails = rank_and_filter_emails(clean_em_candidates, ojs_url=ojs_url)
+
+    # 3. Regex Telepon / WhatsApp dengan filter anti-tanggal, anti-tahun & anti-ISSN
     for ph in RE_PHONE.findall(plain_text):
         clean_ph = re.sub(r"\s+", " ", ph).strip()
         # Buang derau pola tanggal (contoh: 2024-05-12, 12-05-2024, 026 2026-04-07, 022-12-28-11050)
@@ -840,17 +1066,17 @@ def _extract_contacts_from_text(html_text: str, plain_text: str) -> tuple[list[s
         # Buang jika panjang digit 8 (kemungkinan besar format ISSN seperti 2527-3027)
         if len(digits) == 8:
             continue
-        # Validasi panjang nomor telepon valid Indonesia (10 s.d. 14 digit)
-        if not (10 <= len(digits) <= 14):
+        # Validasi panjang nomor telepon valid Indonesia (9 s.d. 15 digit, mencakup telepon kabel area 021/0271)
+        if not (9 <= len(digits) <= 15):
             continue
 
-        # Cek kode prefix valid Indonesia (+62, 62, 0)
+        # Cek kode prefix valid Indonesia (+62, 62, 0, atau area code diawali [2-9])
         if clean_ph.startswith("+62") or clean_ph.startswith("62"):
             pref = digits[2:3] if len(digits) > 2 else ""
         elif clean_ph.startswith("0"):
             pref = digits[1:2] if len(digits) > 1 else ""
         else:
-            continue
+            pref = digits[0:1] if len(digits) > 0 else ""
 
         if pref not in "2345789":
             continue
@@ -865,11 +1091,12 @@ def _extract_contacts_from_text(html_text: str, plain_text: str) -> tuple[list[s
     return found_emails, found_phones
 
 
-def clean_contact_list(items: list[str] | str, contact_type: str = "email") -> str:
+def clean_contact_list(items: list[str] | str, contact_type: str = "email", ojs_url: str = "") -> str:
     """
-    Sanitasi Rigid Kontak Redaksi (v1.5.0):
+    Sanitasi Rigid Kontak Redaksi (v1.6.0):
     - Eliminasi mutlak string error/fallback ("tidak dapat diakses", "none", "null", dll).
     - Validasi format email & buang domain dummy (@example.com, @pkp.sfu.ca, dll).
+    - Prioritaskan email resmi redaksi/kampus dan buang NIM mahasiswa.
     - Normalisasi nomor telepon dan deduplikasi nomor yang hanya berbeda tanda strip / spasi.
     """
     if isinstance(items, str):
@@ -906,6 +1133,8 @@ def clean_contact_list(items: list[str] | str, contact_type: str = "email") -> s
                 seen_email.add(it_clean)
                 cleaned.append(it_clean)
 
+        cleaned = rank_and_filter_emails(cleaned, ojs_url=ojs_url)
+
     elif contact_type.lower() in ("phone", "telepon"):
         seen_digits = set()
         for it in raw_items:
@@ -913,7 +1142,7 @@ def clean_contact_list(items: list[str] | str, contact_type: str = "email") -> s
             if it_clean.lower() in forbidden_exact or any(sub in it_clean.lower() for sub in forbidden_subs):
                 continue
             digits = re.sub(r"\D", "", it_clean)
-            if len(digits) == 8 or len(set(digits)) <= 2 or not (10 <= len(digits) <= 15):
+            if len(digits) == 8 or len(set(digits)) <= 2 or not (9 <= len(digits) <= 15):
                 continue
 
             if digits.startswith("0"):
@@ -1260,7 +1489,7 @@ def _extract_focus_and_scope_from_soup(soup: BeautifulSoup, is_homepage: bool = 
 
 def _extract_apc_contextual(soup: BeautifulSoup) -> tuple[str, Optional[int]]:
     """
-    Targeted DOM & Meta-Tag Scoping untuk APC:
+    Targeted DOM & Meta-Tag Scoping untuk APC v1.6.0:
     Mencari pada blok terstruktur (<div id="authorFees">, <table>, dsb)
     sebelum memindai teks mentah.
     """
@@ -1274,7 +1503,7 @@ def _extract_apc_contextual(soup: BeautifulSoup) -> tuple[str, Optional[int]]:
             block_text = sanitize_dom(BeautifulSoup(str(block), "lxml"))
             if any(kw in block_text.lower() for kw in APC_KEYWORDS):
                 disp, amount = parse_apc_from_context(block_text)
-                if disp != INFO_NOT_FOUND:
+                if disp != APC_UNKNOWN and disp != INFO_NOT_FOUND:
                     return disp, amount
 
     # 2. Cek tag p, td, div pendek
@@ -1283,7 +1512,7 @@ def _extract_apc_contextual(soup: BeautifulSoup) -> tuple[str, Optional[int]]:
         tag_lower = tag_text.lower()
         if any(kw in tag_lower for kw in APC_KEYWORDS) and len(tag_text) <= 800:
             disp, amount = parse_apc_from_context(tag_text)
-            if disp != INFO_NOT_FOUND:
+            if disp != APC_UNKNOWN and disp != INFO_NOT_FOUND:
                 return disp, amount
 
     # 3. Fallback: scanning jendela teks
@@ -1296,25 +1525,27 @@ def _extract_apc_contextual(soup: BeautifulSoup) -> tuple[str, Optional[int]]:
             end = min(len(full_plain), idx + 350)
             snip = full_plain[start:end]
             disp, amount = parse_apc_from_context(snip)
-            if disp != INFO_NOT_FOUND:
+            if disp != APC_UNKNOWN and disp != INFO_NOT_FOUND:
                 return disp, amount
             idx = full_lower.find(kw, idx + len(kw))
 
-    return INFO_NOT_FOUND, None
+    return APC_UNKNOWN, None
 
 
 def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event: Optional[threading.Event] = None) -> dict:
     """
-    QUAD-PASS OJS CRAWLING (v1.3.8 Focus & Scope, Server Health & Speed Acceleration):
-    Penelusuran sub-jalur OJS dengan fast-fail root reachability (2.5s),
-    ekstraksi Focus & Scope, evaluasi Status Server OJS, dan Indeks Transparansi Kontak.
+    HUMAN-PARITY OJS DEEP CRAWLING (v1.6.0):
+    - Dynamic Menu Anchor Discovery (pemindaian URL tersembunyi menu navigasi & sidebar).
+    - Verifikasi Bulan Terbit via Halaman Arsip (/issue/archive & Current Issue).
+    - Zero-Crash & Anti-Freeze: Stream 1.5MB Guard, Content-Type Guard, dan Multi-layered Exception Shield.
+    - Dekoder Cloudflare email & pemeringkatan kontak redaksi resmi.
     """
     info = {
         "ojs_url": target_url,
         "email": INFO_NOT_FOUND,
         "telepon": INFO_NOT_FOUND,
         "frekuensi": INFO_NOT_FOUND,
-        "apc_status": INFO_NOT_FOUND,
+        "apc_status": APC_UNKNOWN,
         "apc_amount": None,
         "publisher": "",
         "issn": INFO_NOT_FOUND,
@@ -1359,10 +1590,9 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
     raw_subs_parts: list[str] = []
 
     try:
-        # Pass 1: Halaman Utama OJS / Detail Garuda (Timeout diperketat)
-        resp = session.get(target_url, timeout=DEEP_SCRAPE_TIMEOUT, verify=False, allow_redirects=True)
-        if resp.status_code == 200:
-            html_text = resp.text
+        # Pass 1: Halaman Utama OJS / Detail Garuda (Aman dari PDF & file besar via safe_fetch_html)
+        status_code, html_text, _ = safe_fetch_html(session, target_url, timeout=DEEP_SCRAPE_TIMEOUT)
+        if status_code == 200 and html_text:
             soup = BeautifulSoup(html_text, "lxml")
             plain_text = sanitize_dom(soup)
             freq_contexts.append(plain_text[:2500])
@@ -1403,8 +1633,11 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
             if meta_data["subjects"]:
                 info["bidang"] = clean_and_merge_subjects(info["bidang"], ", ".join(meta_data["subjects"]))
 
-            # Kontak Primary Pass
-            e1, p1 = _extract_contacts_from_text(html_text, plain_text)
+            # Kontak Primary Pass: Buang blok daftar artikel agar email penulis tidak bocor
+            contact_soup = BeautifulSoup(html_text, "lxml")
+            for noise_el in contact_soup.select(".obj_article_summary, .cmp_article_list, meta[name='citation_author_email']"):
+                noise_el.decompose()
+            e1, p1 = _extract_contacts_from_text(str(contact_soup), sanitize_dom(contact_soup), ojs_url=effective_ojs_url or target_url)
             for em in e1:
                 if em not in all_emails:
                     all_emails.append(em)
@@ -1421,182 +1654,175 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
 
             # APC Primary Pass
             apc_disp, apc_num = _extract_apc_contextual(soup)
-            if apc_disp != INFO_NOT_FOUND:
+            if apc_disp not in (APC_UNKNOWN, INFO_NOT_FOUND):
                 info["apc_status"] = apc_disp
                 info["apc_amount"] = apc_num
 
-            # QUAD-PASS CRAWLING & DYNAMIC LINK HARVESTING (v1.3.8):
-            need_more = (
-                (len(all_emails) == 0)
-                or (info["apc_status"] == INFO_NOT_FOUND)
-                or (not raw_frequency)
-                or (info["focus_scope"] == INFO_NOT_FOUND)
-                or (len(raw_about_parts) < 2)
+            # TAHAP 1.1: DYNAMIC MENU ANCHOR DISCOVERY (Menemukan Halaman Tersembunyi OJS)
+            clean_base = effective_ojs_url.rstrip("/")
+            if clean_base.endswith("/index"):
+                clean_base = clean_base[:-6]
+
+            discovered_fee_links: list[str] = []
+            discovered_contact_links: list[str] = []
+            discovered_scope_links: list[str] = []
+            discovered_archive_links: list[str] = []
+
+            fee_kw = ("fee", "apc", "biaya", "charge", "payment", "tarif", "author fee", "publication fee")
+            contact_kw = ("contact", "kontak", "hubungi", "about", "editorial team", "dewan redaksi", "pengelola")
+            scope_kw = ("focus and scope", "focus & scope", "fokus dan ruang lingkup", "ruang lingkup", "aims and scope", "focus", "scope")
+            archive_kw = ("issue/archive", "archive", "arsip", "terbitan", "issues", "past issues")
+
+            # Pindai menu navigasi, sidebar, dan seluruh link anchor pada DOM
+            candidate_anchors = soup.select(
+                "nav a, .navbar a, #navMenu a, #navigation a, .pkp_navigation_primary a, "
+                "#sidebar a, .pkp_structure_sidebar a, .block a, header a, footer a, a[href]"
             )
-            if need_more and effective_ojs_url.startswith("http") and not (stop_event and stop_event.is_set()):
-                # Fast-Fail Check untuk effective_ojs_url jika baru terungkap dari Garuda
-                if effective_ojs_url != target_url and "kemdiktisaintek.go.id" not in effective_ojs_url:
-                    if not check_ojs_domain_reachable(session, effective_ojs_url):
-                        info["ojs_url"] = effective_ojs_url
-                        info["apc_status"] = DEAD_LINK_TEXT
-                        info["frekuensi"] = DEAD_LINK_TEXT
-                        info["email"] = INFO_NOT_FOUND
-                        info["telepon"] = INFO_NOT_FOUND
-                        info["status_server"] = "Non-Aktif"
-                        _save_to_cache(target_url, info)
-                        _save_to_cache(effective_ojs_url, info)
-                        return info
+            for a_tag in candidate_anchors:
+                h_val = (a_tag.get("href") or "").strip()
+                txt_val = a_tag.get_text(" ", strip=True).lower()
+                h_low = h_val.lower()
 
-                clean_base = effective_ojs_url.rstrip("/")
-                if clean_base.endswith("/index"):
-                    clean_base = clean_base[:-6]
+                if not h_val or any(h_low.endswith(ext) for ext in (".pdf", ".doc", ".docx", ".jpg", ".png", ".zip", ".rar", ".xml")):
+                    continue
 
-                # Koleksi link dinamis dari homepage untuk APC, Kontak, dan Focus & Scope
-                discovered_fee_links = []
-                discovered_contact_links = []
-                discovered_scope_links = []
-                fee_terms = ("author fee", "publication fee", "biaya publikasi", "article processing charge", "processing fee", "apc", "author fees", "biaya")
-                contact_terms = ("contact", "kontak", "hubungi", "editorial team", "editorial board", "dewan redaksi", "pengelola")
-                scope_terms = ("focus and scope", "focus & scope", "fokus dan ruang lingkup", "ruang lingkup", "aims and scope", "aims & scope", "focus", "scope")
+                full_h = requests.compat.urljoin(clean_base + "/", h_val)
+                if not full_h.startswith("http") or "kemdiktisaintek" in full_h:
+                    continue
 
-                for a_tag in soup.find_all("a", href=True):
-                    h_val = a_tag["href"].strip()
-                    txt_val = a_tag.get_text(" ", strip=True).lower()
-                    h_low = h_val.lower()
+                # 1. Discovery Biaya (APC)
+                if any(k in txt_val for k in fee_kw) or any(k in h_low for k in ("fee", "apc", "biaya", "charge", "payment", "tarif", "/af", "author-fee")):
+                    if full_h not in discovered_fee_links:
+                        discovered_fee_links.append(full_h)
 
-                    if any(h_low.endswith(ext) for ext in (".pdf", ".doc", ".docx", ".jpg", ".png", ".zip", ".rar", ".xml")):
-                        continue
+                # 2. Discovery Kontak
+                if any(k in txt_val for k in contact_kw) or any(k in h_low for k in ("contact", "kontak", "hubungi", "about", "editorialteam", "people")):
+                    if full_h not in discovered_contact_links:
+                        discovered_contact_links.append(full_h)
 
-                    # Dynamic Focus & Scope links
-                    if any(k in txt_val for k in scope_terms) or any(k in h_low for k in ("focus", "scope", "editorialpolicies")):
-                        full_h = requests.compat.urljoin(clean_base + "/", h_val)
-                        if full_h.startswith("http") and full_h not in discovered_scope_links and "kemdiktisaintek" not in full_h:
-                            discovered_scope_links.append(full_h)
+                # 3. Discovery Scope
+                if any(k in txt_val for k in scope_kw) or any(k in h_low for k in ("focus", "scope", "editorialpolicies")):
+                    if full_h not in discovered_scope_links:
+                        discovered_scope_links.append(full_h)
 
-                    # Dynamic Fee / APC links
-                    if any(k in txt_val for k in fee_terms) or any(k in h_low for k in ("/af", "/apc", "author-fee", "author_fee", "authorfees", "authorcharge", "articleprocessingcharges", "publication-fee")):
-                        full_h = requests.compat.urljoin(clean_base + "/", h_val)
-                        if full_h.startswith("http") and full_h not in discovered_fee_links and "kemdiktisaintek" not in full_h:
-                            discovered_fee_links.append(full_h)
+                # 4. Discovery Archive
+                if any(k in txt_val for k in archive_kw) or any(k in h_low for k in ("issue/archive", "issue/current", "/archive")):
+                    if full_h not in discovered_archive_links:
+                        discovered_archive_links.append(full_h)
 
-                    # Dynamic Contact links
-                    if any(k in txt_val for k in contact_terms) or any(k in h_low for k in ("contact", "kontak", "editorialteam", "editorial-team", "editorial-board", "people")):
-                        full_h = requests.compat.urljoin(clean_base + "/", h_val)
-                        if full_h.startswith("http") and full_h not in discovered_contact_links and "kemdiktisaintek" not in full_h:
-                            discovered_contact_links.append(full_h)
+            # Prioritas rute penelusuran OJS terakselerasi
+            subpaths: list[str] = []
+            if info["apc_status"] in (APC_UNKNOWN, INFO_NOT_FOUND) and discovered_fee_links:
+                subpaths.extend(discovered_fee_links[:2])
+            if not all_emails and discovered_contact_links:
+                subpaths.extend(discovered_contact_links[:2])
+            if info["focus_scope"] == INFO_NOT_FOUND and discovered_scope_links:
+                subpaths.extend(discovered_scope_links[:2])
 
-                # Prioritas rute penelusuran OJS terakselerasi
-                subpaths = []
-                if info["focus_scope"] == INFO_NOT_FOUND and discovered_scope_links:
-                    subpaths.extend(discovered_scope_links[:2])
-                if info["apc_status"] == INFO_NOT_FOUND and discovered_fee_links:
-                    subpaths.extend(discovered_fee_links[:2])
-                if not all_emails and discovered_contact_links:
-                    subpaths.extend(discovered_contact_links[:2])
+            subpaths.extend([
+                f"{clean_base}/about/submissions",
+                f"{clean_base}/about/editorialPolicies#focusAndScope",
+                f"{clean_base}/about/focusAndScope",
+                f"{clean_base}/about/contact",
+                f"{clean_base}/about",
+                f"{clean_base}/af",
+                f"{clean_base}/about/editorialTeam",
+            ])
 
-                subpaths.extend([
-                    f"{clean_base}/about/editorialPolicies#focusAndScope",
-                    f"{clean_base}/about/focusAndScope",
-                    f"{clean_base}/about",
-                    f"{clean_base}/about/submissions",
-                    f"{clean_base}/af",
-                    f"{clean_base}/about/contact",
-                    f"{clean_base}/about/editorialTeam",
-                ])
+            seen_sub = set()
+            ordered_subpaths = []
+            for sp in subpaths:
+                if sp not in seen_sub and sp != effective_ojs_url:
+                    seen_sub.add(sp)
+                    ordered_subpaths.append(sp)
 
-                seen_sub = set()
-                ordered_subpaths = []
-                for sp in subpaths:
-                    if sp not in seen_sub and sp != effective_ojs_url:
-                        seen_sub.add(sp)
-                        ordered_subpaths.append(sp)
+            for sub_url in ordered_subpaths[:5]:
+                if stop_event and stop_event.is_set():
+                    break
+                try:
+                    s_code, sub_html, _ = safe_fetch_html(session, sub_url, timeout=DEEP_SCRAPE_TIMEOUT)
+                    if s_code == 200 and sub_html:
+                        sub_soup = BeautifulSoup(sub_html, "lxml")
+                        sub_plain = sanitize_dom(sub_soup)
+                        freq_contexts.append(sub_plain[:2000])
 
-                for sub_url in ordered_subpaths[:4]:
-                    if stop_event and stop_event.is_set():
-                        break
-                    try:
-                        sub_resp = session.get(sub_url, timeout=DEEP_SCRAPE_TIMEOUT, verify=False, allow_redirects=True)
-                        if sub_resp.status_code == 200:
-                            sub_soup = BeautifulSoup(sub_resp.text, "lxml")
-                            sub_plain = sanitize_dom(sub_soup)
-                            freq_contexts.append(sub_plain[:2000])
+                        sub_url_low = sub_url.lower()
+                        if any(k in sub_url_low for k in ("submission", "author-fee", "author_fee", "/af", "/apc", "fee", "biaya", "charge")):
+                            raw_subs_parts.append(sub_plain)
+                        if any(k in sub_url_low for k in ("about", "focus", "scope", "editorialpolicies")):
+                            raw_about_parts.append(sanitize_dom(clean_soup_for_scope(sub_soup)))
 
-                            sub_url_low = sub_url.lower()
-                            if any(k in sub_url_low for k in ("submission", "author-fee", "author_fee", "/af", "/apc", "fee")):
-                                raw_subs_parts.append(sub_plain)
-                            if any(k in sub_url_low for k in ("about", "focus", "scope", "editorialpolicies")):
-                                raw_about_parts.append(sanitize_dom(clean_soup_for_scope(sub_soup)))
+                        # Focus & Scope dari subpath
+                        if info["focus_scope"] == INFO_NOT_FOUND:
+                            s_scope = _extract_focus_and_scope_from_soup(sub_soup)
+                            if s_scope != INFO_NOT_FOUND:
+                                info["focus_scope"] = s_scope
 
-                            # Focus & Scope dari subpath
-                            if info["focus_scope"] == INFO_NOT_FOUND:
-                                s_scope = _extract_focus_and_scope_from_soup(sub_soup)
-                                if s_scope != INFO_NOT_FOUND:
-                                    info["focus_scope"] = s_scope
+                        # Jika di halaman submissions ditemukan link khusus fee (seperti /af), inspeksi langsung
+                        if info["apc_status"] in (APC_UNKNOWN, INFO_NOT_FOUND) and "submissions" in sub_url:
+                            for s_a in sub_soup.find_all("a", href=True):
+                                s_txt = s_a.get_text(" ", strip=True).lower()
+                                s_h = s_a["href"].strip()
+                                if any(k in s_txt for k in fee_kw) or any(k in s_h.lower() for k in ("/af", "/apc", "author-fee", "author_fee", "authorfees")):
+                                    target_fee_url = requests.compat.urljoin(clean_base + "/", s_h)
+                                    if target_fee_url != sub_url and target_fee_url.startswith("http"):
+                                        try:
+                                            f_code, f_html, _ = safe_fetch_html(session, target_fee_url, timeout=DEEP_SCRAPE_TIMEOUT)
+                                            if f_code == 200 and f_html:
+                                                f_soup = BeautifulSoup(f_html, "lxml")
+                                                raw_subs_parts.append(sanitize_dom(f_soup))
+                                                f_apc, f_num = _extract_apc_contextual(f_soup)
+                                                if f_apc not in (APC_UNKNOWN, INFO_NOT_FOUND):
+                                                    info["apc_status"] = f_apc
+                                                    info["apc_amount"] = f_num
+                                        except Exception:
+                                            pass
 
-                            # Jika di halaman submissions ditemukan link khusus fee (seperti /af), inspeksi langsung
-                            if info["apc_status"] == INFO_NOT_FOUND and "submissions" in sub_url:
-                                for s_a in sub_soup.find_all("a", href=True):
-                                    s_txt = s_a.get_text(" ", strip=True).lower()
-                                    s_h = s_a["href"].strip()
-                                    if any(k in s_txt for k in fee_terms) or any(k in s_h.lower() for k in ("/af", "/apc", "author-fee", "author_fee", "authorfees")):
-                                        target_fee_url = requests.compat.urljoin(clean_base + "/", s_h)
-                                        if target_fee_url != sub_url and target_fee_url.startswith("http"):
-                                            try:
-                                                fee_r = session.get(target_fee_url, timeout=DEEP_SCRAPE_TIMEOUT, verify=False, allow_redirects=True)
-                                                if fee_r.status_code == 200:
-                                                    f_soup = BeautifulSoup(fee_r.text, "lxml")
-                                                    raw_subs_parts.append(sanitize_dom(f_soup))
-                                                    f_apc, f_num = _extract_apc_contextual(f_soup)
-                                                    if f_apc != INFO_NOT_FOUND:
-                                                        info["apc_status"] = f_apc
-                                                        info["apc_amount"] = f_num
-                                            except Exception:
-                                                pass
+                        # Ekstraksi meta
+                        sub_meta = _extract_meta_tags_info(sub_soup)
+                        for em in sub_meta["emails"]:
+                            if em not in all_emails:
+                                all_emails.append(em)
+                        if sub_meta["issn"] and info["issn"] == INFO_NOT_FOUND:
+                            info["issn"] = sub_meta["issn"]
+                        if sub_meta["e_issn"] and info["e_issn"] == INFO_NOT_FOUND:
+                            info["e_issn"] = sub_meta["e_issn"]
+                        if sub_meta["subjects"]:
+                            info["bidang"] = clean_and_merge_subjects(info["bidang"], ", ".join(sub_meta["subjects"]))
 
-                            # Ekstraksi meta
-                            sub_meta = _extract_meta_tags_info(sub_soup)
-                            for em in sub_meta["emails"]:
-                                if em not in all_emails:
-                                    all_emails.append(em)
-                            if sub_meta["issn"] and info["issn"] == INFO_NOT_FOUND:
-                                info["issn"] = sub_meta["issn"]
-                            if sub_meta["e_issn"] and info["e_issn"] == INFO_NOT_FOUND:
-                                info["e_issn"] = sub_meta["e_issn"]
-                            if sub_meta["subjects"]:
-                                info["bidang"] = clean_and_merge_subjects(info["bidang"], ", ".join(sub_meta["subjects"]))
+                        # Kontak subpath
+                        sub_contact_soup = BeautifulSoup(sub_html, "lxml")
+                        for noise_el in sub_contact_soup.select(".obj_article_summary, .cmp_article_list, meta[name='citation_author_email']"):
+                            noise_el.decompose()
+                        sub_e, sub_p = _extract_contacts_from_text(str(sub_contact_soup), sanitize_dom(sub_contact_soup), ojs_url=effective_ojs_url or target_url)
+                        for e in sub_e:
+                            if e not in all_emails:
+                                all_emails.append(e)
+                        for p in sub_p:
+                            if p not in all_phones:
+                                all_phones.append(p)
 
-                            # Kontak
-                            sub_e, sub_p = _extract_contacts_from_text(sub_resp.text, sub_plain)
-                            for e in sub_e:
-                                if e not in all_emails:
-                                    all_emails.append(e)
-                            for p in sub_p:
-                                if p not in all_phones:
-                                    all_phones.append(p)
+                        # APC subpath
+                        if info["apc_status"] in (APC_UNKNOWN, INFO_NOT_FOUND):
+                            s_apc, s_num = _extract_apc_contextual(sub_soup)
+                            if s_apc not in (APC_UNKNOWN, INFO_NOT_FOUND):
+                                info["apc_status"] = s_apc
+                                info["apc_amount"] = s_num
 
-                            # APC
-                            if info["apc_status"] == INFO_NOT_FOUND:
-                                s_apc, s_num = _extract_apc_contextual(sub_soup)
-                                if s_apc != INFO_NOT_FOUND:
-                                    info["apc_status"] = s_apc
-                                    info["apc_amount"] = s_num
-
-                            # Frekuensi
-                            if not raw_frequency:
-                                for pat in FREQ_PATTERNS:
-                                    m_f = pat.search(sub_plain)
-                                    if m_f:
-                                        raw_frequency = m_f.group(0).strip()
-                                        break
-                    except Exception:
-                        pass
+                        # Frekuensi subpath
+                        if not raw_frequency:
+                            for pat in FREQ_PATTERNS:
+                                m_f = pat.search(sub_plain)
+                                if m_f:
+                                    raw_frequency = m_f.group(0).strip()
+                                    break
+                except Exception:
+                    pass
         else:
-            # Respon bukan 200 (mis: 404, 500, dsb.)
             if "kemdiktisaintek.go.id" not in target_url:
                 info["apc_status"] = DEAD_LINK_TEXT
                 info["status_server"] = "Non-Aktif"
     except Exception:
-        # Request error / connection timeout pada Pass 1
         if "kemdiktisaintek.go.id" not in target_url:
             info["apc_status"] = DEAD_LINK_TEXT
             info["status_server"] = "Non-Aktif"
@@ -1606,7 +1832,7 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
                 with _domain_reachability_lock:
                     _domain_reachability_cache[netloc] = False
 
-    info["email"] = clean_contact_list(all_emails, contact_type="email")
+    info["email"] = clean_contact_list(all_emails, contact_type="email", ojs_url=effective_ojs_url or target_url)
     info["telepon"] = clean_contact_list(all_phones, contact_type="phone")
 
     combined_about = " ".join(raw_about_parts).strip()
@@ -1614,12 +1840,75 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
     info["raw_about"] = combined_about
     info["raw_submissions"] = combined_subs
 
-    # Unifikasi Satu Pintu Jadwal & Frekuensi (0% Kontradiksi - v1.5.0)
+    # TAHAP 1.2: VERIFIKASI BULAN TERBIT VIA HALAMAN ARSIP (/issue/archive)
     sched_info = month_parser.resolve_schedule_and_frequency(
         raw_text=f"{combined_about} {' '.join(freq_contexts)} {raw_frequency}"
     )
-    info["bulan_terbit"] = sched_info["months_num"]
-    info["frekuensi"] = sched_info["frequency_str"]
+    detected_months = sched_info.get("months_num") or []
+
+    # Jika month_parser belum menemukan bulan terbit dari beranda & about, cek arsip edisi
+    if not detected_months and effective_ojs_url.startswith("http") and not (stop_event and stop_event.is_set()):
+        archive_titles = []
+        # 1. Coba ekstrak Current Issue di beranda
+        if 'soup' in locals() and soup:
+            for el in soup.select(".current_issue, #currentIssue, .obj_issue_toc, .issue-summary, .current"):
+                t_c = el.get_text(" ", strip=True)
+                if t_c:
+                    archive_titles.append(t_c)
+
+        # 2. Lightweight fetch ke {root_ojs_url}/issue/archive
+        if not archive_titles:
+            clean_b = effective_ojs_url.rstrip("/")
+            if clean_b.endswith("/index"):
+                clean_b = clean_b[:-6]
+            archive_url = discovered_archive_links[0] if ('discovered_archive_links' in locals() and discovered_archive_links) else f"{clean_b}/issue/archive"
+            try:
+                arc_code, arc_html, _ = safe_fetch_html(session, archive_url, timeout=DEEP_SCRAPE_TIMEOUT)
+                if arc_code == 200 and arc_html:
+                    arc_soup = BeautifulSoup(arc_html, "lxml")
+                    for el in arc_soup.select("a.title, .obj_issue_toc h2, .obj_issue_toc h3, .obj_issue_summary h2, .issue_toc h3, #issues a, .issue a, .series, h2, h3, h4"):
+                        t_txt = el.get_text(" ", strip=True)
+                        if any(k in t_txt.lower() for k in ("vol", "no.", "no ", "issue", "edisi", "nomor", "202", "201")):
+                            archive_titles.append(t_txt)
+            except Exception:
+                pass
+
+        if archive_titles:
+            arc_months = month_parser.extract_months_from_archive_titles(archive_titles[:15])
+            if arc_months:
+                detected_months = arc_months
+
+    if detected_months:
+        info["bulan_terbit"] = detected_months
+        full_names = [month_parser._MONTH_NAMES_FULL_ID.get(m, str(m)) for m in detected_months]
+        cnt = len(detected_months)
+        joined = ", ".join(full_names[:-1]) + f" & {full_names[-1]}" if cnt > 1 else full_names[0]
+        info["frekuensi"] = f"{cnt} kali setahun ({joined})"
+    else:
+        info["bulan_terbit"] = []
+        info["frekuensi"] = sched_info.get("frequency_str") or INFO_NOT_FOUND
+
+    # TAHAP 1.3: FINALISASI STATUS APC (3-Status Accuracy)
+    if info["apc_status"] in (INFO_NOT_FOUND, ""):
+        info["apc_status"] = APC_UNKNOWN
+    if info["apc_status"] == "Gratis (Rp 0)":
+        info["biaya_publikasi"] = 0
+    elif info["apc_amount"] is not None and info["apc_amount"] > 0:
+        info["biaya_publikasi"] = info["apc_amount"]
+
+    if info["apc_status"] == DEAD_LINK_TEXT:
+        info["status_server"] = "Non-Aktif"
+    elif info["status_server"] == "Non-Aktif":
+        info["status_server"] = get_domain_ssl_health(session, effective_ojs_url or target_url)
+
+    info["transparansi_kontak"] = compute_contact_transparency(info["email"], info["telepon"])
+
+    # Simpan ke cache lokal
+    _save_to_cache(target_url, info)
+    if effective_ojs_url != target_url:
+        _save_to_cache(effective_ojs_url, info)
+
+    return info
 
     if info["apc_status"] == DEAD_LINK_TEXT:
         info["status_server"] = "Non-Aktif"
@@ -2093,41 +2382,49 @@ def _scrape_garuda_single_keyword(
                     nonlocal matched_count
                     if stop_event.is_set():
                         return
-                    res = extract_ojs_deep_info(deep_session, entry.link_ojs, stop_event=stop_event)
-                    entry.link_ojs = res.get("ojs_url", entry.link_ojs)
-                    entry.email = res.get("email", INFO_NOT_FOUND)
-                    entry.telepon = res.get("telepon", INFO_NOT_FOUND)
-                    entry.frekuensi = res.get("frekuensi", INFO_NOT_FOUND)
-                    entry.apc_status = res.get("apc_status", INFO_NOT_FOUND)
-                    entry.apc_amount = res.get("apc_amount", None)
-                    entry.focus_scope = res.get("focus_scope", INFO_NOT_FOUND)
-                    if not entry.focus_scope or entry.focus_scope == INFO_NOT_FOUND:
-                        entry.focus_scope = build_tier3_scope_fallback(entry)
-                    entry.status_server = res.get("status_server", "Aktif (HTTP)")
-                    entry.transparansi_kontak = res.get("transparansi_kontak", "Tidak Transparan")
-                    if entry.issn == INFO_NOT_FOUND and res.get("issn") and res.get("issn") != INFO_NOT_FOUND:
-                        entry.issn = res.get("issn")
-                    if entry.e_issn == INFO_NOT_FOUND and res.get("e_issn") and res.get("e_issn") != INFO_NOT_FOUND:
-                        entry.e_issn = res.get("e_issn")
-                    if res.get("bidang") and res.get("bidang") != INFO_NOT_FOUND:
-                        entry.bidang = clean_and_merge_subjects(entry.bidang, res.get("bidang"))
-                    if not entry.penerbit and res.get("publisher"):
-                        entry.penerbit = res.get("publisher")
-                    entry.raw_about = res.get("raw_about", "")
-                    entry.raw_submissions = res.get("raw_submissions", "")
-                    entry.bulan_terbit = res.get("bulan_terbit", [])
+                    try:
+                        res = extract_ojs_deep_info(deep_session, entry.link_ojs, stop_event=stop_event)
+                        entry.link_ojs = res.get("ojs_url", entry.link_ojs)
+                        entry.email = res.get("email", INFO_NOT_FOUND)
+                        entry.telepon = res.get("telepon", INFO_NOT_FOUND)
+                        entry.frekuensi = res.get("frekuensi", INFO_NOT_FOUND)
+                        entry.apc_status = res.get("apc_status", APC_UNKNOWN)
+                        entry.apc_amount = res.get("apc_amount", None)
+                        entry.focus_scope = res.get("focus_scope", INFO_NOT_FOUND)
+                        if not entry.focus_scope or entry.focus_scope == INFO_NOT_FOUND:
+                            entry.focus_scope = build_tier3_scope_fallback(entry)
+                        entry.status_server = res.get("status_server", "Aktif (HTTP)")
+                        entry.transparansi_kontak = res.get("transparansi_kontak", "Tidak Transparan")
+                        if entry.issn == INFO_NOT_FOUND and res.get("issn") and res.get("issn") != INFO_NOT_FOUND:
+                            entry.issn = res.get("issn")
+                        if entry.e_issn == INFO_NOT_FOUND and res.get("e_issn") and res.get("e_issn") != INFO_NOT_FOUND:
+                            entry.e_issn = res.get("e_issn")
+                        if res.get("bidang") and res.get("bidang") != INFO_NOT_FOUND:
+                            entry.bidang = clean_and_merge_subjects(entry.bidang, res.get("bidang"))
+                        if not entry.penerbit and res.get("publisher"):
+                            entry.penerbit = res.get("publisher")
+                        entry.raw_about = res.get("raw_about", "")
+                        entry.raw_submissions = res.get("raw_submissions", "")
+                        entry.bulan_terbit = res.get("bulan_terbit", [])
 
-                    with matched_lock:
-                        if free_only:
-                            apc_low = entry.apc_status.lower()
-                            is_free = (entry.apc_amount == 0) or ("gratis" in apc_low) or ("rp 0" in apc_low) or ("free" in apc_low)
-                            is_unk = (entry.apc_amount is None) or (entry.apc_status == INFO_NOT_FOUND)
-                            if is_free or (is_unk and include_unknown_apc):
+                        if entry.apc_status == "Gratis (Rp 0)" or entry.apc_amount == 0:
+                            entry.biaya_publikasi = 0
+                        elif entry.apc_amount is not None and entry.apc_amount > 0:
+                            entry.biaya_publikasi = entry.apc_amount
+
+                        with matched_lock:
+                            if free_only:
+                                apc_low = entry.apc_status.lower()
+                                is_free = (entry.apc_amount == 0) or ("gratis" in apc_low) or ("rp 0" in apc_low) or ("free" in apc_low)
+                                is_unk = (entry.apc_amount is None) or (entry.apc_status in (INFO_NOT_FOUND, APC_UNKNOWN))
+                                if is_free or (is_unk and include_unknown_apc):
+                                    matched_count += 1
+                            else:
                                 matched_count += 1
-                        else:
-                            matched_count += 1
-                        if matched_count >= max_results:
-                            stop_event.set()
+                            if matched_count >= max_results:
+                                stop_event.set()
+                    except Exception:
+                        pass
 
                 futures = [executor.submit(_do_garuda_deep, entry) for entry in filtered]
                 for f in futures:

@@ -277,16 +277,23 @@ def _validate_apc(data, snippet: str) -> Dict:
         raise AIValidationError("output bukan objek JSON")
     allowed = numbers_in_text(snippet)
     out: Dict = {}
-    snippet_low = snippet.lower()
 
-    pub_free_terms = (
-        "publication fee", "publishing fee", "article processing charge", "processing charge",
-        "apc", "biaya publikasi", "biaya penerbitan", "biaya cetak", "halaman", "page charge"
-    )
-    has_pub_context = any(t in snippet_low for t in pub_free_terms)
+    # Deteksi eksplisit bahwa BIAYA PUBLIKASI adalah gratis / 0 (bukan submission fee semata)
     has_explicit_pub_free = bool(
-        re.search(r"\b(?:apc|publication\s*fee|biaya\s*publikasi)\s*:\s*(?:0|free|none|gratis)\b", snippet_low)
-        or (has_pub_context and _FREE_RE.search(snippet))
+        re.search(
+            r"(?:"
+            r"(?:article\s*publication|article\s*processing\s*charges?|apc|publication\s*fees?|"
+            r"publishing\s*fees?|biaya\s*(?:publikasi|penerbitan|pemrosesan\s*artikel)|"
+            r"page\s*charges?|biaya\s*(?:halaman|cetak))\s*[:=-]?\s*"
+            r"(?:(?:rp\.?|idr)\s*0(?:\.00)?|0(?:\.00)?\s*(?:\(?idr\)?|\(?rp\.?\)|\(?usd\)?|\$)?|"
+            r"gratis|free|none|tidak\s*(?:dipungut|dikenakan)\s*biaya|bebas\s*biaya|tanpa\s*biaya|free\s*of\s*charge)\b|"
+            r"(?:free\s*of\s*charge|no\s*fees?|tidak\s*(?:dipungut|dikenakan)\s*biaya|tanpa\s*biaya|bebas\s*biaya)\s*(?:for|pada|untuk)?\s*(?:publication|publishing|publikasi|penerbitan)|"
+            r"charges?\s*no\s*(?:publication|article\s*processing)\s*fees?|"
+            r"(?:publication|publishing|biaya\s*publikasi)\s*(?:is|adalah|sebesar)?\s*(?:free|gratis|bebas\s*biaya|free\s*of\s*charge)"
+            r")",
+            snippet,
+            re.IGNORECASE,
+        )
     )
 
     for key in ("biaya_submit", "biaya_publikasi"):
@@ -295,10 +302,8 @@ def _validate_apc(data, snippet: str) -> Dict:
             if n == 0:
                 if key == "biaya_publikasi":
                     # Cegah false positive: jika hanya submission fee yang gratis, jangan set biaya_publikasi=0
-                    if not has_explicit_pub_free and ("submission" in snippet_low or "penyerahan" in snippet_low) and not has_pub_context:
-                        raise AIValidationError("biaya_publikasi=0 false positive (hanya submission fee yang gratis)")
-                    if not _FREE_RE.search(snippet):
-                        raise AIValidationError("biaya_publikasi=0 tanpa pernyataan gratis di teks")
+                    if not has_explicit_pub_free:
+                        raise AIValidationError("biaya_publikasi=0 ditolak (tidak ada pernyataan eksplisit bahwa biaya penerbitan/publikasi gratis)")
                 else:
                     if not _FREE_RE.search(snippet):
                         raise AIValidationError(f"{key}=0 tanpa pernyataan gratis di teks")
@@ -399,31 +404,39 @@ def _safe_legacy(key: str, raw_text: str, empty):
 
 # ───────────────────────── Job (tidak pernah melempar exception) ─────────────────────────
 def _focus_job(raw_text: str) -> Dict:
-    if not (raw_text or "").strip():
+    try:
+        if not (raw_text or "").strip():
+            return {"focus_scope": "", "sumber": "Kosong"}
+        if is_boilerplate_noise(raw_text) and len(raw_text.strip()) < 400:
+            return {"focus_scope": "", "sumber": "Kosong"}
+        res = _try_ai(PROMPT_FOCUS, raw_text, _FOCUS_RX, _validate_focus)
+        if res is not None:
+            return {"focus_scope": res, "sumber": "AI"}
+        legacy_val = _safe_legacy("focus", raw_text, "")
+        if legacy_val and is_boilerplate_noise(legacy_val):
+            legacy_val = ""
+        sumber = "Regex" if legacy_val else "Kosong"
+        return {"focus_scope": legacy_val, "sumber": sumber}
+    except Exception as e:
+        log.error("Error in _focus_job: %s", e)
         return {"focus_scope": "", "sumber": "Kosong"}
-    if is_boilerplate_noise(raw_text) and len(raw_text.strip()) < 400:
-        return {"focus_scope": "", "sumber": "Kosong"}
-    res = _try_ai(PROMPT_FOCUS, raw_text, _FOCUS_RX, _validate_focus)
-    if res is not None:
-        return {"focus_scope": res, "sumber": "AI"}
-    legacy_val = _safe_legacy("focus", raw_text, "")
-    if legacy_val and is_boilerplate_noise(legacy_val):
-        legacy_val = ""
-    sumber = "Regex" if legacy_val else "Kosong"
-    return {"focus_scope": legacy_val, "sumber": sumber}
 
 
 def _apc_job(raw_text: str) -> Dict:
     empty = {"biaya_submit": None, "biaya_publikasi": None, "mata_uang": None}
-    if not (raw_text or "").strip():
+    try:
+        if not (raw_text or "").strip():
+            return {**empty, "sumber": "Kosong"}
+        res = _try_ai(PROMPT_APC, raw_text, _APC_RX, _validate_apc)
+        if res is not None:
+            return {**res, "sumber": "AI"}
+        legacy_val = _safe_legacy("apc", raw_text, empty)
+        has_apc = (legacy_val.get("biaya_submit") is not None) or (legacy_val.get("biaya_publikasi") is not None)
+        sumber = "Regex" if has_apc else "Kosong"
+        return {**legacy_val, "sumber": sumber}
+    except Exception as e:
+        log.error("Error in _apc_job: %s", e)
         return {**empty, "sumber": "Kosong"}
-    res = _try_ai(PROMPT_APC, raw_text, _APC_RX, _validate_apc)
-    if res is not None:
-        return {**res, "sumber": "AI"}
-    legacy_val = _safe_legacy("apc", raw_text, empty)
-    has_apc = (legacy_val.get("biaya_submit") is not None) or (legacy_val.get("biaya_publikasi") is not None)
-    sumber = "Regex" if has_apc else "Kosong"
-    return {**legacy_val, "sumber": sumber}
 
 
 # ───────────────────────── Thread Pool AI (terpisah dari 128 worker scraper) ─────────────────────────

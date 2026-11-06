@@ -1,6 +1,6 @@
 # =============================================================================
 # JSFS - Journal Scraper For Students
-# config.py — Konfigurasi global scraper v1.5.0 (SQLite WAL Cache, Top 3 AI Advisor, Next Issue Countdown)
+# config.py — Konfigurasi global scraper v1.6.0 (Human-Parity Accuracy Engine, Zero-Crash & Copy-Paste List Generator)
 # =============================================================================
 
 import os
@@ -8,7 +8,7 @@ import re
 import sys
 from datetime import datetime
 
-APP_VERSION = "1.5.1"
+APP_VERSION = "1.6.0"
 
 
 def get_app_dir() -> str:

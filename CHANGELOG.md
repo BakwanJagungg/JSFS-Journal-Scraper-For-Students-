@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-11-06
+
+### Added & Enhanced
+- **Human-Parity Accuracy Engine (`scraper_garuda.py`, `scraper_sinta.py`, `month_parser.py`, `ai_engine.py`)**:
+  - **Dynamic Menu Anchor Discovery**: Pemindaian dinamis seluruh tag tautan navigasi dan sidebar OJS untuk menemukan halaman biaya tersembunyi (`fee`, `apc`, `biaya`, `charge`, `payment`, `tarif`) dan halaman kontak resmi (`contact`, `kontak`, `hubungi`, `about`).
+  - **Verifikasi Jadwal Bulan Terbit via Arsip (`/issue/archive`)**: Fitur `extract_months_from_archive_titles` melakukan *lightweight fetch* ke halaman arsip dan edisi berjalan (*Current Issue*) untuk mengekstrak jadwal bulan terbit nyata dari judul edisi (mis. `"Vol. 10 No. 1: April - Oktober"`).
+  - **Akurasi Biaya Publikasi (APC) 3-Status & Anti-False-Positive "Gratis"**:
+    - Standarisasi 3 status biaya: `Gratis (Rp 0)`, `Rp X.XXX.XXX`, dan `Cek Web / Belum Terdata`.
+    - Eliminasi total false-positive status Gratis: status bebas biaya hanya disematkan jika terdapat pernyataan eksplisit biaya publikasi/APC gratis, bukan karena biaya pendaftaran (*submission fee*) bernilai Rp 0 atau ketiadaan angka.
+  - **Dekoder Email Terproteksi Cloudflare & Deobfuskasi Teks**:
+    - Implementasi dekoder hex `decode_cfemail()` untuk mendekripsi email jurnal yang diproteksi tag `<a class="__cf_email__" data-cfemail="...">`.
+    - Fungsi `deobfuscate_email_text()` untuk mengenali dan mengonversi format manual manusia seperti `nama [at] kampus.ac.id` atau `jurnal(at)kampus[dot]ac[dot]id`.
+  - **Pemeringkatan Email Resmi & Pembersihan Email NIM Mahasiswa**:
+    - Algoritma skoring memprioritaskan email dengan domain yang sesuai URL OJS kampus (`.ac.id`) atau berawalan kata kunci redaksi (`jurnal`, `editor`, `redaksi`, `ejournal`, `publikasi`, `admin`).
+    - Otomatis membuang email mahasiswa berbasis pola NIM/stambuk (`>= 8 digit angka`) jika kontak resmi redaksi telah ditemukan.
+  - **Ekstraksi Nomor Telepon Kampus & WhatsApp Diperluas**:
+    - Regex telepon `RE_PHONE` kini mendukung nomor telepon kabel institusi berformat kode area `(021) xxx`, `(0271) xxx`, `+6221xxx`, serta nomor WhatsApp seluler `08xx` dan `+628xx`.
+
+- **Fitur Baru: 1-Click Copy-Paste List Generator (`exporter.py`, `app_ui.py`)**:
+  - **Fungsi `generate_copypaste_list`**: Menghasilkan daftar jurnal bernomor ringkas, bersih, dan informatif yang siap di-share ke WhatsApp/Telegram grup rekan mahasiswa/dosen.
+  - **Integrasi Ekspor Markdown & File List Teks Pendamping**:
+    - Menambahkan blok kode `## 📋 Daftar Ringkas Siap Copy-Paste (Untuk Share ke Rekan)` di dalam file ekspor `.md`.
+    - Otomatis membuat dan menyimpan berkas teks pendamping `JSFS_<keyword>_<timestamp>_LIST.txt` setiap kali ekspor data dijalankan.
+  - **Tombol Pop-up "📋 Salin Semua Daftar (Format Share)"**:
+    - Ditempatkan di header jendela `JSFSDataPreviewer` dengan warna aksen ungu/indigo modern (`#6366f1`).
+    - Salin satu klik seluruh baris jurnal yang sedang terfilter ke clipboard OS dengan feedback animasi `✅ Semua Daftar Tersalin ke Clipboard!` selama 2.5 detik.
+
+### Fixed & Stabilized
+- **Zero-Crash & Anti-Freeze Architecture (`scraper_garuda.py`, `scraper_sinta.py`, `ai_engine.py`)**:
+  - **Content-Type & Response Size Guard (`safe_fetch_html`)**: Memeriksa header HTTP `Content-Type` untuk memastikan hanya memproses berkas HTML (`text/html`, `application/xhtml+xml`) dan membatasi unduhan maksimal 1.5 MB per halaman OJS via streaming, melenyapkan risiko freeze/hang saat crawler tidak sengaja menjumpai file PDF artikel atau arsip ZIP puluhan MB.
+  - **Multi-Layer Exception Shield**: Membungkus seluruh thread worker crawling dan deep analysis dengan penanganan exception berlapis untuk menangani redirect loop (`TooManyRedirects`), encoding aneh (`UnicodeDecodeError`), koneksi timeout, dan parsing error tanpa menggugurkan proses scraping jurnal lainnya.
+
 ## [1.5.1] - 2026-10-20
 
 ### Fixed & Stabilized

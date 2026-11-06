@@ -259,14 +259,14 @@ def run_scraper(params: dict, on_progress, cancel: threading.Event) -> list[Jour
 # ───────────────────────── Data Previewer Interaktif ─────────────────────────
 class JSFSDataPreviewer(ctk.CTkToplevel):
     """
-    Jendela Pop-up Interaktif Data Table Previewer v1.5.1.
-    Menampilkan data terstruktur dengan kolom Submit, Publikasi, Bulan Terbit, dan Sumber (AI/Regex).
+    Jendela Pop-up Interaktif Data Table Previewer v1.6.0.
+    Menampilkan data terstruktur dengan kolom Submit, Publikasi, Bulan Terbit, Sumber, dan Copy-Paste List Generator.
     """
 
     def __init__(self, master, journals: list[JournalEntry], excel_path: Optional[str] = None):
         super().__init__(master)
 
-        self.title("👁️ JSFS Data Table Previewer v1.5.1 — Hasil Scraping Jurnal")
+        self.title("👁️ JSFS Data Table Previewer v1.6.0 — Hasil Scraping Jurnal")
         self.geometry("1180x720")
         self.minsize(980, 600)
 
@@ -289,7 +289,7 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
 
         title_lbl = ctk.CTkLabel(
             header_bar,
-            text="📊 Data Table Previewer v1.5.1",
+            text="📊 Data Table Previewer v1.6.0",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color="#38bdf8",
         )
@@ -313,6 +313,18 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
             command=self.destroy,
         )
         btn_close.pack(side="right", padx=(8, 0))
+
+        self.btn_copy_share = ctk.CTkButton(
+            header_bar,
+            text="📋 Salin Semua Daftar (Format Share)",
+            width=230,
+            height=30,
+            fg_color="#6366f1",
+            hover_color="#4f46e5",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=self._copy_share_list,
+        )
+        self.btn_copy_share.pack(side="right", padx=(8, 0))
 
         if self._excel_path and os.path.exists(self._excel_path):
             btn_open_excel = ctk.CTkButton(
@@ -513,6 +525,34 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
             except Exception:
                 pass
 
+    def _copy_share_list(self):
+        """Menyalin seluruh daftar jurnal yang sedang terfilter ke clipboard dalam format siap share grup (v1.6.0)."""
+        targets = self._filtered_journals if self._filtered_journals else self._all_journals
+        if not targets:
+            return
+        share_text = exporter.generate_copypaste_list(targets)
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(share_text)
+            self.update()
+            self.btn_copy_share.configure(
+                text="✅ Semua Daftar Tersalin ke Clipboard!",
+                fg_color="#10b981",
+            )
+            self.after(2500, self._reset_copy_share_btn)
+        except Exception:
+            pass
+
+    def _reset_copy_share_btn(self):
+        try:
+            if self.winfo_exists():
+                self.btn_copy_share.configure(
+                    text="📋 Salin Semua Daftar (Format Share)",
+                    fg_color="#6366f1",
+                )
+        except Exception:
+            pass
+
     def _reset_filters(self):
         self.entry_filter.delete(0, "end")
         self.combo_sinta.set("Semua SINTA")
@@ -558,7 +598,15 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
             b_pub_num = getattr(j, "biaya_publikasi", None)
             if b_pub_num is None and getattr(j, "apc_amount", None) is not None:
                 b_pub_num = getattr(j, "apc_amount", None)
-            b_pub = exporter._format_amount(b_pub_num, getattr(j, "mata_uang", None))
+            apc_raw = getattr(j, "apc_status", "Cek Web / Belum Terdata")
+            if apc_raw == "Gratis (Rp 0)":
+                b_pub = "Gratis (Rp 0)"
+            elif b_pub_num is not None:
+                b_pub = exporter._format_amount(b_pub_num, getattr(j, "mata_uang", None))
+            elif apc_raw and any(c.isdigit() for c in apc_raw) and "tidak dapat diakses" not in apc_raw.lower():
+                b_pub = apc_raw
+            else:
+                b_pub = "Cek Web / Belum Terdata"
 
             bulan = format_bulan_terbit(getattr(j, "bulan_terbit", []))
             terbit_est = exporter.get_next_issue_estimate(getattr(j, "bulan_terbit", []))
@@ -963,15 +1011,15 @@ class AISetupDialog(ctk.CTkToplevel):
         self.destroy()
 
 
-# ───────────────────────── Panduan Singkat Dialog (v1.5.1) ─────────────────────────
+# ───────────────────────── Panduan Singkat Dialog (v1.6.0) ─────────────────────────
 class QuickGuideDialog(ctk.CTkToplevel):
     """
-    Dialog Modal Panduan Singkat Pemula (JSFS v1.5.1).
+    Dialog Modal Panduan Singkat Pemula (JSFS v1.6.0).
     Menjelaskan alur pencarian jurnal, peringkat SINTA, biaya APC, dan tips komunikasi editor.
     """
     def __init__(self, parent: "JSFSApp"):
         super().__init__(parent)
-        self.title("❓ Panduan Singkat Penggunaan JSFS v1.5.1")
+        self.title("❓ Panduan Singkat Penggunaan JSFS v1.6.0")
         self.geometry("640x560")
         self.minsize(580, 500)
         self.transient(parent)
@@ -1031,9 +1079,9 @@ class QuickGuideDialog(ctk.CTkToplevel):
              "• Periksa kolom 'Jadwal Terbit' dan 'Terbit Terdekat' pada hasil scraping.\n"
              "• Kirimkan naskah minimal 2-3 bulan sebelum bulan terbit target agar ada waktu telaah sejawat (peer review) dan revisi."),
 
-            ("5. Menghubungi Editor Jurnal (Fitur Baru v1.5.1)",
-             "• Pada jendela 'Preview Hasil Data', pilih jurnal yang diinginkan lalu klik tombol '💬 Salin Draf Chat Editor'.\n"
-             "• Draf pesan sopan menanyakan kuota terbitan terdekat akan otomatis tersalin ke clipboard Anda dan siap dikirim via WhatsApp atau Email redaksi.")
+            ("5. Salin Ringkas Siap Share & Hubungi Editor (Fitur v1.6.0)",
+             "• Pada pop-up 'Preview Hasil Data', klik tombol '📋 Salin Semua Daftar (Format Share)' untuk menyalin daftar terformat ke WhatsApp/Telegram grup.\n"
+             "• Anda juga dapat memilih jurnal lalu klik '💬 Salin Draf Chat Editor' untuk mengirim draf pesan menanyakan kuota terbitan.")
         ]
 
         for i, (stitle, sdesc) in enumerate(sections):
@@ -1076,7 +1124,7 @@ class QuickGuideDialog(ctk.CTkToplevel):
 class JSFSApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("JSFS v1.5.1 — Journal Scraper For Students (Hybrid AI Engine)")
+        self.title("JSFS v1.6.0 — Journal Scraper For Students (Human-Parity Engine)")
         self.geometry("1040x860")
         self.minsize(980, 640)                                  # Zero Clipping aturan #3
 
@@ -1119,9 +1167,9 @@ class JSFSApp(ctk.CTk):
         hdr = ctk.CTkFrame(self, fg_color="transparent")
         hdr.grid(row=0, column=0, sticky="ew", padx=PAD + 4, pady=(PAD, GAP))
         hdr.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(hdr, text="JSFS v1.5.1 — Journal Scraper For Students",
+        ctk.CTkLabel(hdr, text="JSFS v1.6.0 — Journal Scraper For Students",
                      font=self.f_title, text_color="#38bdf8", anchor="w").grid(row=0, column=0, sticky="w")
-        ctk.CTkLabel(hdr, text="Hybrid AI Engine • Smart SQLite WAL Cache • Top 3 AI Advisor • Schedule Estimator",
+        ctk.CTkLabel(hdr, text="Human-Parity Engine • Zero-Crash Shield • 1-Click Share List • Schedule Estimator",
                      font=self.f_s, text_color=MUTED, anchor="w").grid(row=1, column=0, sticky="w", pady=(2, 0))
 
         btn_box = ctk.CTkFrame(hdr, fg_color="transparent")
@@ -1245,7 +1293,7 @@ class JSFSApp(ctk.CTk):
                       command=self._clear_log).grid(row=0, column=1, sticky="e")
         self.log_box = ctk.CTkTextbox(body, height=190, font=self.f_mono, wrap="word", state="disabled")
         self.log_box.grid(row=6, column=0, sticky="nsew", pady=(GAP, PAD))
-        self.log("Selamat datang di JSFS v1.5.1 (Hybrid AI Engine).")
+        self.log("Selamat datang di JSFS v1.6.0 (Human-Parity Engine & Zero-Crash Architecture).")
 
         # 3. Tampilkan simple mode secara default & terapkan preset awal (aman karena log_box sudah aktif)
         self.frame_simple_mode.grid(row=3, column=0, sticky="nsew", pady=(0, GAP + 2))

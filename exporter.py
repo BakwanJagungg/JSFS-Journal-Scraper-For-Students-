@@ -38,6 +38,7 @@ from scraper_garuda import (
     clean_contact_list,
     get_whatsapp_link,
 )
+import month_parser
 from month_parser import format_bulan_terbit, get_next_issue_estimate
 
 console = Console()
@@ -48,16 +49,114 @@ def _ensure_output_dir():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
-def _format_amount(val: Optional[int], currency: Optional[str] = "IDR") -> str:
-    """Format nominal angka menjadi format terstandarisasi Rp / USD / Gratis / —."""
+def _format_amount(val: Optional[int], currency: Optional[str] = "IDR", fallback: str = "—") -> str:
+    """Format nominal angka menjadi format terstandarisasi Rp / USD / Gratis (Rp 0) / fallback."""
     if val is None:
-        return "—"
+        return fallback
     if val == 0:
-        return "Gratis (0)"
+        return "Gratis (Rp 0)"
     cur = (currency or "IDR").upper()
     if cur == "USD":
         return f"${val:,} USD"
     return f"Rp {val:,}".replace(",", ".")
+
+
+def _get_entry_val(obj: any, *keys: str, default: any = None) -> any:
+    """Mengambil nilai atribut atau dict key secara aman dari JournalEntry atau dict."""
+    if isinstance(obj, dict):
+        for k in keys:
+            if k in obj and obj[k] is not None:
+                return obj[k]
+        return default
+    for k in keys:
+        if hasattr(obj, k):
+            v = getattr(obj, k)
+            if v is not None:
+                return v
+    return default
+
+
+def generate_copypaste_list(journals: list) -> str:
+    """
+    FITUR COPY-PASTE LIST RINGKAS (FORMAT SHARE GRUP) v1.6.0:
+    Menghasilkan daftar bernomor siap salin dengan format standar share WhatsApp / Telegram:
+    {No}. {Nama Jurnal} ({SINTA} - {Penerbit})
+    Email: ...
+    Telepon/WA: ...
+    Biaya Publikasi: ... | Terbit: ...
+    Link OJS: ...
+    """
+    if not journals:
+        return ""
+
+    entries: list[str] = []
+    for idx, j in enumerate(journals, 1):
+        name = _get_entry_val(j, "nama_jurnal") or _get_entry_val(j, "judul") or "Jurnal Ilmiah"
+        sinta = _get_entry_val(j, "peringkat_sinta", default="Sinta -")
+        penerbit = _get_entry_val(j, "penerbit", default="")
+
+        if penerbit and penerbit != INFO_NOT_FOUND and "tidak ditemukan" not in str(penerbit).lower():
+            header = f"{idx}. {name} ({sinta} - {penerbit})"
+        else:
+            header = f"{idx}. {name} ({sinta})"
+
+        lines = [header]
+
+        # Email
+        email = _get_entry_val(j, "email", default="")
+        if email and email != INFO_NOT_FOUND and "tidak dapat diakses" not in str(email).lower() and "tidak ditemukan" not in str(email).lower():
+            lines.append(f"Email: {email}")
+
+        # Telepon / WA
+        tel = _get_entry_val(j, "telepon", default="")
+        if tel and tel != INFO_NOT_FOUND and "tidak dapat diakses" not in str(tel).lower() and "tidak ditemukan" not in str(tel).lower():
+            lines.append(f"Telepon/WA: {tel}")
+
+        # Biaya Publikasi
+        b_pub = _get_entry_val(j, "biaya_publikasi", default=None)
+        if b_pub is None:
+            b_pub = _get_entry_val(j, "apc_amount", default=None)
+        cur = _get_entry_val(j, "mata_uang", default="IDR") or "IDR"
+        apc_status = _get_entry_val(j, "apc_status", default="")
+
+        if b_pub is not None:
+            if b_pub == 0:
+                biaya_str = "Gratis (Rp 0)"
+            elif cur.upper() == "USD":
+                biaya_str = f"${b_pub:,} USD"
+            else:
+                biaya_str = f"Rp {b_pub:,}".replace(",", ".")
+        elif apc_status and ("gratis" in str(apc_status).lower() or "rp 0" in str(apc_status).lower()):
+            biaya_str = "Gratis (Rp 0)"
+        elif apc_status and any(c.isdigit() for c in str(apc_status)) and "tidak dapat diakses" not in str(apc_status).lower():
+            biaya_str = str(apc_status)
+        else:
+            biaya_str = "Cek Web / Belum Terdata"
+
+        # Jadwal Terbit (Nama Bulan Lengkap, mis: 'Juni, November')
+        months = _get_entry_val(j, "bulan_terbit", default=[])
+        norm_m = month_parser._normalize_month_list(months)
+        if norm_m:
+            terbit_str = ", ".join(month_parser._MONTH_NAMES_FULL_ID.get(m, str(m)) for m in norm_m)
+        else:
+            freq = _get_entry_val(j, "frekuensi", default="")
+            if freq and freq != INFO_NOT_FOUND and "tidak dapat diakses" not in str(freq).lower() and "tidak ditemukan" not in str(freq).lower():
+                terbit_str = str(freq)
+            else:
+                terbit_str = "Belum Terdata"
+
+        lines.append(f"Biaya Publikasi: {biaya_str} | Terbit: {terbit_str}")
+
+        # Link OJS
+        link = _get_entry_val(j, "link_ojs", default="") or _get_entry_val(j, "link", default="")
+        if link and str(link).startswith("http"):
+            lines.append(f"Link OJS: {link}")
+        else:
+            lines.append("Link OJS: —")
+
+        entries.append("\n".join(lines))
+
+    return "\n\n".join(entries)
 
 
 def validate_urls_async(urls: list[str]) -> dict[str, bool]:
@@ -552,6 +651,18 @@ def export_markdown(
                     lines.append(f"- 🌐 **Link OJS**: *{DEAD_LINK_TEXT}* ({raw_u})")
                 lines.append("")
 
+    # 📋 Daftar Ringkas Siap Copy-Paste (Untuk Share ke Rekan)
+    copypaste_list = generate_copypaste_list(journals)
+    if copypaste_list:
+        lines.append("## 📋 Daftar Ringkas Siap Copy-Paste (Untuk Share ke Rekan)")
+        lines.append("")
+        lines.append("> 💡 **Tips Praktis**: Salin blok teks di bawah ini untuk dibagikan langsung ke grup WhatsApp / Telegram rekan tim mahasiswa.")
+        lines.append("")
+        lines.append("```text")
+        lines.append(copypaste_list)
+        lines.append("```")
+        lines.append("")
+
     # Footer
     lines.append("---")
     lines.append("")
@@ -878,7 +989,7 @@ def write_exports(
     formats: list[str],
     sinta_ranks: Optional[list[int]] = None,
 ) -> list[str]:
-    """Ekspor hasil ke beberapa format sekaligus (.md, .xlsx, .csv)."""
+    """Ekspor hasil ke beberapa format sekaligus (.md, .xlsx, .csv) dan file teks pendamping _LIST.txt."""
     exported: list[str] = []
     if not formats:
         formats = [".xlsx", ".md"]
@@ -891,6 +1002,24 @@ def write_exports(
             exported.append(export_markdown(journals, keyword=keyword, sinta_ranks=sinta_ranks))
         elif fmt_clean == "csv":
             exported.append(export_csv(journals, keyword=keyword))
+
+    # File teks pendamping otomatis daftar ringkas siap copy-paste (v1.6.0)
+    try:
+        copypaste_text = generate_copypaste_list(journals)
+        if copypaste_text:
+            _ensure_output_dir()
+            list_filename = generate_output_filename(keyword, "txt")
+            if list_filename.endswith(".txt"):
+                list_filename = list_filename[:-4] + "_LIST.txt"
+            else:
+                list_filename += "_LIST.txt"
+            list_path = os.path.join(OUTPUT_DIR, list_filename)
+            with open(list_path, "w", encoding="utf-8") as f:
+                f.write(copypaste_text)
+            exported.append(list_path)
+            console.print(f"[bold green]✅ Daftar Copy-Paste tersimpan → {list_path}[/bold green]")
+    except Exception as e:
+        console.print(f"[yellow]⚠ Gagal membuat file LIST.txt pendamping: {e}[/yellow]")
 
     return exported
 
