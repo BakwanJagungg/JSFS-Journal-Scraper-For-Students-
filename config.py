@@ -1,6 +1,6 @@
 # =============================================================================
 # JSFS - Journal Scraper For Students
-# config.py — Konfigurasi global scraper v1.6.2 (Forensic Data Purity & Smart Deduplication)
+# config.py — Konfigurasi global scraper v1.7.0 (Deep APC Hunter + Modern Bright GUI)
 # =============================================================================
 
 import os
@@ -8,7 +8,7 @@ import re
 import sys
 from datetime import datetime
 
-APP_VERSION = "1.6.2"
+APP_VERSION = "1.7.0"
 
 
 def get_app_dir() -> str:

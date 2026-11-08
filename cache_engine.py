@@ -1,8 +1,9 @@
 """
-cache_engine.py — Smart SQLite WAL Cache Engine v1.5.0
+cache_engine.py — Smart SQLite WAL Cache Engine v1.7.0
 Menyediakan penyimpanan cache lokal persisten berbasis SQLite mode WAL
 untuk mempercepat scraping berulang, menghemat bandwidth OJS,
 dan mengurangi beban inferensi LLM Ollama.
+Dilengkapi Incomplete Cache Bypass & Auto-Purge Versioning.
 """
 from __future__ import annotations
 
@@ -19,6 +20,8 @@ from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
 log = logging.getLogger("jsfs.cache")
+
+CACHE_VERSION = "1.7.0"
 
 
 def get_app_dir() -> str:
@@ -161,16 +164,33 @@ class JSFSCacheEngine:
                         CREATE INDEX IF NOT EXISTS idx_journal_cache_name
                         ON journal_cache(journal_name);
                     """)
+                    conn.execute("""
+                        CREATE TABLE IF NOT EXISTS cache_metadata (
+                            key TEXT PRIMARY KEY,
+                            value TEXT
+                        );
+                    """)
+                    # Mekanisme Auto-Purge jika versi cache sebelumnya < 1.7.0
+                    cur = conn.cursor()
+                    cur.execute("SELECT value FROM cache_metadata WHERE key = 'cache_version'")
+                    v_row = cur.fetchone()
+                    installed_version = v_row[0] if v_row else None
+                    if installed_version is None or installed_version < CACHE_VERSION:
+                        log.info("Auto-purge cache SQLite OJS: upgrade dari versi %s ke %s...", installed_version, CACHE_VERSION)
+                        conn.execute("DELETE FROM journal_cache;")
+                        conn.execute("INSERT OR REPLACE INTO cache_metadata (key, value) VALUES ('cache_version', ?);", (CACHE_VERSION,))
                     conn.commit()
                 finally:
                     conn.close()
             except Exception as e:
                 log.error("Gagal menginisialisasi SQLite cache: %s", e)
 
-    def get_journal(self, url: str, max_age_days: int = DEFAULT_CACHE_TTL_DAYS) -> Optional[dict]:
+    def get_journal(self, url: str, max_age_days: int = DEFAULT_CACHE_TTL_DAYS, allow_incomplete: bool = False) -> Optional[dict]:
         """
         Mengambil entri jurnal dari cache jika belum kedaluwarsa.
-        Mengembalikan dict data jurnal atau None jika cache miss / kedaluwarsa.
+        Jika allow_incomplete=False (default), entri dengan biaya_publikasi kosong
+        atau sumber_apc 'Kosong' akan di-bypass untuk di-deep scrape ulang (Incomplete Cache Bypass).
+        Mengembalikan dict data jurnal atau None jika cache miss / kedaluwarsa / incomplete.
         """
         url_key = normalize_ojs_url(url)
         if not url_key:
@@ -196,6 +216,19 @@ class JSFSCacheEngine:
                     log.debug("Cache expired untuk %s (umur: %d hari)", url_key, (now - updated_at) // 86400)
                     return None
 
+                # Incomplete Cache Bypass (VISION.md 3.1.4):
+                # Jurnal dianggap belum lengkap dan WAJIB di-bypass jika biaya belum terdata
+                apc_pub = row["apc_publish"]
+                s_apc = row["source_apc"]
+                if not allow_incomplete:
+                    if (
+                        not apc_pub
+                        or apc_pub in ("", "—", "-", "Cek Web / Belum Terdata", "None", "Informasi tidak ditemukan dalam situs jurnal")
+                        or s_apc in ("Kosong", "", "None", None)
+                    ):
+                        log.debug("Cache incomplete untuk %s (APC: %s, Source: %s) -> bypass cache", url_key, apc_pub, s_apc)
+                        return None
+
                 months = []
                 if row["months_json"]:
                     try:
@@ -204,7 +237,6 @@ class JSFSCacheEngine:
                         months = []
 
                 # Konversi angka APC bila valid
-                apc_pub = row["apc_publish"]
                 apc_amount = None
                 if apc_pub:
                     if apc_pub in ("0", "Gratis (0)", "Free"):

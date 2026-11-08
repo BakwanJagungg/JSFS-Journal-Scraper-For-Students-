@@ -1,6 +1,6 @@
-# 📚 JSFS — Journal Scraper For Students (v1.6.2 Forensic Data Purity & Smart Deduplication)
+# 📚 JSFS — Journal Scraper For Students (v1.7.0 Deep APC Hunter & Modern Bright GUI)
 
-> **Alat otomatisasi pencarian jurnal SINTA & Garuda untuk mahasiswa & peneliti: Forensic Anti-Email Flood (Max 3 Email Resmi & Eliminasi Email Mahasiswa/Penulis), Area Code Whitelist & Anti-Fake Phone (Max 2 WA/Telp), Deep Indonesian OJS APC Terminology & Smart Fallback (Biaya Submit > 50rb -> Publikasi), Issue Archive Year Grouping (Anti-7-8 Bulan), Smart Canonical Deduplication (Penggabungan Jurnal Migran), Perlindungan Nama Jurnal dari Judul Artikel, Pembersihan Baris Fokus Terjemahan Indonesia, dan 1-Click Copy-Paste Share List Generator.**
+> **Alat otomatisasi pencarian jurnal SINTA & Garuda untuk mahasiswa & peneliti: Deep APC Hunter Engine (Incomplete Cache Bypass, Multi-Path OJS Crawler, Anti-OA-Trap & Paid Priority), Modern Bright GUI (Soft Slate Daylight, Dark/Light Theme Switcher, Live KPI Counter Pills, 1-Click WA Share), Forensic Data Purity, Area Code Whitelist, Issue Archive Year Grouping, dan Smart Canonical Deduplication.**
 
 ---
 
@@ -14,8 +14,16 @@ Mencari jurnal yang tepat di portal **SINTA** dan **Garuda** secara manual serin
 - ❌ Sulit mencocokkan jadwal bulan terbit jurnal (*call for papers*) dengan tenggat waktu sidang/kelulusan.
 - ❌ Kontak redaksi (Email/WA) sering disembunyikan di balik proteksi Cloudflare atau terselubung di menu navigasi.
 
-**JSFS (Journal Scraper For Students) v1.6.2** hadir untuk menyelesaikan seluruh masalah tersebut:
-1. 🛡️ **Forensic Data Purity & Anti-Email Flood (Baru di v1.6.2)**:
+**JSFS (Journal Scraper For Students) v1.7.0** hadir untuk menyelesaikan seluruh masalah tersebut:
+1. 🎯 **Deep APC Hunter Engine (Baru di v1.7.0)**:
+   - 🔄 **Incomplete Cache Auto-Bypass & SQLite Auto-Purge**: Entri cache dengan status APC belum terdata otomatis di-bypass untuk deep-scrape ulang saat opsi Deep Scrape diaktifkan, serta auto-purge database SQLite lama.
+   - 🌐 **Multi-Path OJS 2 & OJS 3 Crawler**: Memindai secara konsisten 5 titik target: (1) `/about/submissions`, (2) `/about/editorialPolicies` (kritis untuk OJS 2), (3) `/about`, (4) Sidebar & Custom Blocks, dan (5) Dynamic Menu Anchors.
+   - 🛡️ **Anti-OA-Trap & Paid Priority Rule**: Menghapus kalimat retorika Open Access pembaca sebelum deteksi kata kunci gratis. Jika ditemukan nominal publikasi positif, status berbayar langsung menang mutlak meskipun pendaftaran berbiaya Rp 0.
+2. ☀️ **Modern Bright GUI "Soft Slate Daylight" (Baru di v1.7.0)**:
+   - 🎨 **Light Mode Default & Theme Switcher (☀️/🌙)**: Tampilan visual ramah mata dengan palet slate daylight dan switch instan ke mode malam.
+   - 📊 **Live KPI Counter Pills**: Header metrik interaktif dengan 4 indikator dinamis (*Total Ditemukan*, *Gratis (Rp 0)*, *Berbayar*, *Terbit Dekat*) yang diperbarui secara thread-safe.
+   - 📋 **1-Click WA Share Button**: Tombol aksi cepat *"📋 Salin Daftar (Share WA)"* di action bar utama untuk langsung menyalin daftar ringkas ke clipboard.
+3. 🛡️ **Forensic Data Purity & Anti-Email Flood**:
    - 🚫 **Eliminasi Total Email Mahasiswa & Penulis**: Menolak domain mahasiswa (`@student.`, `@mhs.`, `@mail.ugm.`) dan format NIM (>= 6 digit angka). Mengisolasi ekstraksi dari blok artikel agar email penulis tidak bocor ke redaksi.
    - 🔒 **Prioritas Domain Kampus & Hard Cap 3 Email**: Mengutamakan email berdomain resmi kampus OJS atau berawalan kata kunci redaksi, membuang email pribadi gmail/yahoo dosen, dan membatasi maksimal 3 email resmi terbaik.
 2. 📞 **Anti-Fake Phone & Whitelist Kode Area Telkom (Baru di v1.6.2)**:

@@ -114,15 +114,15 @@ CONTACT_CONTEXT_KEYWORDS = (
 
 APC_UNKNOWN = "Cek Web / Belum Terdata"
 
-# Istilah spesifik untuk biaya penerbitan / publikasi (bukan biaya submit semata) v1.6.2
+# Istilah spesifik untuk biaya penerbitan / publikasi (bukan biaya submit semata) v1.7.0
 PUB_TERMS = (
-    r"(?:article\s*publication|article\s*processing\s*charges?|apc|publication\s*fees?|"
-    r"publishing\s*fees?|biaya\s*(?:publikasi|penerbitan|pemrosesan\s*artikel|artikel|kontribusi)|"
-    r"kontribusi\s*(?:publikasi|penerbitan)?|tarif\s*(?:publikasi|penerbitan)|"
+    r"(?:article\s*publication|publication(?:\s*fees?)?|article\s*processing\s*charges?|apc|"
+    r"publishing(?:\s*fees?)?|biaya\s*(?:publikasi|penerbitan|pemrosesan\s*artikel|artikel|kontribusi)|"
+    r"publikasi|penerbitan|kontribusi\s*(?:publikasi|penerbitan)?|tarif\s*(?:publikasi|penerbitan)|"
     r"page\s*charges?|biaya\s*(?:halaman|cetak))"
 )
 
-# RE_PUB_FREE_STRICT v1.6.2: Pola gratis eksplisit dengan variasi bahasa Indonesia dan OJS
+# RE_PUB_FREE_STRICT v1.7.0: Pola gratis eksplisit dengan variasi bahasa Indonesia dan OJS
 RE_PUB_FREE_STRICT = re.compile(
     r"(?:"
     r"(?:" + PUB_TERMS + r"(?:[^\n\r.,]{0,40}?(?:adalah|sebesar|:|=|-))?\s*"
@@ -139,8 +139,8 @@ RE_PUB_FREE_STRICT = re.compile(
 RE_PUB_AMOUNT = re.compile(
     PUB_TERMS + r"(?:[^\n\r.,]{0,40}?(?:adalah|sebesar|:|=|-))?\s*"
     r"(?:"
-    r"(?:Rp\.?|IDR)\s*([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{5,8})(?:,-)?|"
-    r"([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{5,8})\s*(?:\(?IDR\)?|Rp\.?)(?:,-)?|"
+    r"(?:Rp\.?|IDR)\s*([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{5,8})(?:[.,]00)?(?:,-)?|"
+    r"([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{5,8})(?:[.,]00)?\s*(?:\(?IDR\)?|Rp\.?)(?:,-)?|"
     r"(?:(?:\$|USD)\s*([0-9]+(?:[.,][0-9]{1,2})?)(?:\s*USD)?)|"
     r"([0-9]+(?:[.,][0-9]{1,2})?)\s*(?:USD|\$)|"
     r"([0-9]+(?:\.[0-9]+)?)\s*(?:rb|ribu|jt|juta)"
@@ -152,13 +152,27 @@ RE_USD_1 = re.compile(r"(?:\$|USD)\s*([0-9]+(?:[.,][0-9]{1,2})?)\b", re.IGNORECA
 RE_USD_2 = re.compile(r"\b([0-9]+(?:[.,][0-9]{1,2})?)\s*(?:USD|\$)", re.IGNORECASE)
 
 RE_IDR_1 = re.compile(
-    r"(?:(?:Rp\.?|IDR)\s*([0-9]{1,3}(?:[.,][0-9]{3})+)|([0-9]{1,3}(?:[.,][0-9]{3})+)\s*(?:\(?IDR\)?|Rp\.?))",
+    r"(?:(?:Rp\.?|IDR)\s*([0-9]{1,3}(?:[.,][0-9]{3})+)(?:[.,]00)?|([0-9]{1,3}(?:[.,][0-9]{3})+)(?:[.,]00)?\s*(?:\(?IDR\)?|Rp\.?))",
     re.IGNORECASE,
 )
 RE_IDR_2 = re.compile(
-    r"(?:(?:Rp\.?|IDR)\s*([0-9]{5,8})|([0-9]{5,8})\s*(?:\(?IDR\)?|Rp\.?))",
+    r"(?:(?:Rp\.?|IDR)\s*([0-9]{5,8})(?:[.,]00)?|([0-9]{5,8})(?:[.,]00)?\s*(?:\(?IDR\)?|Rp\.?))",
     re.IGNORECASE,
 )
+
+# Anti-OA-Trap v1.7.0 (VISION.md 3.1.2):
+# Frasa kebijakan akses pembaca yang WAJIB dibuang sebelum pencocokan kata gratis/free
+OA_READER_PATTERNS = [
+    r"(?:this\s+journal\s+|this\s+article\s+|journal\s+)?(?:provides\s+)?immediate\s+open\s+access[^.\n]*\.?",
+    r"(?:making\s+research\s+)?freely\s+available\s+to\s+the\s+public[^.\n]*\.?",
+    r"free\s+to\s+read(?:\s+and\s+download)?[^.\n]*\.?",
+    r"open\s+access\s+to\s+all\s+users[^.\n]*\.?",
+    r"publicly\s+available[^.\n]*\.?",
+    r"freely\s+available\s+online[^.\n]*\.?",
+    r"open\s+access\s+policy[^.\n]*\.?",
+    r"prinsip\s+bahwa\s+membuat\s+penelitian\s+tersedia\s+secara\s+bebas[^.\n]*\.?",
+]
+OA_READER_STRIP = re.compile(r"(?:" + "|".join(OA_READER_PATTERNS) + r")", re.IGNORECASE)
 
 RE_FREQ_SLASH = re.compile(r"\b(\d+)\s*\/\s*(?:year|tahun)\b", re.IGNORECASE)
 RE_FREQ_ANNUAL = re.compile(
@@ -686,11 +700,15 @@ def is_focus_scope_noise(text: str) -> bool:
 def canonical_journal_key(title: str, publisher: str = "", issn: str = "") -> str:
     """
     KUNCI KANONIKAL DEDUPLIKASI CERDAS (v1.6.2):
+    - Menormalkan simbol '&' dan frasa 'and' menjadi 'dan'
     - Menghapus tanda baca, spasi, simbol.
     - Menghilangkan variasi huruf kapital.
     - Mengabaikan perbedaan tanda titik dua (':') atau strip ('-').
     """
-    clean = re.sub(r"[^a-z0-9]", "", (title or "").lower())
+    t = (title or "").lower()
+    t = re.sub(r"\s*&\s*", " dan ", t)
+    t = re.sub(r"\s+and\s+", " dan ", t)
+    clean = re.sub(r"[^a-z0-9]", "", t)
     clean = re.sub(r"^(?:jurnal|journal|ejournal)", "", clean)
     return clean
 
@@ -930,6 +948,17 @@ def _get_from_cache(url: str) -> Optional[dict]:
     try:
         cached = cache_engine.cache_engine.get_journal(url)
         if cached:
+            # Incomplete Cache Bypass (VISION.md 3.1.4):
+            # Paksa crawl ulang jika data biaya publikasi belum terverifikasi
+            apc_val = cached.get("apc_publish")
+            s_apc = cached.get("source_apc")
+            if (
+                not apc_val
+                or apc_val in ("", "—", "-", "Cek Web / Belum Terdata", INFO_NOT_FOUND)
+                or s_apc in ("Kosong", "", None)
+            ):
+                return None
+
             email_val = cached.get("email_clean") or INFO_NOT_FOUND
             tel_val = cached.get("phone_clean") or INFO_NOT_FOUND
             if not (
@@ -1187,22 +1216,28 @@ def normalize_frequency(raw: str, context_text: str = "") -> str:
 
 def parse_apc_from_context(context_text: str) -> tuple[str, Optional[int]]:
     """
-    HUMAN-PARITY APC & 3-STATUS ACCURACY (v1.6.0):
-    1. 'Gratis (Rp 0)' -> HANYA jika tertulis eksplisit bahwa Publication Fee / APC / Biaya Penerbitan / Article Processing Charge adalah Rp 0 / Gratis / Free / Tidak dipungut biaya / Bebas biaya.
-    2. 'Rp X.XXX.XXX' -> Jika terdeteksi nominal biaya penerbitan (baik ditulis sebagai Rp 500.000, IDR 500,000.00, 500rb, atau 500.000 IDR atau USD).
-    3. 'Cek Web / Belum Terdata' -> Jika halaman tidak mencantumkan angka biaya publikasi secara spesifik.
-    Anti-False-Positive Mutlak: JANGAN menandai gratis hanya karena submission fee Rp 0 atau ketiadaan angka.
+    HUMAN-PARITY APC & 3-STATUS ACCURACY (v1.7.0):
+    1. 'Rp X.XXX.XXX' -> Prioritas 1 (Paid Priority Rule): Jika ditemukan nominal berbayar
+       (Rp 50.000 – Rp 15.000.000 atau USD), tetapkan BERBAYAR meski ada Submission Fee = 0.
+    2. 'Gratis (Rp 0)' -> HANYA jika tertulis eksplisit bahwa Publication Fee / APC / Biaya Penerbitan
+       adalah Rp 0 / Gratis / Free / Bebas biaya, dan TIDAK ADA nominal berbayar.
+       Dilindungi Anti-OA-Trap agar Open Access Policy pembaca tidak menjadi false positive.
+    3. 'Cek Web / Belum Terdata' -> Jika halaman tidak mencantumkan konfirmasi keduanya.
     Returns: (display_str, numeric_idr_or_none)
     """
     if not context_text:
         return APC_UNKNOWN, None
 
-    text = context_text.strip()
+    # Anti-OA-Trap (VISION.md 3.1.2):
+    # Buang frasa kebijakan akses pembaca sebelum pencocokan kata gratis/free
+    cleaned_context = OA_READER_STRIP.sub(" ", context_text)
+    text = cleaned_context.strip()
     low = text.lower()
 
-    # 1. Prioritas 1: Nominal Biaya Publikasi Eksplisit via Regex Targeted
-    m_amt = RE_PUB_AMOUNT.search(text)
-    if m_amt:
+    zero_pub_found = False
+
+    # 1. Prioritas 1: Pindai seluruh kemunculan RE_PUB_AMOUNT dengan Paid Priority Rule
+    for m_amt in RE_PUB_AMOUNT.finditer(text):
         # IDR
         idr_raw = m_amt.group(1) or m_amt.group(2)
         if idr_raw:
@@ -1210,8 +1245,8 @@ def parse_apc_from_context(context_text: str) -> tuple[str, Optional[int]]:
             try:
                 val = int(clean)
                 if val == 0:
-                    return "Gratis (Rp 0)", 0
-                if APC_SANITY_MIN_IDR <= val <= APC_SANITY_MAX_IDR:
+                    zero_pub_found = True
+                elif APC_SANITY_MIN_IDR <= val <= APC_SANITY_MAX_IDR:
                     return f"Rp {val:,}".replace(",", "."), val
             except ValueError:
                 pass
@@ -1220,10 +1255,13 @@ def parse_apc_from_context(context_text: str) -> tuple[str, Optional[int]]:
         if usd_raw:
             try:
                 uval = float(usd_raw.replace(",", "."))
-                val = int(round(uval * USD_TO_IDR_RATE))
-                if APC_SANITY_MIN_IDR <= val <= APC_SANITY_MAX_IDR:
-                    urepr = f"${int(uval)} USD" if uval.is_integer() else f"${uval:.2f} USD"
-                    return f"Rp {val:,}".replace(",", ".") + f" ({urepr})", val
+                if uval == 0:
+                    zero_pub_found = True
+                else:
+                    val = int(round(uval * USD_TO_IDR_RATE))
+                    if APC_SANITY_MIN_IDR <= val <= APC_SANITY_MAX_IDR:
+                        urepr = f"${int(uval)} USD" if uval.is_integer() else f"${uval:.2f} USD"
+                        return f"Rp {val:,}".replace(",", ".") + f" ({urepr})", val
             except ValueError:
                 pass
         # Pengali (rb, ribu, jt, juta)
@@ -1238,12 +1276,7 @@ def parse_apc_from_context(context_text: str) -> tuple[str, Optional[int]]:
             except ValueError:
                 pass
 
-    # 2. Prioritas 2: Biaya Publikasi Eksplisit Gratis / Free / Rp 0
-    if RE_PUB_FREE_STRICT.search(text):
-        return "Gratis (Rp 0)", 0
-
-    # 3. Fallback jika ada nominal USD atau IDR dengan konteks publikasi di dekatnya
-    # Pastikan BUKAN submission fee semata
+    # 2. Prioritas 1b: Fallback pencarian nominal USD/IDR dalam konteks publikasi
     is_sub_only = bool(re.search(r"(?:submission\s*fee|penyerahan\s*naskah|biaya\s*pendaftaran)\s*[:\w\s]*(?:0|free|gratis)", low))
     has_pub_word = any(w in low for w in ("publication", "publikasi", "penerbitan", "publishing", "apc", "processing charge"))
 
@@ -1254,10 +1287,11 @@ def parse_apc_from_context(context_text: str) -> tuple[str, Optional[int]]:
             if usd_candidate:
                 try:
                     usd_val = float(usd_candidate.replace(",", "."))
-                    idr_val = int(round(usd_val * USD_TO_IDR_RATE))
-                    if APC_SANITY_MIN_IDR <= idr_val <= APC_SANITY_MAX_IDR:
-                        usd_repr = f"${int(usd_val)} USD" if usd_val.is_integer() else f"${usd_val:.2f} USD"
-                        return f"Rp {idr_val:,}".replace(",", ".") + f" ({usd_repr})", idr_val
+                    if usd_val > 0:
+                        idr_val = int(round(usd_val * USD_TO_IDR_RATE))
+                        if APC_SANITY_MIN_IDR <= idr_val <= APC_SANITY_MAX_IDR:
+                            usd_repr = f"${int(usd_val)} USD" if usd_val.is_integer() else f"${usd_val:.2f} USD"
+                            return f"Rp {idr_val:,}".replace(",", ".") + f" ({usd_repr})", idr_val
                 except ValueError:
                     pass
 
@@ -1271,6 +1305,10 @@ def parse_apc_from_context(context_text: str) -> tuple[str, Optional[int]]:
                         return f"Rp {idr_val:,}".replace(",", "."), idr_val
                 except ValueError:
                     pass
+
+    # 3. Prioritas 2: Biaya Publikasi Eksplisit Gratis / Free / Rp 0 (Hanya jika tidak ada nominal berbayar)
+    if zero_pub_found or RE_PUB_FREE_STRICT.search(text):
+        return "Gratis (Rp 0)", 0
 
     return APC_UNKNOWN, None
 
@@ -1770,10 +1808,12 @@ def _extract_apc_contextual(soup: BeautifulSoup) -> tuple[str, Optional[int]]:
     Mencari pada blok terstruktur (<div id="authorFees">, <table>, dsb)
     sebelum memindai teks mentah.
     """
-    # 1. Cek elemen ber-ID / class spesifik
+    # 1. Cek elemen ber-ID / class spesifik (termasuk Sidebar / Custom Block OJS - VISION.md 3.1.1)
     targeted_selectors = [
         "#authorFees", ".author_fees", "#submissionFees", "#fees",
         "#contact", "table.listing", "div.sub_item", "#content",
+        "div.pkp_block", "[id*='fee' i]", "[id*='apc' i]", "[class*='customblock' i]",
+        "[class*='fee' i]", ".block_custom", ".custom_block",
     ]
     for sel in targeted_selectors:
         for block in soup.select(sel):
@@ -1998,6 +2038,8 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
 
             subpaths.extend([
                 f"{clean_base}/about/submissions",
+                f"{clean_base}/about/editorialPolicies",
+                f"{clean_base}/about/editorialPolicies#authorFees",
                 f"{clean_base}/about/editorialPolicies#focusAndScope",
                 f"{clean_base}/about/focusAndScope",
                 f"{clean_base}/about/contact",
@@ -2013,7 +2055,7 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
                     seen_sub.add(sp)
                     ordered_subpaths.append(sp)
 
-            for sub_url in ordered_subpaths[:5]:
+            for sub_url in ordered_subpaths[:6]:
                 if stop_event and stop_event.is_set():
                     break
                 try:

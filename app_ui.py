@@ -1,7 +1,7 @@
 """
-app_ui.py — JSFS v1.4.0 (Hybrid AI Engine & CustomTkinter Desktop GUI)
+app_ui.py — JSFS v1.7.0 (Deep APC Hunter Engine & Modern Bright GUI)
 Antarmuka desktop dengan responsivitas tinggi (Pixel-Perfect, Zero Clipping),
-Badge Ollama real-time, Dual Progress Bar (Scrape & AI), dan 4-Fase Pipeline.
+Soft Slate Daylight Theme, Live KPI Pills Counter, dan 1-Click Share List.
 """
 from __future__ import annotations
 
@@ -50,16 +50,25 @@ from scraper_garuda import (
 )
 from scraper_sinta import scrape_sinta, scrape_sinta_selenium
 
-# ───────────────────────── Konstanta Desain ─────────────────────────
+# ───────────────────────── Konstanta Desain Soft Slate Daylight (v1.7.0) ─────────────────────────
 PAD, GAP = 12, 6                      # padding kartu, jarak antar elemen
-BG_CARD = "#262626"
-BLUE, BLUE_H = "#1f6aa5", "#144870"
-GREEN, GREEN_H = "#13a06f", "#0e7a55"
-RED, RED_H = "#c0392b", "#962d22"
-MUTED = "#8a8a8a"
-OK_GREEN = "#22a45d"
+BG_MAIN = ("#f8fafc", "#18181b")       # Soft Slate Daylight / Night
+BG_CARD = ("#ffffff", "#242427")       # Card surface
+BORDER_CARD = ("#e2e8f0", "#3f3f46")   # Subtle border
+HEADER_NAVY = "#1e3a5f"                # Academic Navy
+BLUE = ("#0284c7", "#1f6aa5")          # Sky-600 / Dark blue
+BLUE_H = ("#0369a1", "#144870")
+GREEN = ("#059669", "#13a06f")        # Emerald-600 / Dark green
+GREEN_H = ("#047857", "#0e7a55")
+INDIGO = ("#6366f1", "#4f46e5")        # Indigo-500
+INDIGO_H = ("#4f46e5", "#4338ca")
+RED = ("#dc2626", "#c0392b")           # Red-600
+RED_H = ("#b91c1c", "#962d22")
+TEXT_PRIMARY = ("#1e293b", "#f1f5f9")  # Slate-800 / Slate-100
+MUTED = ("#64748b", "#94a3b8")         # Slate-500 / Slate-400
+OK_GREEN = ("#16a34a", "#22a45d")
 
-ctk.set_appearance_mode("dark")
+ctk.set_appearance_mode("light")       # Daylight mode default (VISION.md Bagian 4.1)!
 ctk.set_default_color_theme("blue")
 
 
@@ -85,13 +94,13 @@ class FitSwitch(ctk.CTkSwitch):
 
 def make_card(parent, title: str, font_h: ctk.CTkFont):
     """Kartu seragam: judul + body. Kembalikan (card, body, header)."""
-    card = ctk.CTkFrame(parent, corner_radius=10, fg_color=BG_CARD)
+    card = ctk.CTkFrame(parent, corner_radius=10, fg_color=BG_CARD, border_width=1, border_color=BORDER_CARD)
     card.grid_columnconfigure(0, weight=1)
     card.grid_rowconfigure(1, weight=1)
     header = ctk.CTkFrame(card, fg_color="transparent")
     header.grid(row=0, column=0, sticky="ew", padx=PAD, pady=(PAD, GAP))
     header.grid_columnconfigure(0, weight=1)
-    ctk.CTkLabel(header, text=title, font=font_h, anchor="w").grid(row=0, column=0, sticky="w")
+    ctk.CTkLabel(header, text=title, font=font_h, anchor="w", text_color=TEXT_PRIMARY).grid(row=0, column=0, sticky="w")
     body = ctk.CTkFrame(card, fg_color="transparent")
     body.grid(row=1, column=0, sticky="nsew", padx=PAD, pady=(0, PAD))
     return card, body, header
@@ -170,7 +179,7 @@ class DualProgress(ctk.CTkFrame):
     )
 
     def __init__(self, master, font: ctk.CTkFont, **kw):
-        super().__init__(master, fg_color=BG_CARD, corner_radius=10, **kw)
+        super().__init__(master, fg_color=BG_CARD, corner_radius=10, border_width=1, border_color=BORDER_CARD, **kw)
         self.grid_columnconfigure(1, weight=1)
         lw = max(font.measure(t) for t, _, _ in self.ROWS) + 20
         cw = font.measure("9999/9999") + 20
@@ -261,14 +270,14 @@ def run_scraper(params: dict, on_progress, cancel: threading.Event) -> list[Jour
 # ───────────────────────── Data Previewer Interaktif ─────────────────────────
 class JSFSDataPreviewer(ctk.CTkToplevel):
     """
-    Jendela Pop-up Interaktif Data Table Previewer v1.6.0.
+    Jendela Pop-up Interaktif Data Table Previewer v1.7.0.
     Menampilkan data terstruktur dengan kolom Submit, Publikasi, Bulan Terbit, Sumber, dan Copy-Paste List Generator.
     """
 
     def __init__(self, master, journals: list[JournalEntry], excel_path: Optional[str] = None):
         super().__init__(master)
 
-        self.title("👁️ JSFS Data Table Previewer v1.6.0 — Hasil Scraping Jurnal")
+        self.title("👁️ JSFS Data Table Previewer v1.7.0 — Hasil Scraping Jurnal")
         self.geometry("1180x720")
         self.minsize(980, 600)
 
@@ -291,9 +300,9 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
 
         title_lbl = ctk.CTkLabel(
             header_bar,
-            text="📊 Data Table Previewer v1.6.0",
+            text="📊 Data Table Previewer v1.7.0",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
-            text_color="#38bdf8",
+            text_color=("#0284c7", "#38bdf8"),
         )
         title_lbl.pack(side="left")
 
@@ -399,25 +408,30 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
         )
         self.lbl_count_match.pack(side="right")
 
-        # 3. Treeview Table Container with Dark Styling
-        tree_container = ctk.CTkFrame(container, corner_radius=8)
+        # 3. Treeview Table Container with Dynamic Daylight/Night Styling
+        tree_container = ctk.CTkFrame(container, corner_radius=8, fg_color=BG_CARD, border_width=1, border_color=BORDER_CARD)
         tree_container.pack(fill="both", expand=True, pady=(0, 8))
 
         style = ttk.Style()
         style.theme_use("clam")
+        is_light = ctk.get_appearance_mode().lower() == "light"
+        tv_bg = "#ffffff" if is_light else "#1e1e1e"
+        tv_fg = "#1e293b" if is_light else "#f8fafc"
+        th_bg = "#f1f5f9" if is_light else "#2d3748"
+        th_fg = "#1e3a5f" if is_light else "#38bdf8"
         style.configure(
             "JSFS.Treeview",
-            background="#1e1e1e",
-            foreground="#f8fafc",
+            background=tv_bg,
+            foreground=tv_fg,
             rowheight=26,
-            fieldbackground="#1e1e1e",
+            fieldbackground=tv_bg,
             font=("Segoe UI", 10),
             borderwidth=0,
         )
         style.configure(
             "JSFS.Treeview.Heading",
-            background="#2d3748",
-            foreground="#38bdf8",
+            background=th_bg,
+            foreground=th_fg,
             relief="flat",
             font=("Segoe UI", 10, "bold"),
             padding=4,
@@ -737,7 +751,7 @@ class AISetupDialog(ctk.CTkToplevel):
     def __init__(self, parent: "JSFSApp"):
         super().__init__(parent)
         self.parent_app = parent
-        self.title("⚙️ 1-Click AI Setup Manager — JSFS v1.4.0")
+        self.title("⚙️ 1-Click AI Setup Manager — JSFS v1.7.0")
         self.geometry("580x520")
         self.minsize(540, 480)
         self.resizable(False, False)
@@ -754,7 +768,7 @@ class AISetupDialog(ctk.CTkToplevel):
 
     def _build_ui(self):
         self.grid_columnconfigure(0, weight=1)
-        self.configure(fg_color="#181818")
+        self.configure(fg_color=BG_MAIN)
 
         f_pad = 16
         # Header
@@ -766,7 +780,7 @@ class AISetupDialog(ctk.CTkToplevel):
             hdr,
             text="🤖 1-Click AI Setup Manager",
             font=ctk.CTkFont(size=18, weight="bold"),
-            text_color="#38bdf8",
+            text_color=("#0284c7", "#38bdf8"),
             anchor="w",
         ).grid(row=0, column=0, sticky="w")
 
@@ -774,26 +788,26 @@ class AISetupDialog(ctk.CTkToplevel):
             hdr,
             text="JSFS membutuhkan Ollama & Model Qwen2.5 3B (Total ~2.2 GB)\nuntuk ekstraksi cerdas Focus & Scope dan Biaya Penulis (APC).",
             font=ctk.CTkFont(size=11),
-            text_color="#a0a0a0",
+            text_color=MUTED,
             justify="left",
             anchor="w",
         ).grid(row=1, column=0, sticky="w", pady=(4, 0))
 
         # Status Card
-        sc = ctk.CTkFrame(self, fg_color="#242424", corner_radius=10)
+        sc = ctk.CTkFrame(self, fg_color=BG_CARD, corner_radius=10, border_width=1, border_color=BORDER_CARD)
         sc.grid(row=1, column=0, sticky="ew", padx=f_pad, pady=8)
         sc.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(sc, text="Status Ollama:", font=ctk.CTkFont(size=12, weight="bold"), text_color="#d0d0d0").grid(row=0, column=0, sticky="w", padx=12, pady=(10, 4))
+        ctk.CTkLabel(sc, text="Status Ollama:", font=ctk.CTkFont(size=12, weight="bold"), text_color=TEXT_PRIMARY).grid(row=0, column=0, sticky="w", padx=12, pady=(10, 4))
         self.lbl_ollama_status = ctk.CTkLabel(sc, text="Memeriksa...", font=ctk.CTkFont(size=12), text_color="#eab308")
         self.lbl_ollama_status.grid(row=0, column=1, sticky="w", padx=12, pady=(10, 4))
 
-        ctk.CTkLabel(sc, text="Status Model (qwen2.5:3b):", font=ctk.CTkFont(size=12, weight="bold"), text_color="#d0d0d0").grid(row=1, column=0, sticky="w", padx=12, pady=(4, 10))
+        ctk.CTkLabel(sc, text="Status Model (qwen2.5:3b):", font=ctk.CTkFont(size=12, weight="bold"), text_color=TEXT_PRIMARY).grid(row=1, column=0, sticky="w", padx=12, pady=(4, 10))
         self.lbl_model_status = ctk.CTkLabel(sc, text="Memeriksa...", font=ctk.CTkFont(size=12), text_color="#eab308")
         self.lbl_model_status.grid(row=1, column=1, sticky="w", padx=12, pady=(4, 10))
 
         # Action Buttons Frame
-        btn_frame = ctk.CTkFrame(self, fg_color="#242424", corner_radius=10)
+        btn_frame = ctk.CTkFrame(self, fg_color=BG_CARD, corner_radius=10, border_width=1, border_color=BORDER_CARD)
         btn_frame.grid(row=2, column=0, sticky="ew", padx=f_pad, pady=8)
         btn_frame.grid_columnconfigure(0, weight=1)
 
@@ -803,8 +817,8 @@ class AISetupDialog(ctk.CTkToplevel):
             font=ctk.CTkFont(size=13, weight="bold"),
             height=38,
             corner_radius=8,
-            fg_color="#1f6aa5",
-            hover_color="#144870",
+            fg_color=BLUE,
+            hover_color=BLUE_H,
             command=self._on_click_download_ollama,
         )
         self.btn_download_ollama.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 6))
@@ -815,15 +829,15 @@ class AISetupDialog(ctk.CTkToplevel):
             font=ctk.CTkFont(size=13, weight="bold"),
             height=38,
             corner_radius=8,
-            fg_color="#13a06f",
-            hover_color="#0e7a55",
+            fg_color=GREEN,
+            hover_color=GREEN_H,
             state="disabled",
             command=self._on_click_pull_model,
         )
         self.btn_pull_model.grid(row=1, column=0, sticky="ew", padx=12, pady=(6, 12))
 
         # Progress Frame
-        p_frame = ctk.CTkFrame(self, fg_color="#242424", corner_radius=10)
+        p_frame = ctk.CTkFrame(self, fg_color=BG_CARD, corner_radius=10, border_width=1, border_color=BORDER_CARD)
         p_frame.grid(row=3, column=0, sticky="ew", padx=f_pad, pady=8)
         p_frame.grid_columnconfigure(0, weight=1)
 
@@ -1013,15 +1027,15 @@ class AISetupDialog(ctk.CTkToplevel):
         self.destroy()
 
 
-# ───────────────────────── Panduan Singkat Dialog (v1.6.0) ─────────────────────────
+# ───────────────────────── Panduan Singkat Dialog (v1.7.0) ─────────────────────────
 class QuickGuideDialog(ctk.CTkToplevel):
     """
-    Dialog Modal Panduan Singkat Pemula (JSFS v1.6.0).
+    Dialog Modal Panduan Singkat Pemula (JSFS v1.7.0).
     Menjelaskan alur pencarian jurnal, peringkat SINTA, biaya APC, dan tips komunikasi editor.
     """
     def __init__(self, parent: "JSFSApp"):
         super().__init__(parent)
-        self.title("❓ Panduan Singkat Penggunaan JSFS v1.6.0")
+        self.title("❓ Panduan Singkat Penggunaan JSFS v1.7.0")
         self.geometry("640x560")
         self.minsize(580, 500)
         self.transient(parent)
@@ -1033,7 +1047,7 @@ class QuickGuideDialog(ctk.CTkToplevel):
     def _build_ui(self):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
-        self.configure(fg_color="#181818")
+        self.configure(fg_color=BG_MAIN)
 
         f_pad = 16
         # Header
@@ -1045,7 +1059,7 @@ class QuickGuideDialog(ctk.CTkToplevel):
             hdr,
             text="📚 Panduan Singkat JSFS untuk Mahasiswa & Peneliti",
             font=ctk.CTkFont(size=17, weight="bold"),
-            text_color="#38bdf8",
+            text_color=("#0284c7", "#38bdf8"),
             anchor="w",
         ).grid(row=0, column=0, sticky="w")
 
@@ -1053,12 +1067,12 @@ class QuickGuideDialog(ctk.CTkToplevel):
             hdr,
             text="Tips praktis memilih jurnal ilmiah yang tepat, cepat, dan sesuai anggaran.",
             font=ctk.CTkFont(size=11),
-            text_color="#94a3b8",
+            text_color=MUTED,
             anchor="w",
         ).grid(row=1, column=0, sticky="w", pady=(2, 0))
 
         # Scrollable content
-        body = ctk.CTkScrollableFrame(self, fg_color="#242424", corner_radius=10)
+        body = ctk.CTkScrollableFrame(self, fg_color=BG_CARD, corner_radius=10, border_width=1, border_color=BORDER_CARD)
         body.grid(row=1, column=0, sticky="nsew", padx=f_pad, pady=8)
         body.grid_columnconfigure(0, weight=1)
 
@@ -1081,13 +1095,13 @@ class QuickGuideDialog(ctk.CTkToplevel):
              "• Periksa kolom 'Jadwal Terbit' dan 'Terbit Terdekat' pada hasil scraping.\n"
              "• Kirimkan naskah minimal 2-3 bulan sebelum bulan terbit target agar ada waktu telaah sejawat (peer review) dan revisi."),
 
-            ("5. Salin Ringkas Siap Share & Hubungi Editor (Fitur v1.6.0)",
-             "• Pada pop-up 'Preview Hasil Data', klik tombol '📋 Salin Semua Daftar (Format Share)' untuk menyalin daftar terformat ke WhatsApp/Telegram grup.\n"
+            ("5. Salin Ringkas Siap Share & Hubungi Editor (Fitur v1.7.0)",
+             "• Pada jendela utama atau pop-up Preview, klik tombol '📋 Salin Daftar (Share WA)' untuk menyalin daftar terformat ke WhatsApp/Telegram grup.\n"
              "• Anda juga dapat memilih jurnal lalu klik '💬 Salin Draf Chat Editor' untuk mengirim draf pesan menanyakan kuota terbitan.")
         ]
 
         for i, (stitle, sdesc) in enumerate(sections):
-            card = ctk.CTkFrame(body, fg_color="#1e1e1e", corner_radius=8)
+            card = ctk.CTkFrame(body, fg_color=("#f1f5f9", "#1e1e1e"), corner_radius=8, border_width=1, border_color=BORDER_CARD)
             card.pack(fill="x", padx=8, pady=6)
             card.grid_columnconfigure(0, weight=1)
 
@@ -1095,7 +1109,7 @@ class QuickGuideDialog(ctk.CTkToplevel):
                 card,
                 text=stitle,
                 font=ctk.CTkFont(size=12, weight="bold"),
-                text_color="#f59e0b",
+                text_color=("#b45309", "#f59e0b"),
                 anchor="w",
             ).grid(row=0, column=0, sticky="w", padx=12, pady=(10, 4))
 
@@ -1103,7 +1117,7 @@ class QuickGuideDialog(ctk.CTkToplevel):
                 card,
                 text=sdesc,
                 font=ctk.CTkFont(size=11),
-                text_color="#e2e8f0",
+                text_color=TEXT_PRIMARY,
                 justify="left",
                 anchor="w",
                 wraplength=520,
@@ -1126,8 +1140,8 @@ class QuickGuideDialog(ctk.CTkToplevel):
 class JSFSApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("JSFS v1.6.0 — Journal Scraper For Students (Human-Parity Engine)")
-        self.geometry("1040x860")
+        self.title("JSFS v1.7.0 — Journal Scraper For Students (Deep APC Hunter Engine)")
+        self.geometry("1040x870")
         self.minsize(980, 640)                                  # Zero Clipping aturan #3
 
         self.ui_q: queue.Queue = queue.Queue()
@@ -1164,18 +1178,32 @@ class JSFSApp(ctk.CTk):
         self.f_mono = ctk.CTkFont(family="Consolas", size=12)
         self.f_btn = ctk.CTkFont(size=14, weight="bold")
 
-    # ── header + badge Ollama + Panduan ──
+    # ── header + badge Ollama + Panduan + Sakelar Tema ──
     def _build_header(self):
         hdr = ctk.CTkFrame(self, fg_color="transparent")
         hdr.grid(row=0, column=0, sticky="ew", padx=PAD + 4, pady=(PAD, GAP))
         hdr.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(hdr, text="JSFS v1.6.0 — Journal Scraper For Students",
-                     font=self.f_title, text_color="#38bdf8", anchor="w").grid(row=0, column=0, sticky="w")
-        ctk.CTkLabel(hdr, text="Human-Parity Engine • Zero-Crash Shield • 1-Click Share List • Schedule Estimator",
+        ctk.CTkLabel(hdr, text="JSFS v1.7.0 — Journal Scraper For Students",
+                     font=self.f_title, text_color=("#0284c7", "#38bdf8"), anchor="w").grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(hdr, text="Deep APC Hunter • Soft Slate Daylight • Zero-Crash Shield • 1-Click Share List",
                      font=self.f_s, text_color=MUTED, anchor="w").grid(row=1, column=0, sticky="w", pady=(2, 0))
 
         btn_box = ctk.CTkFrame(hdr, fg_color="transparent")
         btn_box.grid(row=0, column=1, rowspan=2, sticky="e", padx=(GAP, 0))
+
+        # Sakelar Tema ☀️/🌙 (VISION.md Bagian 4.1 & F2)
+        self.btn_theme = ctk.CTkButton(
+            btn_box,
+            text="🌙 Mode Malam",
+            font=self.f_s,
+            height=28,
+            corner_radius=14,
+            fg_color=("#e2e8f0", "#334155"),
+            hover_color=("#cbd5e1", "#475569"),
+            text_color=("#1e293b", "#f1f5f9"),
+            command=self._toggle_theme,
+        )
+        self.btn_theme.pack(side="left", padx=(0, 6))
 
         self.btn_help = ctk.CTkButton(
             btn_box,
@@ -1183,9 +1211,9 @@ class JSFSApp(ctk.CTk):
             font=self.f_s,
             height=28,
             corner_radius=14,
-            fg_color="#334155",
-            hover_color="#475569",
-            text_color="#f1f5f9",
+            fg_color=("#e2e8f0", "#334155"),
+            hover_color=("#cbd5e1", "#475569"),
+            text_color=("#1e293b", "#f1f5f9"),
             command=self._open_quick_guide,
         )
         self.btn_help.pack(side="left", padx=(0, 6))
@@ -1206,6 +1234,16 @@ class JSFSApp(ctk.CTk):
         )
         self.badge.pack(side="left")
 
+    def _toggle_theme(self):
+        """Mengganti tema antarmuka antara Daylight (Terang) dan Night (Gelap)."""
+        curr = ctk.get_appearance_mode().lower()
+        if curr == "light":
+            ctk.set_appearance_mode("dark")
+            self.btn_theme.configure(text="☀️ Mode Terang")
+        else:
+            ctk.set_appearance_mode("light")
+            self.btn_theme.configure(text="🌙 Mode Malam")
+
     def _open_quick_guide(self):
         if self._guide_dialog is not None and self._guide_dialog.winfo_exists():
             self._guide_dialog.lift()
@@ -1221,10 +1259,10 @@ class JSFSApp(ctk.CTk):
         self.body = body
 
         # Baris 0: kata kunci
-        kw = ctk.CTkFrame(body, fg_color=BG_CARD, corner_radius=10)
+        kw = ctk.CTkFrame(body, fg_color=BG_CARD, corner_radius=10, border_width=1, border_color=BORDER_CARD)
         kw.grid(row=0, column=0, sticky="ew", pady=(0, GAP + 2))
         kw.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(kw, text="Kata Kunci:", font=self.f_h).grid(row=0, column=0, padx=(PAD, GAP), pady=PAD)
+        ctk.CTkLabel(kw, text="Kata Kunci:", font=self.f_h, text_color=TEXT_PRIMARY).grid(row=0, column=0, padx=(PAD, GAP), pady=PAD)
         self.entry_kw = ctk.CTkEntry(
             kw,
             height=34,
@@ -1234,15 +1272,18 @@ class JSFSApp(ctk.CTk):
         self.entry_kw.grid(row=0, column=1, sticky="ew", pady=PAD)
         self.entry_kw.bind("<Return>", lambda _e: self._on_start())
         ctk.CTkButton(kw, text="Cari", width=76, height=34, font=self.f_h,
+                      fg_color=BLUE, hover_color=BLUE_H,
                       command=self._on_start).grid(row=0, column=2, padx=(GAP, PAD), pady=PAD)
 
         # Baris 1: naskah
-        ms = ctk.CTkFrame(body, fg_color=BG_CARD, corner_radius=10)
+        ms = ctk.CTkFrame(body, fg_color=BG_CARD, corner_radius=10, border_width=1, border_color=BORDER_CARD)
         ms.grid(row=1, column=0, sticky="ew", pady=(0, GAP + 2))
         ms.grid_columnconfigure(3, weight=1)
-        ctk.CTkLabel(ms, text="Naskah Ilmiah:", font=self.f_h, text_color="#38bdf8").grid(
+        ctk.CTkLabel(ms, text="Naskah Ilmiah:", font=self.f_h, text_color=("#0284c7", "#38bdf8")).grid(
             row=0, column=0, padx=(PAD, GAP), pady=PAD)
         ctk.CTkButton(ms, text="Unggah (.docx/.pdf)", height=32, font=self.f_n,
+                      fg_color=("#e2e8f0", "#334155"), hover_color=("#cbd5e1", "#475569"),
+                      text_color=("#1e293b", "#f1f5f9"),
                       width=fit_w(self.f_n, "Unggah (.docx/.pdf)", 0, 28),
                       command=self._on_upload).grid(row=0, column=1, padx=GAP, pady=PAD)
         self.var_match = ctk.BooleanVar(value=False)
@@ -1284,22 +1325,62 @@ class JSFSApp(ctk.CTk):
         self.progress = DualProgress(body, self.f_n)
         self.progress.grid(row=4, column=0, sticky="ew", pady=(0, GAP + 2))
 
-        # Baris 5-6: log box (Dibuat terlebih dahulu sebelum memanggil preset log)
+        # Baris 5: Live KPI Counter Pills (v1.7.0 F3)
+        self.kpi_frame = self._build_kpi_pills(body)
+        self.kpi_frame.grid(row=5, column=0, sticky="ew", pady=(0, GAP + 2))
+
+        # Baris 6-7: log box (Dibuat terlebih dahulu sebelum memanggil preset log)
         lh = ctk.CTkFrame(body, fg_color="transparent")
-        lh.grid(row=5, column=0, sticky="ew")
+        lh.grid(row=6, column=0, sticky="ew")
         lh.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(lh, text="Pemantauan Proses & Riwayat Log:", font=self.f_h, anchor="w").grid(
+        ctk.CTkLabel(lh, text="Pemantauan Proses & Riwayat Log:", font=self.f_h, anchor="w", text_color=TEXT_PRIMARY).grid(
             row=0, column=0, sticky="w")
         ctk.CTkButton(lh, text="Bersihkan Log", width=fit_w(self.f_s, "Bersihkan Log", 0, 24), height=24,
-                      font=self.f_s, fg_color="#3a3a3a", hover_color="#4a4a4a",
+                      font=self.f_s, fg_color=("#e2e8f0", "#3a3a3a"), hover_color=("#cbd5e1", "#4a4a4a"),
+                      text_color=("#1e293b", "#f1f5f9"),
                       command=self._clear_log).grid(row=0, column=1, sticky="e")
-        self.log_box = ctk.CTkTextbox(body, height=190, font=self.f_mono, wrap="word", state="disabled")
-        self.log_box.grid(row=6, column=0, sticky="nsew", pady=(GAP, PAD))
-        self.log("Selamat datang di JSFS v1.6.0 (Human-Parity Engine & Zero-Crash Architecture).")
+        self.log_box = ctk.CTkTextbox(body, height=180, font=self.f_mono, wrap="word", state="disabled")
+        self.log_box.grid(row=7, column=0, sticky="nsew", pady=(GAP, PAD))
+        self.log("Selamat datang di JSFS v1.7.0 (Deep APC Hunter & Modern Bright Architecture).")
 
         # 3. Tampilkan simple mode secara default & terapkan preset awal (aman karena log_box sudah aktif)
         self.frame_simple_mode.grid(row=3, column=0, sticky="nsew", pady=(0, GAP + 2))
         self._apply_preset_skripsi()
+
+    def _build_kpi_pills(self, parent) -> ctk.CTkFrame:
+        """Membangun 4 kartu Live KPI Counter Pills real-time (v1.7.0 F3)."""
+        frame = ctk.CTkFrame(parent, fg_color="transparent")
+        frame.grid_columnconfigure((0, 1, 2, 3), weight=1, uniform="kpi")
+
+        pills = [
+            ("lbl_kpi_total", "📚 Total: 0", ("#0284c7", "#38bdf8")),
+            ("lbl_kpi_free", "💚 Gratis: 0", ("#059669", "#34d399")),
+            ("lbl_kpi_paid", "💳 Berbayar: 0", ("#d97706", "#fbbf24")),
+            ("lbl_kpi_fast", "⚡ Terbit Dekat: 0", ("#7c3aed", "#a78bfa")),
+        ]
+
+        for col, (attr, text, text_col) in enumerate(pills):
+            card = ctk.CTkFrame(frame, fg_color=BG_CARD, corner_radius=8, border_width=1, border_color=BORDER_CARD)
+            card.grid(row=0, column=col, sticky="ew", padx=3, pady=2)
+            lbl = ctk.CTkLabel(card, text=text, font=self.f_h, text_color=text_col)
+            lbl.pack(padx=8, pady=6)
+            setattr(self, attr, lbl)
+
+        return frame
+
+    def _update_kpi(self, d: dict):
+        """Memperbarui nilai counter KPI secara aman pada main GUI thread."""
+        if not self.winfo_exists():
+            return
+        if hasattr(self, "lbl_kpi_total") and self.lbl_kpi_total:
+            self.lbl_kpi_total.configure(text=f"📚 Total: {d.get('total', 0)}")
+            self.lbl_kpi_free.configure(text=f"💚 Gratis: {d.get('free', 0)}")
+            self.lbl_kpi_paid.configure(text=f"💳 Berbayar: {d.get('paid', 0)}")
+            self.lbl_kpi_fast.configure(text=f"⚡ Terbit Dekat: {d.get('fast', 0)}")
+
+    def _reset_kpi(self):
+        """Mereset nilai counter KPI ke 0 saat memulai run baru."""
+        self._update_kpi({"total": 0, "free": 0, "paid": 0, "fast": 0})
 
     # ── kartu-kartu ──
     def _row(self, parent, label: str, label_w: int):
@@ -1409,7 +1490,7 @@ class JSFSApp(ctk.CTk):
         for idx, (title, sub, col, hover_col, cmd) in enumerate(presets):
             row_idx = idx // 2
             col_idx = idx % 2
-            btn_f = ctk.CTkFrame(body, fg_color="#1c1c1c", corner_radius=8)
+            btn_f = ctk.CTkFrame(body, fg_color=("#f1f5f9", "#1c1c1c"), corner_radius=8, border_width=1, border_color=BORDER_CARD)
             btn_f.grid(row=row_idx, column=col_idx, sticky="ew", padx=(0, GAP) if col_idx == 0 else (GAP, 0), pady=4)
             btn_f.grid_columnconfigure(0, weight=1)
 
@@ -1423,13 +1504,13 @@ class JSFSApp(ctk.CTk):
                 command=cmd,
             )
             b.grid(row=0, column=0, sticky="ew", padx=6, pady=(6, 2))
-            ctk.CTkLabel(btn_f, text=sub, font=self.f_s, text_color="#94a3b8").grid(row=1, column=0, sticky="ew", padx=6, pady=(0, 6))
+            ctk.CTkLabel(btn_f, text=sub, font=self.f_s, text_color=MUTED).grid(row=1, column=0, sticky="ew", padx=6, pady=(0, 6))
 
         ctrl_row = ctk.CTkFrame(body, fg_color="transparent")
         ctrl_row.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(GAP + 2, 0))
         ctrl_row.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(ctrl_row, text="Target Jumlah Jurnal:", font=self.f_h).grid(row=0, column=0, sticky="w", padx=(4, GAP))
+        ctk.CTkLabel(ctrl_row, text="Target Jumlah Jurnal:", font=self.f_h, text_color=TEXT_PRIMARY).grid(row=0, column=0, sticky="w", padx=(4, GAP))
         self.cmb_target_simple = ctk.CTkComboBox(
             ctrl_row,
             values=["10", "25", "50", "100", "250"],
@@ -1445,7 +1526,7 @@ class JSFSApp(ctk.CTk):
             ctrl_row,
             text="Preset Aktif: 🎓 Target Skripsi S1 (S3–S5)",
             font=self.f_s,
-            text_color="#38bdf8",
+            text_color=("#0284c7", "#38bdf8"),
             anchor="e",
         )
         self.lbl_active_preset.grid(row=0, column=2, sticky="e", padx=(0, 4))
@@ -1542,6 +1623,7 @@ class JSFSApp(ctk.CTk):
         bar.grid(row=2, column=0, sticky="ew", padx=PAD + 4, pady=(GAP, PAD))
         bar.grid_columnconfigure(0, weight=3, uniform="act")
         bar.grid_columnconfigure(1, weight=2, uniform="act")
+        bar.grid_columnconfigure(2, weight=2, uniform="act")
 
         self.btn_start = ctk.CTkButton(bar, text="MULAI SCRAPING", height=46, font=self.f_btn,
                                        fg_color=BLUE, hover_color=BLUE_H, command=self._on_start)
@@ -1549,16 +1631,49 @@ class JSFSApp(ctk.CTk):
         self.btn_preview = ctk.CTkButton(bar, text="PREVIEW HASIL DATA", height=46, font=self.f_btn,
                                          fg_color=GREEN, hover_color=GREEN_H, state="disabled",
                                          command=self._open_data_previewer)
-        self.btn_preview.grid(row=0, column=1, sticky="ew", padx=(GAP, 0))
+        self.btn_preview.grid(row=0, column=1, sticky="ew", padx=(0, GAP))
+
+        self.btn_copy_list = ctk.CTkButton(bar, text="📋 Salin Daftar (Share WA)", height=46, font=self.f_btn,
+                                          fg_color=INDIGO, hover_color=INDIGO_H, state="disabled",
+                                          command=self._copy_main_share_list)
+        self.btn_copy_list.grid(row=0, column=2, sticky="ew")
 
         foot = ctk.CTkFrame(bar, fg_color="transparent")
-        foot.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(GAP + 2, 0))
+        foot.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(GAP + 2, 0))
         foot.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(foot, text="Output: output/  (format: JSFS_<keyword>_<timestamp>)",
                      font=self.f_s, text_color=MUTED, anchor="w").grid(row=0, column=0, sticky="w")
         ctk.CTkButton(foot, text="Buka Folder Output", height=28, font=self.f_s,
                       width=fit_w(self.f_s, "Buka Folder Output", 0, 28),
                       command=self._open_output).grid(row=0, column=1, sticky="e")
+
+    def _copy_main_share_list(self):
+        """Menyalin seluruh daftar jurnal terkini ke clipboard (Aksi 1-Klik Utama v1.7.0)."""
+        if not self._latest_results:
+            self.log("⚠ Belum ada hasil scraping untuk disalin.")
+            return
+        share_text = exporter.generate_copypaste_list(self._latest_results)
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(share_text)
+            self.update()
+            self.btn_copy_list.configure(
+                text="✅ Daftar Tersalin!",
+                fg_color=OK_GREEN,
+            )
+            self.after(2500, self._reset_copy_main_btn)
+        except Exception:
+            pass
+
+    def _reset_copy_main_btn(self):
+        try:
+            if self.winfo_exists():
+                self.btn_copy_list.configure(
+                    text="📋 Salin Daftar (Share WA)",
+                    fg_color=INDIGO,
+                )
+        except Exception:
+            pass
 
     # ───────────────────────── Util GUI ─────────────────────────
     def _insert_log_batch(self, lines: list[str]):
@@ -1635,9 +1750,15 @@ class JSFSApp(ctk.CTk):
         if running:
             self.btn_start.configure(text="HENTIKAN", fg_color=RED, hover_color=RED_H, command=self._on_stop)
             self.btn_preview.configure(state="disabled")
+            if hasattr(self, "btn_copy_list"):
+                self.btn_copy_list.configure(state="disabled")
         else:
             self.btn_start.configure(text="MULAI SCRAPING", fg_color=BLUE, hover_color=BLUE_H,
                                      command=self._on_start)
+            if self._latest_results:
+                self.btn_preview.configure(state="normal")
+                if hasattr(self, "btn_copy_list"):
+                    self.btn_copy_list.configure(state="normal")
 
     def _collect_params(self) -> dict:
         digits = lambda s: int(re.sub(r"\D", "", s) or 0)
@@ -1714,6 +1835,7 @@ class JSFSApp(ctk.CTk):
         ai_engine.set_enabled(self.var_ai.get())
         ai_engine.set_workers(int(self.seg_workers.get()))
         self.progress.reset()
+        self._reset_kpi()
         self._set_running(True)
         self._worker = threading.Thread(target=self._pipeline, args=(params,), daemon=True)
         self._worker.start()
@@ -1734,6 +1856,7 @@ class JSFSApp(ctk.CTk):
                 return
 
             q.put(("log", f"Fase 1 selesai: {len(records)} jurnal berhasil di-crawl."))
+            q.put(("kpi", {"total": len(records), "free": 0, "paid": 0, "fast": 0}))
 
             # FASE 2: Pre-Filter (Rank SINTA & Bulan Terbit)
             survivors: list[JournalEntry] = []
@@ -1750,6 +1873,7 @@ class JSFSApp(ctk.CTk):
                 survivors = survivors[:pool_limit]
 
             q.put(("log", f"Fase 2: Pre-filter -> {len(survivors)}/{len(records)} jurnal lolos seleksi SINTA & Bulan."))
+            q.put(("kpi", {"total": len(survivors), "free": 0, "paid": 0, "fast": 0}))
 
             if not survivors:
                 q.put(("log", "⚠ Tidak ada jurnal yang lolos pre-filter. Selesai."))
@@ -1835,6 +1959,14 @@ class JSFSApp(ctk.CTk):
 
             self._latest_results = final_survivors
 
+            # Hitung & kirimkan Live KPI Pills (v1.7.0 F3)
+            cur_m = time.localtime().tm_mon
+            near_months = {cur_m, ((cur_m) % 12) + 1, ((cur_m + 1) % 12) + 1}
+            kpi_free = sum(1 for r in final_survivors if (r.get("biaya_publikasi") == 0 or "gratis" in str(r.get("apc_status", "")).lower() or "rp 0" in str(r.get("apc_status", "")).lower()))
+            kpi_paid = sum(1 for r in final_survivors if (r.get("biaya_publikasi") or 0) > 0)
+            kpi_fast = sum(1 for r in final_survivors if any(m in r.get("bulan_terbit", []) for m in near_months))
+            q.put(("kpi", {"total": len(final_survivors), "free": kpi_free, "paid": kpi_paid, "fast": kpi_fast}))
+
             # FASE 4: Export Data
             q.put(("log", f"Fase 4: Mengekspor {len(final_survivors)} jurnal ke berkas output..."))
             exported = exporter.write_exports(
@@ -1854,6 +1986,8 @@ class JSFSApp(ctk.CTk):
 
     def _poll_queue(self):
         """Dijalankan di thread GUI tiap 80 ms. Batch processing untuk mencegah UI blackout."""
+        if not self.winfo_exists():
+            return
         latest, others = {}, []
         log_lines = []
         max_batch_size = 25
@@ -1883,6 +2017,8 @@ class JSFSApp(ctk.CTk):
             kind = msg[0]
             if kind == "ollama":
                 self._apply_badge(msg[1])
+            elif kind == "kpi":
+                self._update_kpi(msg[1])
             elif kind == "error":
                 self._insert_log_batch([f"[{time.strftime('%H:%M:%S')}] ✖ Error: {msg[1]}"])
                 self._set_running(False)
@@ -1897,12 +2033,15 @@ class JSFSApp(ctk.CTk):
                             state="normal",
                             text=f"PREVIEW HASIL ({len(self._latest_results)})",
                         )
+                        if hasattr(self, "btn_copy_list"):
+                            self.btn_copy_list.configure(state="normal")
         self.after(80, self._poll_queue)
 
     def _on_close(self):
         self.cancel_evt.set()
         ai_engine.shutdown()
         cache_engine.close_all_connections()
+        self.destroy()
         self.destroy()
 
 

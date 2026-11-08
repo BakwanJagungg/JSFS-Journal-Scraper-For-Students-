@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-11-08
+
+### Added & Enhanced
+- **Deep APC Hunter Engine (`cache_engine.py`, `scraper_garuda.py`)**:
+  - **Incomplete Cache Auto-Bypass**: Entri cache dengan `biaya_publikasi` kosong, `"Cek Web / Belum Terdata"`, atau `sumber_apc == "Kosong"` otomatis di-bypass untuk memicu deep-scrape ulang saat opsi Deep Scrape aktif.
+  - **Auto-Purge SQLite Metadata**: Database SQLite cache mendeteksi migrasi versi `< 1.7.0` dan melakukan auto-purge tabel `journal_cache` dengan WAL checkpoint bersih.
+  - **Multi-Path OJS 2 & OJS 3 Crawler**: Memindai secara konsisten 5 titik target: (1) `/about/submissions`, (2) `/about/editorialPolicies` (kritis untuk OJS 2), (3) `/about`, (4) Sidebar & Custom Blocks (`div.pkp_block`, `[id*="fee" i]`, `[class*="customblock" i]`), dan (5) Dynamic Menu Anchors.
+  - **Anti-OA-Trap (Open Access Reader Policy Stripper)**: Menghapus kalimat retorika Open Access pembaca (*"freely available to the public"*, *"immediate open access"*) sebelum pencocokan kata kunci bebas biaya, mencegah false-positive Gratis pada jurnal berbayar.
+  - **Paid Priority Rule**: Mendeteksi pola nominal bayar terlebih dahulu. Jika ditemukan nominal publikasi positif (mis. `Publication: 500,000.00 IDR`), status berbayar langsung menang mutlak meski `Submission Fee: 0.00 IDR`.
+  - **Decimal Cents & Format Support**: Mendukung format mata uang OJS dengan desimal `.00` / `,00` dan penulisan nominal IDR/USD internasional.
+- **Modern Bright GUI — "Soft Slate Daylight" (`app_ui.py`)**:
+  - **Light Mode Default**: Tampilan default beralih ke mode terang bersih (*Daylight Mode*) dengan palet warna terkurasi slate & emerald yang ramah mata.
+  - **Theme Toggle Switcher (☀️/🌙)**: Tombol switch instan di header untuk berpindah antara Mode Terang dan Mode Gelap menggunakan color tuples adaptif `(light_mode, dark_mode)`.
+  - **Live KPI Counter Pills**: Header metrik interaktif dengan 4 pil indikator dinamis (*Total Ditemukan*, *Gratis (Rp 0)*, *Berbayar*, *Terbit Dekat*) yang diperbarui secara thread-safe via antrean GUI non-blocking.
+  - **1-Click WA Share Button**: Tombol aksi cepat *"📋 Salin Daftar (Share WA)"* di action bar utama untuk langsung menyalin daftar ringkas hasil pencarian ke clipboard.
+  - **Peningkatan Dialog**: Pembaruan gaya visual dan tema adaptif pada *Pratinjau Data*, *Panduan Cepat*, dan *Setup AI*.
+- **Pembersihan & Restrukturisasi Direktori**:
+  - Struktur repositori ditata rapi ke dalam folder modular: `docs/`, `output/`, `tests/`, `assets/`, dan `.cache/`.
+- **Automated Core Test Suite (`tests/test_jsfs_core.py`)**:
+  - 12 unit test komprehensif menguji filter email mahasiswa, validasi telepon Telkom/seluler, sinkronisasi jadwal arsip OJS, Anti-OA-Trap, Paid Priority Rule, kanonikal deduplikasi, merge cross-source, format WhatsApp share, dan incomplete cache bypass.
+
 ## [1.6.2] - 2026-11-06
 
 ### Added & Enhanced
