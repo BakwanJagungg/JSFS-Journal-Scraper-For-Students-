@@ -1,186 +1,292 @@
-# 📚 JSFS — Journal Scraper For Students (v1.7.0 Deep APC Hunter & Modern Bright GUI)
+<div align="center">
 
-> **Alat otomatisasi pencarian jurnal SINTA & Garuda untuk mahasiswa & peneliti: Deep APC Hunter Engine (Incomplete Cache Bypass, Multi-Path OJS Crawler, Anti-OA-Trap & Paid Priority), Modern Bright GUI (Soft Slate Daylight, Dark/Light Theme Switcher, Live KPI Counter Pills, 1-Click WA Share), Forensic Data Purity, Area Code Whitelist, Issue Archive Year Grouping, dan Smart Canonical Deduplication.**
+  <img src="assets/icon.ico" alt="JSFS Logo" width="100" height="100" />
+
+  # 🎓 JSFS — Journal Scraper For Students
+  ### *Hybrid AI Desktop Research Assistant for SINTA & Garuda Journals*
+
+  <p align="center">
+    <b>Otomatisasi Cerdas Pencarian Jurnal Ilmiah Terakreditasi SINTA 1–6 & Portal Garuda</b><br>
+    <i>Ekstraksi Akurat Biaya Publikasi (APC), Jadwal Terbit, Kontak Redaksi, dan Generator 1-Klik Siap Share WhatsApp / Telegram.</i>
+  </p>
+
+  <p align="center">
+    <a href="https://github.com/your-username/JSFS/releases"><img src="https://img.shields.io/badge/Release-v1.7.0-0284c7?style=for-the-badge&logo=github&logoColor=white" alt="Release"></a>
+    <a href="#"><img src="https://img.shields.io/badge/Platform-Windows_10_%2F_11_64--bit-1e293b?style=for-the-badge&logo=windows&logoColor=white" alt="Platform"></a>
+    <a href="#"><img src="https://img.shields.io/badge/Python-3.10_%7C_3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"></a>
+    <a href="#"><img src="https://img.shields.io/badge/UI-CustomTkinter_Daylight-059669?style=for-the-badge&logo=gnome&logoColor=white" alt="CustomTkinter"></a>
+    <a href="#"><img src="https://img.shields.io/badge/Privacy-100%25_Local_%7C_Zero_Cloud-6366f1?style=for-the-badge&logo=shield&logoColor=white" alt="Privacy"></a>
+    <a href="#"><img src="https://img.shields.io/badge/Executable-Portable_~275_MB-f59e0b?style=for-the-badge&logo=files&logoColor=white" alt="Portable"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-gray?style=for-the-badge" alt="License"></a>
+  </p>
+
+  <p align="center">
+    <a href="#-kenapa-mahasiswa-membutuhkan-jsfs"><b>💡 Mengapa JSFS?</b></a> •
+    <a href="#-fitur-unggulan-v170"><b>✨ Fitur Unggulan</b></a> •
+    <a href="#-arsitektur--pipeline-4-fase"><b>🏗️ Arsitektur</b></a> •
+    <a href="#-4-quick-presets-mahasiswa"><b>🎯 Quick Presets</b></a> •
+    <a href="#-panduan-instalasi--penggunaan"><b>🚀 Cara Pakai</b></a> •
+    <a href="#-format-output-ekspor"><b>📦 Format Output</b></a>
+  </p>
+
+</div>
 
 ---
 
 ## 💡 Kenapa Mahasiswa Membutuhkan JSFS?
 
-Mencari jurnal yang tepat di portal **SINTA** dan **Garuda** secara manual sering kali memakan waktu berjam-jam:
-- ❌ Harus membuka dan mengklik link puluhan situs jurnal satu per satu.
-- ❌ Bingung menentukan jurnal mana yang ruang lingkupnya (*Focus & Scope*) paling cocok dengan topik skripsi/tesis.
-- ❌ Sulit memfilter peringkat SINTA yang realistis untuk target publikasi mahasiswa (misal: SINTA 3–5).
-- ❌ Informasi biaya naskah sering ambigu antara biaya submit (*submission fee*) dan biaya publikasi (*publication charge / APC*).
-- ❌ Sulit mencocokkan jadwal bulan terbit jurnal (*call for papers*) dengan tenggat waktu sidang/kelulusan.
-- ❌ Kontak redaksi (Email/WA) sering disembunyikan di balik proteksi Cloudflare atau terselubung di menu navigasi.
+Mencari jurnal target untuk publikasi skripsi, tesis, atau riset hibah di portal **SINTA** (*Kemdiktisaintek*) dan **Garuda** secara manual sering kali memakan waktu **berjam-jam bahkan berhari-hari**. Mahasiswa terpaksa membuka puluhan tab situs OJS (*Open Journal Systems*) satu per satu, hanya untuk menemukan informasi yang ambigu atau tersembunyi.
 
-**JSFS (Journal Scraper For Students) v1.7.0** hadir untuk menyelesaikan seluruh masalah tersebut:
-1. 🎯 **Deep APC Hunter Engine (Baru di v1.7.0)**:
-   - 🔄 **Incomplete Cache Auto-Bypass & SQLite Auto-Purge**: Entri cache dengan status APC belum terdata otomatis di-bypass untuk deep-scrape ulang saat opsi Deep Scrape diaktifkan, serta auto-purge database SQLite lama.
-   - 🌐 **Multi-Path OJS 2 & OJS 3 Crawler**: Memindai secara konsisten 5 titik target: (1) `/about/submissions`, (2) `/about/editorialPolicies` (kritis untuk OJS 2), (3) `/about`, (4) Sidebar & Custom Blocks, dan (5) Dynamic Menu Anchors.
-   - 🛡️ **Anti-OA-Trap & Paid Priority Rule**: Menghapus kalimat retorika Open Access pembaca sebelum deteksi kata kunci gratis. Jika ditemukan nominal publikasi positif, status berbayar langsung menang mutlak meskipun pendaftaran berbiaya Rp 0.
-2. ☀️ **Modern Bright GUI "Soft Slate Daylight" (Baru di v1.7.0)**:
-   - 🎨 **Light Mode Default & Theme Switcher (☀️/🌙)**: Tampilan visual ramah mata dengan palet slate daylight dan switch instan ke mode malam.
-   - 📊 **Live KPI Counter Pills**: Header metrik interaktif dengan 4 indikator dinamis (*Total Ditemukan*, *Gratis (Rp 0)*, *Berbayar*, *Terbit Dekat*) yang diperbarui secara thread-safe.
-   - 📋 **1-Click WA Share Button**: Tombol aksi cepat *"📋 Salin Daftar (Share WA)"* di action bar utama untuk langsung menyalin daftar ringkas ke clipboard.
-3. 🛡️ **Forensic Data Purity & Anti-Email Flood**:
-   - 🚫 **Eliminasi Total Email Mahasiswa & Penulis**: Menolak domain mahasiswa (`@student.`, `@mhs.`, `@mail.ugm.`) dan format NIM (>= 6 digit angka). Mengisolasi ekstraksi dari blok artikel agar email penulis tidak bocor ke redaksi.
-   - 🔒 **Prioritas Domain Kampus & Hard Cap 3 Email**: Mengutamakan email berdomain resmi kampus OJS atau berawalan kata kunci redaksi, membuang email pribadi gmail/yahoo dosen, dan membatasi maksimal 3 email resmi terbaik.
-2. 📞 **Anti-Fake Phone & Whitelist Kode Area Telkom (Baru di v1.6.2)**:
-   - 📋 **Daftar Putih Kode Area Resmi Indonesia**: Memvalidasi seluruh kode area 2-digit dan 3-digit resmi Telkom Indonesia, serta menolak kode area palsu dari DOI/HTML (seperti `0203`, `0300`, `0491`).
-   - 🛑 **Strict Proximity Context & Length Guard**: Nomor kabel wajib memiliki label kontak dalam rentang 35 karakter kiri, serta membatasi panjang total 9–12 digit (menolak nomor rekening bank / NIP 14–16 digit).
-   - 📱 **Hard Cap 2 Telepon/WA**: Mengutamakan WhatsApp/seluler (`+628...`) di urutan teratas dan membatasi maksimal 2 nomor per jurnal.
-3. 💰 **Deep Indonesian OJS APC Terminology & Smart Fallback (Baru di v1.6.2)**:
-   - 🔍 **Kamus Luas OJS Indonesia**: Mengenali variasi kalimat gratis (`"tidak dikenakan biaya"`, `"tidak memungut biaya"`, `"bebas biaya"`, `"free of charge"`, `"dibebaskan dari biaya"`) dan format nominal naratif uang rupiah.
-   - 🔄 **Smart Fallback Biaya Submit -> Biaya Publikasi**: Nilai nominal `> Rp 50.000` pada kolom `Biaya Submit` otomatis dikonversi menjadi `Biaya Publikasi` jika publikasi belum terdata (menyelesaikan kasus MEBIS Rp 600rb dan MUQADDIMAH Rp 500rb).
-4. 📅 **Arsip Edisi Berbasis Tahun (Anti-Anomali 7–8 Bulan) (Baru di v1.6.2)**:
-   - Mengelompokkan judul arsip edisi berdasarkan tahun dan mengambil bulan hanya dari 1 tahun penuh terbaru (atau 4–6 edisi teratas), mencegah penggabungan historis yang memicu anomali "7–8 kali setahun", serta mengabaikan derau widget kalender bulanan (>= 11 bulan).
-5. 🧩 **Smart Canonical Deduplication & OJS Title Protection (Baru di v1.6.2)**:
-   - **`canonical_journal_key`**: Deduplikasi cerdas berbasis judul kanonikal bersih (bebas tanda baca, kapitalisasi, spasi, dan titik dua) serta ISSN/E-ISSN dan path URL, menggabungkan jurnal duplikat/migran (seperti kasus *Balance UM Palembang*) menjadi 1 entri tunggal yang utuh.
-   - **Koreksi Judul Artikel Menjadi Nama Jurnal**: Mendeteksi jika judul dari Garuda merupakan judul artikel skripsi yang panjang (> 55 karakter seperti `"KONSEP DAN TUJUAN PADA TINJUAN BISNIS SYARIAH"`) dan mengoreksinya menggunakan nama jurnal resmi OJS (*ADZKIYA : Jurnal Hukum dan Ekonomi Syariah*).
-6. 🌿 **Pembersihan Baris `Fokus:` & Terjemahan Subjek SINTA (Baru di v1.6.2)**:
-   - **Anti-Noise Filter**: Menolak teks Focus & Scope yang memuat metadata pengindeksan (*Scopus ID*, *Google Scholar*, *diindeks oleh*), lisensi (*Creative Commons*, *Copyright ©*), tanggal rilis (*this issue has been available*), atau abstrak artikel (*this study aims to*).
-   - **Terjemahan Subjek SINTA ke Bahasa Indonesia**: Menerjemahkan istilah bahasa Inggris SINTA ke Bahasa Indonesia yang rapi (*Manajemen & Riset Operasi*, *Ekonomi & Keuangan*, *Bisnis & Akuntansi*), membuang kategori yang tidak selaras dengan judul jurnal, dan memformat pemotongan teks secara bersih tanpa tanda koma menggantung (`,...`).
-7. 🚀 **High-Yield Recall Engine**:
-   - 📈 **Adaptive Candidate Pool Multiplier (3x Over-Fetching)**: Pengambilan kandidat awal `max(target * 3, 60)` menjamin hasil pencarian topik populer (seperti *bisnis*, *akuntansi*, *teknologi*) melimpah (>20 jurnal).
-   - 🛡️ **Smart APC Preservation**: Jurnal berstatus `"Cek Web / Belum Terdata"` tidak dibuang secara agresif; otomatis lolos seleksi saat menyetel rentang biaya (`max_rp = 1.500.000`) dan melengkapi kuota target saat memilih *"Hanya Gratis (Rp 0)"*.
-3. 🧠 **Human-Parity Accuracy Engine**:
-   - 🔍 **Dynamic Menu Anchor Discovery**: Memindai link menu navigasi & sidebar OJS secara dinamis untuk melacak halaman APC tersembunyi (`fee`, `apc`, `biaya`, `tarif`) dan kontak resmi redaksi.
-   - 📅 **Verifikasi Jadwal Terbit via Arsip (`/issue/archive`)**: Membaca judul edisi terbitan riil pada arsip jurnal saat halaman About tidak mencantumkan bulan terbit secara eksplisit.
-   - 💰 **Akurasi Biaya Publikasi (APC) 3-Status**: Standarisasi status `Gratis (Rp 0)`, `Rp X.XXX.XXX`, dan `Cek Web / Belum Terdata`. Eliminasi mutlak *false positive* Gratis dari biaya submit Rp 0.
-   - 🔓 **Dekoder Cloudflare & Email Redaksi Resmi**: Dekripsi tag hex `<a class="__cf_email__">`, deobfuskasi format `[at]`/`[dot]`, prioritas email domain kampus/redaksi, pembersihan otomatis NIM mahasiswa.
-4. 📋 **1-Click Copy-Paste List Generator**:
-   - Generator daftar bernomor siap *share* ke WhatsApp/Telegram grup rekan mahasiswa/dosen lengkap dengan baris `Fokus:` bidang keilmuan.
-   - Tombol instan `📋 Salin Semua Daftar (Format Share)` pada jendela previewer data dengan animasi konfirmasi 2.5 detik.
-   - Blok daftar copy-paste di dalam file Markdown (`.md`) dan pembuatan otomatis berkas teks pendamping `JSFS_<keyword>_<timestamp>_LIST.txt`.
-5. 🛡️ **Zero-Crash & Anti-Freeze Architecture**:
-   - `safe_fetch_html`: Filter Content-Type ketat (hanya memproses HTML) dan pembatas ukuran respons maksimal 1.5 MB untuk mencegah freeze akibat crawler mengunduh file PDF atau ZIP besar.
-   - Pelindung multi-layer `try...except Exception:` di seluruh thread scraper dan worker.
-6. ✨ **Mode Simpel & 4 Quick Presets Mahasiswa**:
-   - 🎓 **Target Skripsi S1**: SINTA 3–5, biaya murah/gratis, jadwal teratur.
-   - 💰 **Jurnal Gratis (Rp 0)**: Prioritas jurnal bebas biaya publikasi (Bebas APC) + Cek Web pelengkap kuota.
-   - ⚡ **Terbit Terdekat**: Memfilter jurnal dengan edisi terbit 1–3 bulan ke depan agar pas dengan jadwal yudisium.
-   - 🏆 **Reputasi Tinggi**: SINTA 1 & 2 (Akreditasi A / Scopus) untuk mahasiswa magister, doktoral, atau hibah.
-5. 💬 **Salin Draf Chat Editor**: Satu klik pada pop-up previewer untuk menyalin draf pesan WhatsApp/Email yang sopan ke redaksi menanyakan kuota edisi terdekat.
-6. 🏆 **Top 3 Rekomendasi Jurnal (AI Advisor)**: Scoring multi-kriteria (Relevansi 40%, Biaya 25%, Kecepatan 20%, SINTA 15%) dengan justifikasi keunggulan jurnal.
-7. 🤖 **Hybrid AI Engine (Ollama qwen2.5:3b + Smart Regex Fallback)**: Ekstraksi cerdas Focus & Scope dan pemisahan Author Fees (Submit vs Publikasi) dengan filter anti-halusinasi.
-8. ⚡ **Smart SQLite WAL Cache**: Caching lokal metadata jurnal OJS dengan TTL 14 hari, mempercepat pencarian berulang hingga 80-90%.
-9. 👁️ **Data Table Previewer Interaktif**: Tabel data responsif untuk memfilter, mencari, dan melihat rincian jurnal sebelum membuka browser.
+### ⚔️ Perbandingan: Manual Search vs. JSFS v1.7.0
+
+| Parameter | ❌ Pencarian Manual (Web Browser) | ✅ Dengan JSFS v1.7.0 |
+|---|---|---|
+| **Waktu Pencarian** | 3–6 jam (membuka 30–50 tab satu per satu) | **< 60 detik** (otonom, konkuren & terfilter) |
+| **Biaya Publikasi (APC)** | Sering terjebak tulisan *"Open Access"* pembaca atau biaya tersembunyi di OJS 2 | **Deep APC Hunter Engine** memindai 5 titik OJS + Anti-OA-Trap & Paid Priority |
+| **Bulan Terbit** | Harus mengecek halaman arsip atau membaca teks narasi About | **Sync Otomatis Arsip** + Estimasi Countdown Terbit Terdekat |
+| **Kontak Redaksi** | Email terproteksi Cloudflare atau tertukar email mahasiswa/penulis | **Forensic Data Purity**: Hard cap 3 email resmi kampus + Whitelist Kode Area Telkom/WA |
+| **Kesesuaian Topik** | Membaca manual seluruh abstrak dan Focus & Scope | **Analisis Naskah (.docx/.pdf)** dengan skor kesesuaian cerdas 0–100% |
+| **Berbagi ke Tim / Dosen** | Copy-paste manual teks yang berantakan | **1-Click WA Share**: Teks bernomor rapi siap dibagikan ke WhatsApp / Telegram |
 
 ---
 
-## 🖥️ Pilihan Antarmuka: GUI Desktop & CLI
+## ✨ Fitur Unggulan (v1.7.0 Deep APC Hunter & Modern Bright GUI)
 
-JSFS hadir dalam 2 mode yang fleksibel:
-1. **Mode GUI Desktop (Rekomendasi Utama)**: Tampilan visual modern (*Dark Mode*) berbasis CustomTkinter. Cukup pilih Preset atau atur filter, ketik kata kunci, dan klik tombol!
-2. **Mode CLI (Command Line Interface)**: Untuk pengguna tingkat lanjut atau automasi skrip via terminal/prompt.
+### 🎯 1. Deep APC Hunter Engine (Akurasi Biaya Setingkat Manusia)
+- **Multi-Path OJS 2 & OJS 3 Crawler**: Memindai secara konsisten 5 titik wajib:
+  1. `/about/submissions` (Halaman utama OJS 3)
+  2. `/about/editorialPolicies` (Kritis untuk OJS 2 institusi lama seperti UII, PNB, dll.)
+  3. `/about` (Halaman profil umum)
+  4. Sidebar & Custom Blocks (`div.pkp_block`, `[id*="fee"]`, `[class*="customblock"]`)
+  5. *Dynamic Menu Anchor Discovery* (Pindai tautan navbar yang memuat kata kunci tarif/biaya)
+- **Anti-OA-Trap (Open Access Reader Policy Stripper)**: Menghapus kalimat retorika Open Access pembaca (*"freely available to the public"*, *"immediate open access"*) sebelum pencocokan kata kunci gratis untuk mengeliminasi 100% *false-positive* Gratis pada jurnal berbayar.
+- **Paid Priority Rule**: Mendeteksi pola nominal bayar terlebih dahulu. Jika ditemukan nominal publikasi positif (mis. `Publication: 500,000.00 IDR`), status berbayar langsung menang mutlak meskipun pendaftaran berbiaya `Rp 0`.
+- **Incomplete Cache Auto-Bypass & Auto-Purge**: Entri cache dengan status APC belum terdata otomatis di-bypass untuk deep scrape ulang, serta auto-purge database SQLite lama saat migrasi versi.
+
+### ☀️ 2. Modern Bright GUI "Soft Slate Daylight"
+- **Light Mode Default**: Tampilan visual ramah mata dengan palet slate daylight (`#f8fafc` / `#1e3a5f`) yang segar dan profesional.
+- **Theme Switcher Instan (☀️ / 🌙)**: Berpindah antara Mode Terang dan Mode Gelap dalam 1 klik dengan adaptasi warna dinamis.
+- **Live KPI Counter Pills**: Header metrik interaktif dengan 4 pil indikator (*Total Ditemukan*, *Gratis (Rp 0)*, *Berbayar*, *Terbit Dekat*) yang diperbarui secara thread-safe via antrean non-blocking.
+- **1-Click WA Share Button**: Tombol aksi cepat *"📋 Salin Daftar (Share WA)"* di action bar utama untuk langsung menyalin daftar ringkas ke clipboard.
+
+### 🛡️ 3. Forensic Data Purity & Anti-Noise
+- **Anti-Email Flood (Maks 3 Email Resmi)**: Menolak otomatis seluruh email domain mahasiswa (`@student.`, `@mhs.`, `@mail.ugm.`, dll.) dan nomor NIM (>= 6 digit). Mengisolasi ekstraksi kontak dari daftar artikel agar email penulis tidak bocor ke redaksi.
+- **Anti-Fake Phone & Whitelist Telkom (Maks 2 Telepon/WA)**: Memvalidasi nomor telepon kabel menggunakan whitelist 200+ kode area resmi Telkom Indonesia dan nomor seluler/WA (`+628...`). Menolak angka ID artikel/DOI yang menyerupai nomor telepon.
+- **Focus & Scope 100% Bersih**: Menghapus derau tabel biodata OJS, metadata indeksasi (Scopus ID, Google Scholar), lisensi CC, dan menyintesis fokus keilmuan secara elegan dari rumpun SINTA/Garuda jika halaman web kosong.
+- **Smart Canonical Deduplication**: Menyatukan jurnal duplikat atau migran (versi HTTP vs HTTPS) berdasarkan judul kanonikal bersih dan ISSN/E-ISSN resmi.
+
+### ⚡ 4. High-Yield Recall & Zero-Crash Architecture
+- **3× Candidate Pool Multiplier**: Mengambil kandidat awal sebanyak `max(target * 3, 60)` jurnal secara paralel, menjamin hasil pencarian topik populer (seperti bisnis, hukum, informatika) melimpah.
+- **Smart APC Preservation**: Jurnal berstatus `"Cek Web / Belum Terdata"` tidak dibuang secara agresif; otomatis melengkapi kuota target saat pengguna memilih opsi gratis atau rentang biaya tertentu.
+- **Safe Fetch HTTP Guard**: Membatasi ukuran baca maksimal 1.5 MB dan memvalidasi `Content-Type` HTML murni untuk mencegah aplikasi freeze akibat crawler mengunduh file PDF atau ZIP besar.
+- **Zero-Crash Multi-Threading**: Koneksi pool HTTP berkecepatan tinggi (Turbo 64 workers / Normal 32 workers) dengan pelindung multi-layer `try...except` di seluruh thread.
 
 ---
 
-## 📋 Prasyarat Sistem
+## 🏗️ Arsitektur & Pipeline 4-Fase
 
-- **Sistem Operasi**: Windows 10 / 11 (64-bit direkomendasikan).
-- **Python**: Python 3.10 atau versi yang lebih baru (3.12+ didukung penuh).
-- **Google Chrome** *(Opsional)*: Untuk opsi Selenium / bypass proteksi Cloudflare SINTA bila diperlukan.
-- **Tanpa Python**: Jika Anda menggunakan bundel executable (`dist/JSFS.exe`), Anda tidak memerlukan instalasi Python sama sekali!
+JSFS bekerja menggunakan arsitektur pemrosesan bertingkat yang menjamin kecepatan dan kemurnian data:
+
+```mermaid
+flowchart TD
+    A["👤 Pengguna: Input Topik / File Naskah (.docx / .pdf)"] --> B["⚡ FASE 1: Fast Broad Scraping"]
+    
+    subgraph FASE1 ["Fase 1: Pengumpulan Kandidat Paralel"]
+        B --> B1["Portal Garuda (scraper_garuda.py)"]
+        B --> B2["Portal SINTA (scraper_sinta.py)"]
+        B1 & B2 --> B3["Pool Kandidat: max(target × 3, 60) Jurnal"]
+    end
+
+    B3 --> C["🔍 FASE 2: Pre-Filter & Deduplikasi"]
+    
+    subgraph FASE2 ["Fase 2: Seleksi Awal"]
+        C --> C1["Filter Peringkat SINTA 1–6"]
+        C --> C2["Smart Canonical Deduplication (canonical_journal_key)"]
+        C --> C3["Smart APC Preservation (Loloskan Cek Web)"]
+    end
+
+    C3 --> D["🧠 FASE 3: Deep OJS Enrichment & AI Parsing"]
+    
+    subgraph FASE3 ["Fase 3: Deep Crawling & Enrichment"]
+        D --> D1["5-Point OJS Crawler (Submissions, Editorial, About, Sidebar, Dynamic Nav)"]
+        D --> D2["Deep APC Hunter (Anti-OA-Trap + Paid Priority Rule)"]
+        D --> D3["Forensic Contact Cleaner (Anti-Email Flood + Whitelist Telkom)"]
+        D --> D4["Archive Schedule Sync (Tahun Terbaru + Next Issue Countdown)"]
+        D --> D5["Hybrid Engine: Ollama qwen2.5:3b / Regex Fallback"]
+        D --> D6[("SQLite WAL Cache (.cache/jsfs_cache.db)")]
+    end
+
+    D5 --> E["📊 FASE 4: Visualisasi GUI & Multi-Export"]
+    
+    subgraph FASE4 ["Fase 4: Output & Ekspor"]
+        E --> E1["Modern Daylight GUI (Live KPI Counter Pills)"]
+        E --> E2["Interactive Previewer (Salin Draf Chat Redaksi)"]
+        E --> E3["Excel (.xlsx Multi-Sheet) + Markdown (.md) + CSV (.csv)"]
+        E --> E4["1-Click Share List (_LIST.txt untuk WhatsApp / Telegram)"]
+    end
+```
 
 ---
 
-## 🛠️ Panduan Instalasi Dependensi
+## 🎯 4 Quick Presets Mahasiswa
 
-1. **Buka Terminal / Command Prompt / PowerShell** di direktori proyek JSFS.
-2. *(Opsional tapi disarankan)* Buat dan aktifkan *virtual environment*:
-   ```bash
-   python -m venv venv
-   venv\Scripts\activate
-   ```
-3. **Instal seluruh dependensi**:
-   ```bash
-   pip install -r requirements.txt
-   ```
+Untuk kemudahan navigasi instan tanpa perlu mengatur belasan filter teknis, JSFS menyediakan **4 Preset Cepat**:
+
+| Preset | Target Pengguna | Filter SINTA | Filter Biaya | Jadwal Terbit |
+|---|---|:---:|:---:|:---:|
+| 🎓 **Target Skripsi S1** *(Default)* | Mahasiswa S1 yang butuh syarat kelulusan realistis & terjangkau | **SINTA 3 – 5** | ≤ Rp 1.500.000 / Gratis | Semua Bulan |
+| 💰 **Jurnal Gratis (Rp 0)** | Mahasiswa dengan anggaran terbatas yang mencari jurnal bebas biaya publikasi | **SINTA 2 – 6** | **Hanya Gratis (Bebas APC)** | Semua Bulan |
+| ⚡ **Terbit Terdekat** | Mahasiswa yang mengejar tenggat waktu sidang/yudisium dalam hitungan minggu | **SINTA 3 – 6** | Bebas | **1–3 Bulan ke Depan** |
+| 🏆 **Reputasi Tinggi** | Mahasiswa Magister (S2), Doktoral (S3), atau penerima hibah riset | **SINTA 1 – 2** *(Scopus)* | Bebas | Semua Bulan |
 
 ---
 
-## 🚀 Panduan Menjalankan Aplikasi
+## 🚀 Panduan Instalasi & Penggunaan
 
-### 1. Menjalankan Versi GUI Desktop (Paling Mudah)
+### Opsi A: Menggunakan Executable Mandiri (Paling Mudah, Tanpa Python)
+1. Unduh berkas **`JSFS.exe`** versi terbaru dari folder `dist/` atau [Halaman Releases](../../releases).
+2. Letakkan di folder pilihan Anda (misalnya `D:\JSFS\`).
+3. Klik dua kali pada **`JSFS.exe`** untuk langsung menjalankan aplikasi!
+   > *Catatan: Tidak memerlukan instalasi Python, Git, atau library eksternal apapun.*
 
+---
+
+### Opsi B: Menjalankan dari Source Code (Python)
+
+#### 1. Prasyarat Sistem
+- **Sistem Operasi**: Windows 10 / 11 (64-bit).
+- **Python**: Versi 3.10 atau lebih baru (Python 3.12+ didukung penuh).
+
+#### 2. Kloning Repositori & Persiapan Lingkungan
+```bash
+# 1. Kloning repositori
+git clone https://github.com/your-username/JSFS.git
+cd JSFS
+
+# 2. Buat dan aktifkan virtual environment
+python -m venv venv
+venv\Scripts\activate
+
+# 3. Instal dependensi resmi
+pip install -r requirements.txt
+```
+
+#### 3. Menjalankan Aplikasi GUI Desktop
 ```bash
 python app_ui.py
 ```
-Atau klik dua kali pada file **`JSFS.exe`** di folder `dist/`.
 
-**Fitur Antarmuka GUI v1.5.1:**
-- 💡 **Input Kata Kunci**: Ketik topik riset (misal: `kecerdasan buatan`, `akuntansi publik`, `manajemen sdm`).
-- 🎛️ **Mode Simpel vs Mode Pengaturan Lengkap**: Gunakan 4 Quick Preset instan atau atur filter SINTA, rentang biaya, bulan terbit, dan workers secara mandiri.
-- 📄 **Analisis Naskah (.docx/.pdf)**: Unggah naskah skripsi untuk mencocokkan kemiripan topik (*Match Score 0–100%*).
-- 🌐 **Dual Progress Bar**: Memantau progres crawling portal dan pengayaan AI secara terpisah dan transparan.
-- 👁️ **Preview Hasil Data**: Buka tabel previewer interaktif dengan tombol buka OJS, buka Excel, dan **Salin Draf Chat Editor**.
-- ❓ **Panduan Singkat**: Panduan langkah demi langkah bagi mahasiswa yang baru pertama kali mengirim jurnal ilmiah.
-
----
-
-### 2. Menjalankan Versi CLI (Terminal)
-
-#### A. Mode Interaktif
+#### 4. Menjalankan via Terminal / CLI
 ```bash
+# Mode CLI Interaktif (Wizard Tanya-Jawab)
 python jsfs.py --interactive
-```
 
-#### B. Perintah Langsung dengan Argumen
-```bash
-# 1. Cari jurnal topik bisnis, filter SINTA 3-6 (default), output Markdown
-python jsfs.py --keyword "bisnis"
+# Perintah Langsung dengan Filter
+python jsfs.py --keyword "sistem informasi" --sinta 3 4 --format md excel csv
 
-# 2. Cari topik e-commerce, filter SINTA 3 & 4, output Markdown dan Excel
-python jsfs.py --keyword "e-commerce" --sinta 3 4 --format md excel
-
-# 3. Cari dari SINTA & Garuda sekaligus, output lengkap
-python jsfs.py --keyword "manajemen" --source both --format md excel csv
-
-# 4. Gunakan Selenium headless Chrome
-python jsfs.py --keyword "sistem informasi" --source sinta --selenium
+# Pencarian dengan Naskah Skripsi
+python jsfs.py --keyword "akuntansi publik" --file "D:/skripsi_bab1.docx" --turbo
 ```
 
 ---
 
-## 📦 Hasil Output & Penamaan Berkas
+## 📦 Format Output Ekspor
 
-Semua berkas hasil scraping tersimpan secara otomatis di folder **`output/`** dengan penamaan unik:
-`JSFS_<keyword>_<YYYYMMDD_HHMMSS>.<ext>` (Contoh: `JSFS_bisnis_20261020_210000.xlsx`)
+Seluruh berkas hasil pencarian tersimpan otomatis di dalam folder **`output/`** dengan timestamp rapi:  
+`JSFS_<keyword>_<YYYYMMDD_HHMMSS>.<ext>`
 
-| Format | Keunggulan & Fitur Visual v1.6.0 |
-|:---:|---|
-| **Text List (`_LIST.txt`)** | Format bernomor 1-klik ringkas (Nama Jurnal, Sinta, Penerbit, Email, Telepon/WA, Biaya Publikasi, Bulan Terbit, Link OJS) yang siap copy-paste langsung ke grup WhatsApp/Telegram rekan mahasiswa. |
-| **Markdown (`.md`)** | Tabel terstruktur, seksi Top 3 Rekomendasi Jurnal dengan justifikasi skor, Direktori Kontak Cepat Redaksi Jurnal dengan tautan WhatsApp, dan blok kode khusus `📋 Daftar Ringkas Siap Copy-Paste`. |
-| **Excel (`.xlsx`)** | Header Navy Blue elegan, sheet terpisah `🏆 Rekomendasi AI` (Top 3 Advisor), kolom Kesesuaian & Skor, tautan OJS aktif (`=HYPERLINK`), dan auto-fit lebar kolom. |
-| **CSV (`.csv`)** | Format tabel standar dengan UTF-8 BOM untuk integrasi ke Google Sheets, database, atau pengolah data statistik. |
+```
+output/
+├── JSFS_bisnis_20261109_200000.xlsx       # Workbook Excel multi-sheet profesional
+├── JSFS_bisnis_20261109_200000.md         # Laporan Markdown lengkap dengan direktori kontak
+├── JSFS_bisnis_20261109_200000.csv        # Tabel flat CSV UTF-8 BOM
+└── JSFS_bisnis_20261109_200000_LIST.txt   # Daftar ringkas 1-klik siap salin ke WhatsApp
+```
+
+<details>
+<summary><b>📋 Contoh Output Berkas Ringkas (Format Share WhatsApp)</b></summary>
+
+```text
+1. Jurnal Manajemen dan Bisnis (Sinta 3 - Universitas Muhammadiyah Surakarta)
+Email: benefit@ums.ac.id, redaksi.benefit@ums.ac.id
+Telepon/WA: +6281234567890
+Biaya Publikasi: Rp 500.000 | Terbit: Juni, Desember
+Fokus: Riset ilmiah di bidang Manajemen Strategis, Bisnis Syariah, Pemasaran, dan Kewirausahaan.
+Link OJS: https://journals.ums.ac.id/index.php/benefit
+
+2. Jurnal Akuntansi dan Keuangan Indonesia (Sinta 2 - Universitas Indonesia)
+Email: jaki@ui.ac.id
+Telepon/WA: (021) 7272425
+Biaya Publikasi: Gratis (Rp 0) | Terbit: Juni, Desember
+Fokus: Pengembangan ilmu akuntansi keuangan, audit, perpajakan, dan pasar modal.
+Link OJS: https://scholarhub.ui.ac.id/jaki
+```
+</details>
 
 ---
 
-## 🏗️ Cara Build ke Executable Mandiri (`JSFS.exe`)
+## 🛠️ Tech Stack & Dependensi Resmi
+
+JSFS dirancang dengan prinsip **keringanan maksimal** (*zero heavy ML bloatware*) agar ukuran biner tetap di bawah ~280 MB tanpa mengorbankan kecerdasan ekstraksi:
+
+| Komponen | Pustaka / Teknologi | Versi | Peran Utama |
+|---|---|:---:|---|
+| **GUI Framework** | `customtkinter` | `5.2.2` | Antarmuka modern Soft Slate Daylight / Dark Mode adaptif |
+| **HTTP Engine** | `requests` + `urllib3` | `2.32.3` | Connection pool berkapasitas tinggi & anti-freeze fetcher |
+| **HTML Parser** | `beautifulsoup4` + `lxml` | `4.12.3` | Parsing dokumen HTML OJS dengan toleransi tag rusak |
+| **Headless Driver** | `undetected-chromedriver` | `3.5.5` | Bypass proteksi Cloudflare SINTA bila diperlukan |
+| **Local Cache** | `sqlite3` *(Built-in)* | `WAL Mode` | Caching metadata OJS lokal 14 hari via path `.cache/` |
+| **Data Processing** | `pandas` + `openpyxl` | `2.2.3` | Pembuatan file Excel multi-sheet dan tabel CSV |
+| **Document Reader** | `python-docx` + `pypdf` | `1.2.0` | Ekstraksi teks naskah skripsi untuk kalkulasi relevansi |
+| **Terminal Display**| `rich` | `13.9.4` | Tampilan tabel dan progress bar interaktif di mode CLI |
+| **Compiler Binary** | `PyInstaller` | `6.11.0` | Pembuatan biner portabel mandiri `JSFS.exe` |
+
+---
+
+## 🏗️ Cara Build Binary Mandiri (`JSFS.exe`)
+
+Jika Anda memodifikasi kode sumber dan ingin mengompilasi ulang file `.exe`:
 
 ```bash
 python -m PyInstaller --noconfirm --clean JSFS.spec
 ```
-Setelah build selesai, berkas executable siap pakai berada di direktori **`dist/JSFS.exe`**.
+
+Berkas biner hasil kompilasi akan otomatis dibuat di:
+`dist/JSFS.exe` *(Ukuran: ~275 MB, siap digunakan di PC manapun tanpa instal Python)*.
 
 ---
 
 ## 🗺️ Roadmap Pengembangan
 
-| Versi | Status | Deskripsi Milestone |
-|:---:|:---:|---|
-| **v1.0.0 (MVP)** | ✅ Selesai | Scraping CLI Garuda + SINTA, filter SINTA, ekspor Markdown/CSV/Excel |
-| **v1.1.0 – v1.3.8** | ✅ Selesai | GUI CustomTkinter Dark Mode, Zero Clipping, OJS Deep Scrape, Focus & Scope multi-tier |
-| **v1.4.0 (AI Hybrid)** | ✅ Selesai | Hybrid AI Engine (Ollama qwen2.5:3b + Smart Regex), 1-Click AI Setup, Dual Progress |
-| **v1.5.0 (Intelligence)** | ✅ Selesai | SQLite WAL Cache, Top 3 AI Advisor, Match Score dwibahasa, Schedule Estimator |
-| **v1.5.1 (Stability & UX)** | ✅ Selesai | Progressive Disclosure (4 Quick Presets), Eliminasi GUI Blackout & MEI lock, Salin Draf Chat Editor, Panduan Singkat |
-| **v1.6.0 (Human-Parity)** | ✅ Selesai | Human-Parity Accuracy Engine (Dynamic OJS Menu Discovery, CF Email Decoder, Archive Schedule Parser), 3-State APC Accuracy, Zero-Crash Guard, dan 1-Click Copy-Paste Share List |
-| **v1.6.1 (High-Yield Recall)** | 🚀 Rilis Ini | High-Yield Recall Multiplier (3x Candidate Pool & Smart APC Filter), Anti-Fake Phone Validator, OJS Profile Table Stripper & Always-On Keyword Match Score |
-| **v2.0.0** | 💡 Rencana | Versi Web App Multi-user (FastAPI + React/Vite) untuk akses bersama dalam lab/kampus |
+- [x] **v1.0.0 – v1.3.8**: Core crawler Garuda & SINTA, CLI, dan GUI CustomTkinter awal.
+- [x] **v1.4.0**: Integrasi Hybrid AI Engine (Ollama `qwen2.5:3b` + Smart Regex Fallback).
+- [x] **v1.5.0 – v1.5.1**: Smart SQLite WAL Cache, Top 3 AI Advisor, dan 4 Quick Presets Mahasiswa.
+- [x] **v1.6.0**: Dynamic Menu Anchor Discovery, Cloudflare Decoder, dan 1-Click Copy-Paste List.
+- [x] **v1.6.1 – v1.6.2**: Forensic Data Purity, Anti-Email Flood, Telkom Area Code Whitelist, dan Smart Canonical Deduplication.
+- [x] **v1.7.0 (Versi Saat Ini)**: Deep APC Hunter Engine (Anti-OA-Trap, Paid Priority, 5-Point OJS Crawler), Modern Bright GUI (Soft Slate Daylight), Live KPI Counter Pills, dan 1-Click WA Share Button.
+- [ ] **v2.0.0 (Mendatang)**: Platform Web App Multi-User (FastAPI + React / Tailwind CSS) untuk instalasi bersama di server laboratorium kampus.
 
 ---
 
-*Dikembangkan dengan ❤️ untuk Mahasiswa Pejuang Skripsi, Tesis, dan Publikasi Ilmiah.*  
-*Disclaimer: Selalu periksa kembali keaslian jurnal dan pedoman penulisan pada situs resmi OJS masing-masing penerbit sebelum mengirimkan naskah.*
+## 🔒 Privasi & Keamanan (Zero Cloud Dependency)
+
+- **100% Berjalan Lokal**: Seluruh proses scraping, analisis naskah, pencarian, dan database cache berjalan sepenuhnya di komputer lokal Anda.
+- **Tanpa Pengiriman Data ke Cloud**: Naskah skripsi/tesis Anda tidak pernah diunggah ke server pihak ketiga manapun.
+- **Etika Scraping**: Menggunakan jeda waktu acak (*polite rate limiting*) dan identitas User-Agent yang transparan untuk menjaga kehandalan server kampus yang dikunjungi.
+
+---
+
+## 📄 Lisensi & Kontribusi
+
+Proyek ini dilisensikan di bawah lisensi **MIT License** — silakan gunakan, pelajari, dan kembangkan untuk mendukung kemajuan riset ilmiah mahasiswa Indonesia.
+
+Kontribusi, pelaporan bug, dan saran fitur sangat diterima melalui [GitHub Issues](../../issues) atau Pull Requests.
+
+---
+
+<div align="center">
+
+*Dikembangkan dengan ❤️ untuk Seluruh Mahasiswa & Peneliti Pejuang Publikasi Ilmiah Indonesia.*<br>
+<sub><b>Disclaimer:</b> Selalu periksa kembali keaslian jurnal dan pedoman penulisan (*Author Guidelines*) pada situs resmi OJS masing-masing penerbit sebelum mengirimkan naskah akhir.</sub>
+
+</div>
