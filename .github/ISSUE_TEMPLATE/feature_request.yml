@@ -1,0 +1,42 @@
+name: "💡 Usulan Fitur / Preset Jurnal Baru"
+description: "Usulkan ide fitur baru, preset bidang ilmu spesifik, format ekspor baru, atau peningkatan akurasi."
+title: "[FEATURE]: "
+labels: ["enhancement", "feature-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Punya ide untuk membuat pencarian jurnal mahasiswa semakin cepat dan mudah? 
+        Ceritakan ide brilian Anda di bawah ini!
+
+  - type: dropdown
+    id: feature_type
+    attributes:
+      label: "Jenis Usulan"
+      options:
+        - "Quick Preset Baru (contoh: Kedokteran, Hukum, Pertanian, dll.)"
+        - "Penyempurnaan Mesin Ekstraksi (APC / Kontak / Arsip)"
+        - "Fitur Antarmuka GUI Desktop"
+        - "Format Ekspor Dokumen Baru"
+        - "Integrasi Model AI / Local LLM"
+        - "Lainnya"
+    validations:
+      required: true
+
+  - type: textarea
+    id: feature_description
+    attributes:
+      label: "Deskripsi Fitur yang Diinginkan"
+      description: "Jelaskan fitur yang Anda butuhkan secara jelas dan terperinci."
+      placeholder: "Akan sangat membantu jika ditambahkan Preset khusus Jurnal Hukum SINTA 2-4..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: rationale
+    attributes:
+      label: "Manfaat Bagi Mahasiswa / Peneliti"
+      description: "Bagaimana fitur ini mempermudah proses publikasi ilmiah mahasiswa?"
+      placeholder: "Mahasiswa fakultas hukum tidak perlu lagi mengatur filter manual setiap kali..."
+    validations:
+      required: false

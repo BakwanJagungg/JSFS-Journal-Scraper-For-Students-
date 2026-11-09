@@ -21,12 +21,12 @@
   </p>
 
   <p align="center">
-    <a href="#-kenapa-mahasiswa-membutuhkan-jsfs"><b>💡 Mengapa JSFS?</b></a> •
+    <a href="https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v1.7.0"><b>📥 Download JSFS.exe (v1.7.0)</b></a> •
     <a href="#-fitur-unggulan-v170"><b>✨ Fitur Unggulan</b></a> •
     <a href="#-arsitektur--pipeline-4-fase"><b>🏗️ Arsitektur</b></a> •
     <a href="#-4-quick-presets-mahasiswa"><b>🎯 Quick Presets</b></a> •
     <a href="#-panduan-instalasi--penggunaan"><b>🚀 Cara Pakai</b></a> •
-    <a href="#-format-output-ekspor"><b>📦 Format Output</b></a>
+    <a href="https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/issues"><b>💬 Bantuan & Issues</b></a>
   </p>
 
 </div>
@@ -144,10 +144,26 @@ Untuk kemudahan navigasi instan tanpa perlu mengatur belasan filter teknis, JSFS
 ## 🚀 Panduan Instalasi & Penggunaan
 
 ### Opsi A: Menggunakan Executable Mandiri (Paling Mudah, Tanpa Python)
-1. Unduh berkas **`JSFS.exe`** versi terbaru dari folder `dist/` atau [Halaman Releases](../../releases).
-2. Letakkan di folder pilihan Anda (misalnya `D:\JSFS\`).
+
+<div align="center">
+  <br>
+  <a href="https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v1.7.0">
+    <img src="https://img.shields.io/badge/📥_Download_JSFS.exe-Versi_Terbaru_(v1.7.0)-0284c7?style=for-the-badge&logo=windows&logoColor=white" alt="Download JSFS.exe" height="42">
+  </a>
+  <br><br>
+</div>
+
+| Berkas Biner | Platform | Ukuran | Status Rilis |
+|---|---|---|---|
+| **[`JSFS.exe`](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v1.7.0/JSFS.exe)** | Windows 10 / 11 (64-bit) | ~275 MB | 🟢 **Stable Release (v1.7.0)** |
+
+**Langkah Menjalankan:**
+1. Unduh berkas **`JSFS.exe`** dari tombol di atas atau melalui [Halaman Resmi GitHub Releases](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases).
+2. Simpan di folder pilihan Anda (misalnya `D:\JSFS\`).
 3. Klik dua kali pada **`JSFS.exe`** untuk langsung menjalankan aplikasi!
-   > *Catatan: Tidak memerlukan instalasi Python, Git, atau library eksternal apapun.*
+
+> [!TIP]
+> **100% Portabel & Bebas Setup**: Berkas biner `JSFS.exe` sudah mencakup seluruh runtime Python dan pustaka scraper. Anda **sama sekali tidak memerlukan instalasi Python, Git, pip, atau compiler** di komputer Anda!
 
 ---
 
@@ -276,11 +292,37 @@ Berkas biner hasil kompilasi akan otomatis dibuat di:
 
 ---
 
-## 📄 Lisensi & Kontribusi
+## 💬 Pusat Bantuan, Pelaporan Bug & Kontribusi (GitHub Issues)
+
+Jika Anda menemukan kendala saat scraping, website OJS yang gagal dianalisis, nomor telepon/email yang keliru, atau memiliki ide fitur baru, silakan gunakan **[GitHub Issues](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/issues)** dengan formulir khusus:
+
+<div align="center">
+  <br>
+  <a href="https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/issues/new?template=bug_report.yml">
+    <img src="https://img.shields.io/badge/🐛_Laporkan_Bug_/_Error-OJS_Scraper-ef4444?style=for-the-badge&logo=github&logoColor=white" alt="Lapor Bug">
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/issues/new?template=feature_request.yml">
+    <img src="https://img.shields.io/badge/💡_Usulkan_Fitur_/_Preset-Ide_Baru-10b981?style=for-the-badge&logo=github&logoColor=white" alt="Usulkan Fitur">
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/issues/new?title=%5BTANYA%5D%3A+&labels=question">
+    <img src="https://img.shields.io/badge/💬_Tanya_Jawab-Diskusi_Mahasiswa-6366f1?style=for-the-badge&logo=github&logoColor=white" alt="Tanya Jawab">
+  </a>
+  <br><br>
+</div>
+
+| Jenis Tiket | Deskripsi | Tautan Formulir Langsung |
+|---|---|---|
+| 🐛 **Laporan Bug & Error** | Laporkan kesalahan nominal APC, email/telepon bocor, error OJS, atau freeze | [Buka Formulir Bug](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/issues/new?template=bug_report.yml) |
+| 💡 **Request Fitur Baru** | Usulkan Quick Preset baru (Hukum, Kedokteran, dll.), format ekspor, atau UI | [Buka Formulir Fitur](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/issues/new?template=feature_request.yml) |
+| 💬 **Tanya Jawab Publikasi** | Pertanyaan seputar cara submit naskah ke OJS atau panduan skripsi | [Mulai Diskusi](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/issues/new?title=%5BTANYA%5D%3A+&labels=question) |
+
+---
+
+## 📄 Lisensi
 
 Proyek ini dilisensikan di bawah lisensi **MIT License** — silakan gunakan, pelajari, dan kembangkan untuk mendukung kemajuan riset ilmiah mahasiswa Indonesia.
-
-Kontribusi, pelaporan bug, dan saran fitur sangat diterima melalui [GitHub Issues](../../issues) atau Pull Requests.
 
 ---
 

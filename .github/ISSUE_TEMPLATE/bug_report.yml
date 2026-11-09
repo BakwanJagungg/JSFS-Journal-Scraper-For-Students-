@@ -1,0 +1,60 @@
+name: "🐛 Laporan Bug / Error Ekstraksi Jurnal"
+description: "Laporkan error aplikasi, website OJS yang gagal discrape, nomor telepon palsu, atau masalah biaya APC."
+title: "[BUG]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Terima kasih telah membantu meningkatkan kualitas **JSFS (Journal Scraper For Students)**! 
+        Silakan isi formulir di bawah ini dengan lengkap agar kami dapat mereproduksi dan memperbaiki masalah secepat mungkin.
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: "Kategori Masalah"
+      description: "Pilih bagian mana yang mengalami kendala"
+      options:
+        - "Ekstraksi Biaya Publikasi (APC salah / keliru)"
+        - "Kontak Redaksi (Email bocor / Nomor telepon palsu)"
+        - "Bulan Terbit / Jadwal Edisi Arsip"
+        - "Portal SINTA / Garuda Tidak Merespons (Timeout / CAPTCHA)"
+        - "Antarmuka Desktop GUI (Freeze / Blackout / Tampilan)"
+        - "Ekspor File (.xlsx / .md / .csv / _LIST.txt)"
+        - "Kompilasi Executable (JSFS.exe)"
+    validations:
+      required: true
+
+  - type: input
+    id: journal_url
+    attributes:
+      label: "Nama Jurnal / URL Situs OJS yang Bermasalah"
+      description: "Contoh: Jurnal Manajemen Bisnis (https://jurnal.kampus.ac.id/index.php/jmb)"
+      placeholder: "https://..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: description
+    attributes:
+      label: "Deskripsi Kendala yang Terjadi"
+      description: "Jelaskan apa yang salah dan apa yang seharusnya ditampilkan."
+      placeholder: "Ketika mencari dengan kata kunci '...', jurnal X berbiaya Rp 500.000 tetapi terdeteksi sebagai Gratis..."
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: "Versi JSFS & Sistem Operasi"
+      description: "Contoh: JSFS v1.7.0 (JSFS.exe), Windows 11 64-bit"
+      value: "JSFS v1.7.0, Windows 10/11 64-bit"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: "Log Terminal / Pesan Error (Jika Ada)"
+      description: "Salin teks error dari terminal atau file log jika tersedia."
+      render: shell

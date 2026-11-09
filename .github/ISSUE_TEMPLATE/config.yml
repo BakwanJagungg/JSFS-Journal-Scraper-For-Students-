@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: "💬 Tanya Jawab & Diskusi Publikasi Mahasiswa"
+    url: "https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/issues/new?title=%5BTANYA%5D%3A+&labels=question"
+    about: "Punya pertanyaan seputar cara pengiriman naskah ke OJS, menghubungi redaksi, atau setup JSFS?"
+  - name: "📖 Dokumentasi & Single Source of Truth"
+    url: "https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/blob/main/VISION.md"
+    about: "Pelajari dokumen arsitektur lengkap, batasan teknis, dan filosofi pengembangan JSFS."
