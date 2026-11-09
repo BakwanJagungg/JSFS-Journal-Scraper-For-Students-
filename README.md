@@ -11,7 +11,7 @@
   </p>
 
   <p align="center">
-    <a href="https://github.com/DavaAlgafiriSidiq/JSFS-Journal-Scraper-For-Students-/releases"><img src="https://img.shields.io/badge/Release-v1.7.0-0284c7?style=for-the-badge&logo=github&logoColor=white" alt="Release"></a>
+    <a href="https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases"><img src="https://img.shields.io/badge/Release-v1.7.0-0284c7?style=for-the-badge&logo=github&logoColor=white" alt="Release"></a>
     <a href="#"><img src="https://img.shields.io/badge/Platform-Windows_10_%2F_11_64--bit-1e293b?style=for-the-badge&logo=windows&logoColor=white" alt="Platform"></a>
     <a href="#"><img src="https://img.shields.io/badge/Python-3.10_%7C_3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"></a>
     <a href="#"><img src="https://img.shields.io/badge/UI-CustomTkinter_Daylight-059669?style=for-the-badge&logo=gnome&logoColor=white" alt="CustomTkinter"></a>
@@ -160,7 +160,7 @@ Untuk kemudahan navigasi instan tanpa perlu mengatur belasan filter teknis, JSFS
 #### 2. Kloning Repositori & Persiapan Lingkungan
 ```bash
 # 1. Kloning repositori
-git clone https://github.com/DavaAlgafiriSidiq/JSFS-Journal-Scraper-For-Students-.git
+git clone https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-.git
 cd JSFS-Journal-Scraper-For-Students-
 
 # 2. Buat dan aktifkan virtual environment
