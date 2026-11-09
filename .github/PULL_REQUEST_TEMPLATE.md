@@ -12,3 +12,4 @@
 - [ ] **Thread-Safe GUI**: Tidak melakukan mutasi widget CustomTkinter dari *background thread* (selalu melalui `queue.Queue`).
 - [ ] **Anti-OA-Trap**: Mempertahankan filter Open Access pembaca agar tidak melabeli jurnal sebagai Gratis.
 - [ ] **Syntax & Unit Test**: Seluruh unit test di `tests/test_jsfs_core.py` lulus 100% dan `python -m py_compile *.py` menghasilkan 0 error.
+

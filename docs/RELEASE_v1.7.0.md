@@ -52,3 +52,4 @@ Link OJS: https://journals.ums.ac.id/index.php/benefit
 
 ### 💬 Masukan & Pelaporan Kendala
 Jika Anda menemukan website OJS jurnal yang gagal discrape atau ingin mengusulkan fitur baru, silakan buka tiket di **[GitHub Issues](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/issues)**.
+

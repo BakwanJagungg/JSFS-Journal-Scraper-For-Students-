@@ -40,3 +40,4 @@ body:
       placeholder: "Mahasiswa fakultas hukum tidak perlu lagi mengatur filter manual setiap kali..."
     validations:
       required: false
+
