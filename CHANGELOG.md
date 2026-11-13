@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-11-13
+
+### Changed & Added (Major Desktop Re-Architecture)
+- **Next-Gen Desktop UI via WebView2 (`app_webview.py`, `ui_web/index.html`, `ui_web/style.css`, `ui_web/app.js`)**:
+  - Mengganti lapisan GUI `CustomTkinter` menjadi desktop app HTML5/CSS3/Vanilla JS native di atas **Microsoft Edge WebView2 (`pywebview`)**, menghilangkan total risiko `Not Responding` dan layar hitam saat *resize* maupun scraping berat.
+  - Antarmuka *Modern Academic Daylight* sebagai default dengan sakelar tema adaptif (`🌙 Mode Gelap` / `☀️ Daylight`), `<dialog>` native untuk Panduan & Setup Ollama AI, 4 Kartu Quick Presets dengan highlight aktif, 4 Live KPI Pills, Dual Progress Bars, Live Activity Log, dan **Embedded Interactive Results Table** langsung di jendela utama (pencarian instan, filter biaya APC, kolom sortable, modal Detail Jurnal, `📋 Salin Daftar (Format Share WA)`, `💬 Salin Draf Chat Editor`, `📊 Buka Excel`, dan `📁 Folder Output`).
+  - Memastikan `window.events.closed` menutup seluruh worker aktif, `ai_engine.shutdown()`, dan `cache_engine.close_all_connections()` secara bersih tanpa mengunci SQLite.
+- **C-Speed HTML Parsing (`scraper_garuda.py`)**:
+  - Menambahkan dukungan opsional `selectolax` (`fast_sanitize_html_text`) dengan fallback otomatis ke BeautifulSoup/`lxml`.
+- **Packaging & Dependencies (`JSFS.spec`, `requirements.txt`)**:
+  - Memperbarui `JSFS.spec` agar menggunakan `app_webview.py`, membundel `ui_web/` dan runtime `pywebview`/`selectolax`, serta menghapus bundel `customtkinter`.
+
 ## [1.8.0] - 2026-11-13
 
 ### Added & Enhanced

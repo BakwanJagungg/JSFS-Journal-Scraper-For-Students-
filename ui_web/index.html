@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <title>JSFS v2.0 — Journal Scraper For Students</title>
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem("color-scheme") || "light";
+        var meta = document.querySelector('meta[name="color-scheme"]');
+        if (meta && (saved === "light" || saved === "dark" || saved === "light dark")) {
+          meta.setAttribute("content", saved);
+        }
+      } catch (e) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="brand-group">
+        <div class="brand-mark" aria-hidden="true">J</div>
+        <div>
+          <h1 class="brand-title">JSFS v2.0 <span class="brand-sub">— Journal Scraper For Students</span></h1>
+          <p class="brand-caption">Pencarian Jurnal SINTA &amp; Garuda • Presisi APC &amp; Analisis Naskah</p>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <button type="button" id="btn-ai-status" class="status-pill is-regex" title="Klik untuk membuka Setup &amp; Status Ollama AI">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span id="ai-status-text">○ Mode Regex</span>
+        </button>
+        <button type="button" id="btn-guide" class="btn btn-ghost">❓ Panduan</button>
+        <button type="button" id="btn-theme-toggle" class="btn btn-ghost" aria-label="Ganti tema terang atau gelap" title="Ganti tema terang / gelap">
+          <span id="theme-icon" aria-hidden="true">🌙</span>
+          <span id="theme-label">Mode Gelap</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Panel Pencarian & Preset -->
+    <section class="card search-card" aria-labelledby="search-heading">
+      <div class="card-head-row">
+        <h2 id="search-heading" class="section-title">Pencarian Jurnal &amp; Naskah</h2>
+        <span id="active-preset-pill" class="active-preset-pill">Preset Aktif: 🎓 Target Skripsi S1 (S3–S5)</span>
+      </div>
+
+      <form id="search-form" class="search-bar" novalidate>
+        <div class="input-grow">
+          <label for="input-keyword" class="sr-only">Kata kunci topik atau bidang ilmu</label>
+          <input
+            type="text"
+            id="input-keyword"
+            class="text-input"
+            placeholder="Ketik topik atau bidang ilmu (misal: manajemen keuangan, informatika, pendidikan)..."
+            autocomplete="off"
+          />
+        </div>
+
+        <button type="button" id="btn-pick-manuscript" class="btn btn-secondary" title="Unggah naskah .docx atau .pdf untuk skor kesesuaian otomatis">
+          📄 Unggah Naskah
+        </button>
+        <button type="button" id="btn-clear-manuscript" class="btn btn-ghost is-hidden" title="Hapus lampiran naskah">✕</button>
+
+        <button type="submit" id="btn-start" class="btn btn-primary">
+          🚀 Mulai Cari
+        </button>
+        <button type="button" id="btn-stop" class="btn btn-danger is-hidden">
+          ⏹ Hentikan
+        </button>
+      </form>
+
+      <div id="manuscript-banner" class="manuscript-banner is-hidden">
+        <span>📎 Naskah terlampir: <strong id="manuscript-name">-</strong></span>
+        <span class="muted">Akan dipakai untuk menghitung Match Score kesesuaian jurnal.</span>
+      </div>
+
+      <!-- 4 Quick Presets -->
+      <div class="presets-grid" role="group" aria-label="Preset Cepat Mahasiswa">
+        <button type="button" class="preset-card is-active" data-preset="skripsi">
+          <span class="preset-title">🎓 Target Skripsi S1</span>
+          <span class="preset-desc">SINTA 3–5 • Biaya Maks Rp 1,5 jt</span>
+        </button>
+        <button type="button" class="preset-card" data-preset="gratis">
+          <span class="preset-title">💰 Jurnal Gratis (Rp 0)</span>
+          <span class="preset-desc">Bebas Biaya Publikasi • S2–S6</span>
+        </button>
+        <button type="button" class="preset-card" data-preset="cepat">
+          <span class="preset-title">⚡ Terbit Terdekat</span>
+          <span class="preset-desc">Edisi 1–3 Bulan ke Depan • S3–S6</span>
+        </button>
+        <button type="button" class="preset-card" data-preset="reputasi">
+          <span class="preset-title">🏆 Reputasi Tinggi</span>
+          <span class="preset-desc">SINTA 1 &amp; 2 • Nasional / Scopus</span>
+        </button>
+      </div>
+
+      <!-- Pengaturan Lengkap (Accordion) -->
+      <details id="advanced-settings" class="advanced-details">
+        <summary class="advanced-summary">
+          <span>⚙️ Pengaturan Lengkap <span class="muted">(Filter SINTA, Bulan Terbit, Biaya APC, Engine &amp; Ekspor)</span></span>
+          <span class="summary-chevron" aria-hidden="true">▾</span>
+        </summary>
+
+        <div class="advanced-body">
+          <div class="adv-grid">
+            <!-- Kolom 1: SINTA & Sumber -->
+            <div class="adv-block">
+              <div class="adv-label">Peringkat SINTA Target</div>
+              <div class="chip-group" id="sinta-group">
+                <label class="chip-check"><input type="checkbox" name="sinta" value="1" /><span>SINTA 1</span></label>
+                <label class="chip-check"><input type="checkbox" name="sinta" value="2" /><span>SINTA 2</span></label>
+                <label class="chip-check"><input type="checkbox" name="sinta" value="3" checked /><span>SINTA 3</span></label>
+                <label class="chip-check"><input type="checkbox" name="sinta" value="4" checked /><span>SINTA 4</span></label>
+                <label class="chip-check"><input type="checkbox" name="sinta" value="5" checked /><span>SINTA 5</span></label>
+                <label class="chip-check"><input type="checkbox" name="sinta" value="6" /><span>SINTA 6</span></label>
+              </div>
+
+              <div class="adv-label mt-12">Sumber Portal</div>
+              <div class="inline-checks">
+                <label class="inline-check"><input type="checkbox" id="chk-garuda" checked /><span>Portal Garuda</span></label>
+                <label class="inline-check"><input type="checkbox" id="chk-sinta-src" checked /><span>Portal SINTA</span></label>
+              </div>
+            </div>
+
+            <!-- Kolom 2: Bulan Terbit -->
+            <div class="adv-block">
+              <div class="adv-label-row">
+                <span class="adv-label">Filter Bulan Terbit (1–12)</span>
+                <div class="mini-actions">
+                  <button type="button" class="link-btn" id="btn-months-all">Semua</button>
+                  <button type="button" class="link-btn" id="btn-months-near">3 Bln Dekat</button>
+                  <button type="button" class="link-btn" id="btn-months-none">Kosongkan</button>
+                </div>
+              </div>
+              <div class="months-grid" id="months-group">
+                <label class="chip-check"><input type="checkbox" name="month" value="1" checked /><span>Jan</span></label>
+                <label class="chip-check"><input type="checkbox" name="month" value="2" checked /><span>Feb</span></label>
+                <label class="chip-check"><input type="checkbox" name="month" value="3" checked /><span>Mar</span></label>
+                <label class="chip-check"><input type="checkbox" name="month" value="4" checked /><span>Apr</span></label>
+                <label class="chip-check"><input type="checkbox" name="month" value="5" checked /><span>Mei</span></label>
+                <label class="chip-check"><input type="checkbox" name="month" value="6" checked /><span>Jun</span></label>
+                <label class="chip-check"><input type="checkbox" name="month" value="7" checked /><span>Jul</span></label>
+                <label class="chip-check"><input type="checkbox" name="month" value="8" checked /><span>Agu</span></label>
+                <label class="chip-check"><input type="checkbox" name="month" value="9" checked /><span>Sep</span></label>
+                <label class="chip-check"><input type="checkbox" name="month" value="10" checked /><span>Okt</span></label>
+                <label class="chip-check"><input type="checkbox" name="month" value="11" checked /><span>Nov</span></label>
+                <label class="chip-check"><input type="checkbox" name="month" value="12" checked /><span>Des</span></label>
+              </div>
+              <label class="inline-check mt-8">
+                <input type="checkbox" id="chk-include-unknown-month" checked />
+                <span>Sertakan jurnal yang jadwal bulannya belum terdata</span>
+              </label>
+            </div>
+
+            <!-- Kolom 3: Biaya & Target -->
+            <div class="adv-block">
+              <div class="adv-label">Batas Biaya Publikasi (Rp) &amp; Target</div>
+              <div class="fields-3">
+                <label class="field-box">
+                  <span>Min (Rp)</span>
+                  <input type="text" id="input-min-rp" class="text-input sm" value="0" />
+                </label>
+                <label class="field-box">
+                  <span>Maks (Rp)</span>
+                  <input type="text" id="input-max-rp" class="text-input sm" value="1.500.000" />
+                </label>
+                <label class="field-box">
+                  <span>Target Jurnal</span>
+                  <select id="select-target" class="select-input sm">
+                    <option value="15">15</option>
+                    <option value="25" selected>25</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                    <option value="150">150</option>
+                  </select>
+                </label>
+              </div>
+              <div class="stack-checks mt-8">
+                <label class="inline-check"><input type="checkbox" id="chk-only-free" /><span>Hanya Jurnal Gratis (Rp 0)</span></label>
+                <label class="inline-check"><input type="checkbox" id="chk-include-na" checked /><span>Sertakan APC "Cek Web / Belum Terdata"</span></label>
+                <label class="inline-check"><input type="checkbox" id="chk-match" checked /><span>Hitung Match Score kesesuaian topik</span></label>
+              </div>
+            </div>
+
+            <!-- Kolom 4: Engine, AI & Cache -->
+            <div class="adv-block">
+              <div class="adv-label">Performa Scraper, AI &amp; Ekspor</div>
+              <div class="stack-checks">
+                <label class="inline-check"><input type="checkbox" id="chk-turbo" checked /><span>⚡ Turbo Mode (128 Workers)</span></label>
+                <label class="inline-check"><input type="checkbox" id="chk-selenium" /><span>🌐 Gunakan Selenium (Bypass Cloudflare SINTA)</span></label>
+                <label class="inline-check"><input type="checkbox" id="chk-ai" checked /><span>🤖 AI Enrichment Ollama (Opsional jika aktif)</span></label>
+              </div>
+              <div class="fields-2 mt-8">
+                <label class="field-box">
+                  <span>Worker AI</span>
+                  <select id="select-ai-workers" class="select-input sm">
+                    <option value="1">1</option>
+                    <option value="2" selected>2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                  </select>
+                </label>
+                <div class="field-box">
+                  <span>Format Ekspor</span>
+                  <div class="inline-checks">
+                    <label class="inline-check"><input type="checkbox" name="fmt" value=".xlsx" checked /><span>.xlsx</span></label>
+                    <label class="inline-check"><input type="checkbox" name="fmt" value=".md" checked /><span>.md</span></label>
+                    <label class="inline-check"><input type="checkbox" name="fmt" value=".csv" /><span>.csv</span></label>
+                  </div>
+                </div>
+              </div>
+              <div class="mini-toolbar mt-10">
+                <button type="button" id="btn-open-ai-modal" class="btn btn-secondary btn-xs">🤖 Setup Ollama AI</button>
+                <button type="button" id="btn-clear-cache" class="btn btn-ghost btn-xs" title="Bersihkan cache SQLite lokal">🗑️ Bersihkan Cache (<span id="cache-count">0</span>)</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </details>
+    </section>
+
+    <!-- Live KPI Pills + Dual Progress & Log -->
+    <section class="dashboard-row" aria-label="Status Progres dan Statistik Langsung">
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <span class="kpi-label">Total Jurnal</span>
+          <strong class="kpi-value" id="kpi-total">0</strong>
+        </div>
+        <div class="kpi-card is-free">
+          <span class="kpi-label">Gratis (Rp 0)</span>
+          <strong class="kpi-value" id="kpi-free">0</strong>
+        </div>
+        <div class="kpi-card is-paid">
+          <span class="kpi-label">Berbayar</span>
+          <strong class="kpi-value" id="kpi-paid">0</strong>
+        </div>
+        <div class="kpi-card is-fast">
+          <span class="kpi-label">Terbit 1–3 Bln</span>
+          <strong class="kpi-value" id="kpi-fast">0</strong>
+        </div>
+      </div>
+
+      <div class="card telemetry-card">
+        <div class="progress-pair">
+          <div class="progress-item">
+            <div class="progress-head">
+              <span>Progres Scraping &amp; Deep Crawl</span>
+              <span id="scrape-prog-text" class="mono">0 / 0</span>
+            </div>
+            <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="scrape-prog-bar-wrap">
+              <div class="progress-fill" id="scrape-prog-fill"></div>
+            </div>
+          </div>
+          <div class="progress-item">
+            <div class="progress-head">
+              <span>Analisis Regex / AI &amp; Penilaian</span>
+              <span id="ai-prog-text" class="mono">0 / 0</span>
+            </div>
+            <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="ai-prog-bar-wrap">
+              <div class="progress-fill is-ai" id="ai-prog-fill"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="log-head">
+          <span class="log-title">Live Activity Log</span>
+          <span id="run-state-badge" class="state-badge">Siap Mencari</span>
+        </div>
+        <div id="activity-log" class="activity-log" role="log" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <!-- Embedded Interactive Results Table -->
+    <section class="card results-card" aria-labelledby="results-title">
+      <div class="results-toolbar">
+        <div class="results-title-group">
+          <h2 id="results-title" class="section-title">Hasil Pencarian Jurnal</h2>
+          <span id="results-count-pill" class="count-pill">0 jurnal</span>
+        </div>
+
+        <div class="results-controls">
+          <label for="filter-search" class="sr-only">Filter tabel hasil</label>
+          <input type="search" id="filter-search" class="text-input sm" placeholder="Cari judul, penerbit, atau kontak..." />
+
+          <label for="filter-apc" class="sr-only">Filter status biaya</label>
+          <select id="filter-apc" class="select-input sm">
+            <option value="all">Semua Status Biaya</option>
+            <option value="free">Gratis (Rp 0)</option>
+            <option value="paid">Berbayar</option>
+            <option value="unknown">Cek Web / Belum Terdata</option>
+          </select>
+
+          <button type="button" id="btn-copy-wa" class="btn btn-secondary btn-sm" disabled>📋 Salin Daftar (Format Share WA)</button>
+          <button type="button" id="btn-copy-editor" class="btn btn-teal btn-sm" disabled title="Pilih 1 baris jurnal terlebih dahulu untuk membuat draf chat ke editor">💬 Salin Draf Chat Editor</button>
+          <button type="button" id="btn-open-excel" class="btn btn-primary btn-sm" disabled>📊 Buka Excel</button>
+          <button type="button" id="btn-open-folder" class="btn btn-ghost btn-sm">📁 Folder Output</button>
+        </div>
+      </div>
+
+      <div class="table-wrap" tabindex="0" role="region" aria-labelledby="results-title">
+        <table id="results-table" class="results-table">
+          <caption class="sr-only">Daftar jurnal hasil scraping beserta akreditasi SINTA, Match Score, biaya APC, jadwal terbit, dan kontak redaksi</caption>
+          <thead>
+            <tr>
+              <th scope="col" class="col-num">#</th>
+              <th scope="col" data-sort-key="nama" data-sort-type="text" aria-sort="none">
+                <button type="button" class="th-sort">Nama Jurnal &amp; Penerbit <span class="sort-ind" aria-hidden="true"></span></button>
+              </th>
+              <th scope="col" data-sort-key="sinta" data-sort-type="num" aria-sort="none">
+                <button type="button" class="th-sort">SINTA <span class="sort-ind" aria-hidden="true"></span></button>
+              </th>
+              <th scope="col" data-sort-key="match_score" data-sort-type="num" aria-sort="none">
+                <button type="button" class="th-sort">Match <span class="sort-ind" aria-hidden="true"></span></button>
+              </th>
+              <th scope="col" data-sort-key="biaya_sort" data-sort-type="num" aria-sort="none">
+                <button type="button" class="th-sort">Biaya (APC) <span class="sort-ind" aria-hidden="true"></span></button>
+              </th>
+              <th scope="col" data-sort-key="jadwal_sort" data-sort-type="text" aria-sort="none">
+                <button type="button" class="th-sort">Jadwal Terbit &amp; Est. <span class="sort-ind" aria-hidden="true"></span></button>
+              </th>
+              <th scope="col">Kontak &amp; Aksi</th>
+            </tr>
+          </thead>
+          <tbody id="results-tbody">
+            <tr class="empty-row">
+              <td colspan="7">
+                <div class="empty-state">
+                  <div class="empty-icon" aria-hidden="true">📚</div>
+                  <p><strong>Belum ada hasil ditampilkan.</strong></p>
+                  <p class="muted">Masukkan kata kunci atau unggah naskah di atas, pilih preset mahasiswa, lalu klik <strong>Mulai Cari</strong>.</p>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast is-hidden" role="status" aria-live="polite"></div>
+
+  <!-- Dialog Panduan Singkat -->
+  <dialog id="dialog-guide" class="modal-dialog" aria-labelledby="guide-title">
+    <div class="modal-header">
+      <h2 id="guide-title">📚 Panduan Singkat JSFS v2.0</h2>
+      <button type="button" class="btn btn-ghost btn-xs dialog-close" data-close-dialog="dialog-guide" aria-label="Tutup panduan">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="guide-list">
+        <div class="guide-item">
+          <h3>1. Mulai Pencarian &amp; Koreksi Typo Otomatis</h3>
+          <p>Ketik kata kunci bidang ilmu Anda (bisa lebih dari satu topik dipisah koma). Jika kata kunci mengalami salah ketik ringan, JSFS otomatis mencoba kata kunci alternatif dan sinonim akademik.</p>
+        </div>
+        <div class="guide-item">
+          <h3>2. Gunakan Quick Presets Mahasiswa</h3>
+          <p>Pilih preset sesuai kebutuhan: <strong>Target Skripsi S1</strong> (SINTA 3–5, maks Rp 1,5 jt), <strong>Jurnal Gratis</strong> (Rp 0), <strong>Terbit Terdekat</strong> (edisi 1–3 bulan ke depan), atau <strong>Reputasi Tinggi</strong> (SINTA 1–2).</p>
+        </div>
+        <div class="guide-item">
+          <h3>3. Memahami Biaya (APC) &amp; Peringatan Data</h3>
+          <p>JSFS memverifikasi langsung halaman <em>Author Fees</em> OJS termasuk format nominal seperti <code>1.000,000 (IDR)</code>. Jika tertera <em>Cek Web / Belum Terdata</em>, pastikan memeriksa situs OJS jurnal sebelum submit.</p>
+        </div>
+        <div class="guide-item">
+          <h3>4. Salin Format Share WA &amp; Draf Chat Editor</h3>
+          <p>Klik salah satu baris jurnal pada tabel hasil, lalu tekan <strong>💬 Salin Draf Chat Editor</strong> untuk mendapatkan template pesan sopan menanyakan kuota terbitan, atau <strong>📋 Salin Daftar (Format Share WA)</strong> untuk seluruh daftar.</p>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-primary dialog-close" data-close-dialog="dialog-guide">Mengerti</button>
+    </div>
+  </dialog>
+
+  <!-- Dialog Setup AI Ollama -->
+  <dialog id="dialog-ai-setup" class="modal-dialog" aria-labelledby="ai-modal-title">
+    <div class="modal-header">
+      <h2 id="ai-modal-title">🤖 Status &amp; Pengaturan Ollama AI Lokal</h2>
+      <button type="button" class="btn btn-ghost btn-xs dialog-close" data-close-dialog="dialog-ai-setup" aria-label="Tutup dialog AI">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="muted">Ollama AI bersifat <strong>opsional</strong> (Regex Engine tetap berjalan cepat tanpa AI). Jika Ollama aktif, AI membantu menganalisis Focus &amp; Scope atau APC yang belum terbaca regex.</p>
+      <div class="ai-status-box" id="ai-setup-box">
+        <div><strong>Layanan Ollama:</strong> <span id="ai-dlg-running">Memeriksa...</span></div>
+        <div><strong>Model (<code id="ai-dlg-model">-</code>):</strong> <span id="ai-dlg-installed">Memeriksa...</span></div>
+      </div>
+      <div class="ai-prog-area is-hidden" id="ai-dlg-prog-wrap">
+        <div class="progress-head">
+          <span id="ai-dlg-prog-status">Memproses...</span>
+          <span id="ai-dlg-prog-pct" class="mono">0%</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill is-ai" id="ai-dlg-prog-fill"></div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" id="btn-ai-refresh" class="btn btn-ghost">↻ Cek Ulang</button>
+      <button type="button" id="btn-ai-launch" class="btn btn-secondary">▶ Jalankan Ollama</button>
+      <button type="button" id="btn-ai-install" class="btn btn-secondary">⬇ Unduh Ollama</button>
+      <button type="button" id="btn-ai-pull" class="btn btn-primary">⬇ Unduh Model AI</button>
+    </div>
+  </dialog>
+
+  <!-- Dialog Detail Jurnal -->
+  <dialog id="dialog-detail" class="modal-dialog modal-lg" aria-labelledby="detail-title">
+    <div class="modal-header">
+      <h2 id="detail-title">Detail Jurnal</h2>
+      <button type="button" class="btn btn-ghost btn-xs dialog-close" data-close-dialog="dialog-detail" aria-label="Tutup detail jurnal">✕</button>
+    </div>
+    <div class="modal-body" id="detail-body"></div>
+    <div class="modal-footer">
+      <button type="button" id="btn-detail-chat" class="btn btn-teal">💬 Salin Draf Chat Editor</button>
+      <button type="button" id="btn-detail-open-url" class="btn btn-primary">🌐 Buka Situs Jurnal</button>
+    </div>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
+

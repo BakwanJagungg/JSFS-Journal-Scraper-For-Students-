@@ -21,7 +21,7 @@ from urllib.parse import urlparse
 
 log = logging.getLogger("jsfs.cache")
 
-CACHE_VERSION = "1.8.0"
+CACHE_VERSION = "2.0.0"
 
 
 def _ver_tuple(v: Optional[str]) -> tuple[int, ...]:

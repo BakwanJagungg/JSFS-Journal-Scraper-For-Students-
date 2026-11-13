@@ -11,17 +11,17 @@
   </p>
 
   <p align="center">
-    <a href="https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases"><img src="https://img.shields.io/badge/Release-v1.8.0-0284c7?style=for-the-badge&logo=github&logoColor=white" alt="Release"></a>
+    <a href="https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases"><img src="https://img.shields.io/badge/Release-v2.0.0-0284c7?style=for-the-badge&logo=github&logoColor=white" alt="Release"></a>
     <a href="#"><img src="https://img.shields.io/badge/Platform-Windows_10_%2F_11_64--bit-1e293b?style=for-the-badge&logo=windows&logoColor=white" alt="Platform"></a>
     <a href="#"><img src="https://img.shields.io/badge/Python-3.10_%7C_3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"></a>
-    <a href="#"><img src="https://img.shields.io/badge/UI-CustomTkinter_Daylight-059669?style=for-the-badge&logo=gnome&logoColor=white" alt="CustomTkinter"></a>
+    <a href="#"><img src="https://img.shields.io/badge/UI-WebView2_HTML5_Desktop-059669?style=for-the-badge&logo=microsoftedge&logoColor=white" alt="WebView2"></a>
     <a href="#"><img src="https://img.shields.io/badge/Privacy-100%25_Local_%7C_Zero_Cloud-6366f1?style=for-the-badge&logo=shield&logoColor=white" alt="Privacy"></a>
-    <a href="#"><img src="https://img.shields.io/badge/Executable-Portable_~275_MB-f59e0b?style=for-the-badge&logo=files&logoColor=white" alt="Portable"></a>
+    <a href="#"><img src="https://img.shields.io/badge/Executable-Portable_WebView2-f59e0b?style=for-the-badge&logo=files&logoColor=white" alt="Portable"></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-gray?style=for-the-badge" alt="License"></a>
   </p>
 
   <p align="center">
-    <a href="https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v1.8.0"><b>📥 Download JSFS (v1.8.0)</b></a> •
+    <a href="https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v2.0.0"><b>📥 Download JSFS (v2.0.0)</b></a> •
     <a href="#-fitur-unggulan-v170"><b>✨ Fitur Unggulan</b></a> •
     <a href="#-arsitektur--pipeline-4-fase"><b>🏗️ Arsitektur</b></a> •
     <a href="#-4-quick-presets-mahasiswa"><b>🎯 Quick Presets</b></a> •
@@ -37,9 +37,9 @@
 
 Mencari jurnal target untuk publikasi skripsi, tesis, atau riset hibah di portal **SINTA** (*Kemdiktisaintek*) dan **Garuda** secara manual sering kali memakan waktu **berjam-jam bahkan berhari-hari**. Mahasiswa terpaksa membuka puluhan tab situs OJS (*Open Journal Systems*) satu per satu, hanya untuk menemukan informasi yang ambigu atau tersembunyi.
 
-### ⚔️ Perbandingan: Manual Search vs. JSFS v1.8.0
+### ⚔️ Perbandingan: Manual Search vs. JSFS v2.0.0
 
-| Parameter | ❌ Pencarian Manual (Web Browser) | ✅ Dengan JSFS v1.8.0 |
+| Parameter | ❌ Pencarian Manual (Web Browser) | ✅ Dengan JSFS v2.0.0 |
 |---|---|---|
 | **Waktu Pencarian** | 3–6 jam (membuka 30–50 tab satu per satu) | **< 60 detik** (otonom, konkuren & terfilter) |
 | **Biaya Publikasi (APC)** | Sering terjebak tulisan *"Open Access"* pembaca atau biaya tersembunyi di OJS 2 | **Deep APC Hunter Engine** memindai 5 titik OJS + Anti-OA-Trap & Paid Priority |
@@ -50,7 +50,7 @@ Mencari jurnal target untuk publikasi skripsi, tesis, atau riset hibah di portal
 
 ---
 
-## ✨ Fitur Unggulan (v1.8.0 Instant-Boot & Presisi APC)
+## ✨ Fitur Unggulan (v2.0.0 WebView2 Modern UI & Presisi APC)
 
 ### 🎯 1. Deep APC Hunter Engine (Akurasi Biaya Setingkat Manusia)
 - **Multi-Path OJS 2 & OJS 3 Crawler**: Memindai secara konsisten 5 titik wajib:
@@ -147,15 +147,15 @@ Untuk kemudahan navigasi instan tanpa perlu mengatur belasan filter teknis, JSFS
 
 <div align="center">
   <br>
-  <a href="https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v1.8.0">
-    <img src="https://img.shields.io/badge/📥_Download_JSFS-Versi_Terbaru_(v1.8.0)-0284c7?style=for-the-badge&logo=windows&logoColor=white" alt="Download JSFS" height="42">
+  <a href="https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v2.0.0">
+    <img src="https://img.shields.io/badge/📥_Download_JSFS-Versi_Terbaru_(v2.0.0)-0284c7?style=for-the-badge&logo=windows&logoColor=white" alt="Download JSFS" height="42">
   </a>
   <br><br>
 </div>
 
 | Berkas Rilis | Platform | Mode Build | Status Rilis |
 |---|---|---|---|
-| **[`dist/JSFS/JSFS.exe`](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v1.8.0)** | Windows 10 / 11 (64-bit) | Portable `--onedir` (Instant-Boot < 2s) | 🟢 **Stable Release (v1.8.0)** |
+| **[`dist/JSFS/JSFS.exe`](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v2.0.0)** | Windows 10 / 11 (64-bit) | Portable `--onedir` WebView2 (Instant-Boot & 60 FPS) | 🟢 **Stable Release (v2.0.0)** |
 
 **Langkah Menjalankan:**
 1. Unduh berkas **`JSFS.exe`** dari tombol di atas atau melalui [Halaman Resmi GitHub Releases](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases).
@@ -187,9 +187,9 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-#### 3. Menjalankan Aplikasi GUI Desktop
+#### 3. Menjalankan Aplikasi GUI Desktop (WebView2)
 ```bash
-python app_ui.py
+python app_webview.py
 ```
 
 #### 4. Menjalankan via Terminal / CLI
@@ -247,9 +247,9 @@ JSFS dirancang dengan prinsip **keringanan maksimal** (*zero heavy ML bloatware*
 
 | Komponen | Pustaka / Teknologi | Versi | Peran Utama |
 |---|---|:---:|---|
-| **GUI Framework** | `customtkinter` | `5.2.2` | Antarmuka modern Soft Slate Daylight / Dark Mode adaptif |
+| **GUI Framework** | `pywebview` (WebView2 + HTML5/JS) | `6.2.1` | Jendela desktop native 60 FPS (*Academic Daylight* & Dark Mode, bebas *Not Responding*) |
 | **HTTP Engine** | `requests` + `urllib3` | `2.32.3` | Connection pool berkapasitas tinggi & anti-freeze fetcher |
-| **HTML Parser** | `beautifulsoup4` + `lxml` | `4.12.3` | Parsing dokumen HTML OJS dengan toleransi tag rusak |
+| **HTML Parser** | `beautifulsoup4` + `lxml` + `selectolax` | `4.12.3` / `1.0.2` | Parsing dokumen HTML OJS + akselerasi C-speed opsional |
 | **Headless Driver** | `undetected-chromedriver` | `3.5.5` | Bypass proteksi Cloudflare SINTA bila diperlukan |
 | **Local Cache** | `sqlite3` *(Built-in)* | `WAL Mode` | Caching metadata OJS lokal 14 hari via path `.cache/` |
 | **Data Processing** | `pandas` + `openpyxl` | `2.2.3` | Pembuatan file Excel multi-sheet dan tabel CSV |
@@ -281,8 +281,9 @@ Berkas hasil kompilasi `--onedir` (Instant-Boot `< 1s`) akan otomatis dibuat di:
 - [x] **v1.6.1 – v1.6.2**: Forensic Data Purity, Anti-Email Flood, Telkom Area Code Whitelist, dan Smart Canonical Deduplication.
 - [x] **v1.7.0**: Deep APC Hunter Engine (Anti-OA-Trap, Paid Priority, 5-Point OJS Crawler), Modern Bright GUI (Soft Slate Daylight), Live KPI Counter Pills, dan 1-Click WA Share Button.
 - [x] **v1.7.1**: Zero-Result Resilience (Smart Typo Auto-Correction & Synonym Fallback), HTTP/Cloudflare Diagnostic, Empty State Banner, & Quick Presets Polish.
-- [x] **v1.8.0 (Versi Saat Ini)**: Instant-Boot Architecture (< 2s Startup via Lazy Imports & `--onedir` `dist/JSFS/JSFS.exe`), Regex-First Fast Pipeline (AI selektif maks 10 jurnal @ 4s timeout), & Presisi APC Pemisah Campuran (`1.000,000 IDR`) + Redirect Tracking.
-- [ ] **v2.0.0 (Mendatang)**: Platform Web App Multi-User (FastAPI + React / Tailwind CSS) untuk instalasi bersama di server laboratorium kampus.
+- [x] **v1.8.0**: Instant-Boot Architecture (< 2s Startup via Lazy Imports & `--onedir` `dist/JSFS/JSFS.exe`), Regex-First Fast Pipeline (AI selektif maks 10 jurnal @ 4s timeout), & Presisi APC Pemisah Campuran (`1.000,000 IDR`) + Redirect Tracking.
+- [x] **v2.0.0 (Versi Saat Ini)**: Re-arsitektur Desktop UI ke **HTML5/CSS3/Vanilla JS via Edge WebView2 (`pywebview`)**, Tabel Hasil Interaktif langsung di layar utama (sortable, searchable, 1-click Copy WA & Chat Editor), plus akselerasi parsing `selectolax`.
+- [ ] **v2.1.0 (Mendatang)**: Platform Web App Multi-User (FastAPI + React / Tailwind CSS) untuk instalasi bersama di server laboratorium kampus.
 
 ---
 

@@ -15,6 +15,12 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import urllib3
 from bs4 import BeautifulSoup, Comment
+try:
+    from selectolax.lexbor import LexborHTMLParser as SelectolaxHTMLParser
+    HAS_SELECTOLAX = True
+except ImportError:
+    SelectolaxHTMLParser = None
+    HAS_SELECTOLAX = False
 from dataclasses import dataclass
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor
@@ -1054,6 +1060,22 @@ def clean_soup_for_scope(soup: BeautifulSoup) -> BeautifulSoup:
 
 
 # ── DOM SANITIZATION PIPELINE (Membersihkan derau script, style, & whitespace) ─
+def fast_sanitize_html_text(html: str) -> str:
+    """
+    C-speed HTML-to-clean-text extractor menggunakan selectolax bila tersedia,
+    dengan fallback aman ke BeautifulSoup + lxml.
+    """
+    if not html:
+        return ""
+    if HAS_SELECTOLAX and SelectolaxHTMLParser is not None:
+        tree = SelectolaxHTMLParser(html)
+        tree.strip_tags(["script", "style", "noscript", "svg", "iframe"])
+        raw_text = tree.text(separator=" ", strip=True)
+        clean_text = raw_text.replace("\xa0", " ").replace("&nbsp;", " ").replace("\u200b", " ")
+        return re.sub(r"\s+", " ", clean_text).strip()
+    return sanitize_dom(BeautifulSoup(html, "lxml"))
+
+
 def sanitize_dom(soup: BeautifulSoup) -> str:
     """
     Membersihkan tag script, style, komentar, dan objek non-teks.

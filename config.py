@@ -1,6 +1,6 @@
 # =============================================================================
 # JSFS - Journal Scraper For Students
-# config.py — Konfigurasi global scraper v1.7.0 (Deep APC Hunter + Modern Bright GUI)
+# config.py — Konfigurasi global scraper v2.0.0 (Modern WebView2 UI + Selectolax Scraper)
 # =============================================================================
 
 import os
@@ -8,7 +8,7 @@ import re
 import sys
 from datetime import datetime
 
-APP_VERSION = "1.8.0"
+APP_VERSION = "2.0.0"
 
 
 def get_app_dir() -> str:

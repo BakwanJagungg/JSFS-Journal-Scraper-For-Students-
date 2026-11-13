@@ -1,8 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_data_files
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('assets', 'assets')]
+datas = [('assets', 'assets'), ('ui_web', 'ui_web')]
 binaries = []
 hiddenimports = [
     'cache_engine',
@@ -20,8 +19,18 @@ hiddenimports = [
     'openpyxl',
     'pypdf',
     'docx',
+    'webview',
+    'webview.platforms.edgechromium',
+    'clr',
+    'pythonnet',
+    'bottle',
+    'selectolax',
+    'selectolax.lexbor',
 ]
-datas += collect_data_files('customtkinter')
+tmp_ret = collect_all('webview')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('selectolax')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('numpy')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('pandas')
@@ -35,7 +44,7 @@ datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(
-    ['app_ui.py'],
+    ['app_webview.py'],
     pathex=[],
     binaries=binaries,
     datas=datas,
@@ -44,6 +53,7 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
+        'customtkinter',
         'matplotlib',
         'scipy',
         'tkinter.test',

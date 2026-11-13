@@ -1,7 +1,7 @@
 # 📜 VISION.md — Sumber Kebenaran Mutlak Proyek JSFS
 
 > **JSFS (Journal Scraper For Students) — Hybrid AI Desktop Research Assistant**
-> Versi Dokumen: **1.8.0** | Terakhir Diperbarui: 2026-11-13
+> Versi Dokumen: **2.0.0** | Terakhir Diperbarui: 2026-11-13
 
 ---
 
@@ -37,11 +37,11 @@ tersebut.** Jika tidak yakin, tanyakan kepada pemilik proyek sebelum melanjutkan
 |---------|-------|
 | **Nama Resmi** | JSFS — Journal Scraper For Students |
 | **Subtitle** | Hybrid AI Desktop Research Assistant |
-| **Versi Terkini** | 1.8.0 (Instant-Boot Architecture <2s, Regex-First Engine & Mixed-Separator APC Fix) |
-| **Target Versi Berikutnya** | 1.8.0 (Instant-Boot Architecture <2s, Ultra-Lightweight Engine & Presisi APC 1.000,000) |
-| **Platform** | Windows 10/11 64-bit (portable `.exe`, tidak perlu Python) |
+| **Versi Terkini** | 2.0.0 (Next-Gen WebView2 Modern Desktop UI `pywebview` + `selectolax` C-Speed Scraper) |
+| **Target Versi Berikutnya** | 2.1.0 (Multi-User Web Dashboard Companion) |
+| **Platform** | Windows 10/11 64-bit (portable `.exe`, WebView2 native runtime, tidak perlu Python) |
 | **Bahasa UI** | Bahasa Indonesia (teks, label, log, laporan output) |
-| **Entry Point** | `app_ui.py` (GUI) · `jsfs.py` (CLI) |
+| **Entry Point** | `app_webview.py` (GUI WebView2) · `jsfs.py` (CLI) |
 
 ### 1.2. Latar Belakang Masalah
 
@@ -96,12 +96,12 @@ sering tidak stabil.
 | **Build** | PyInstaller | 6.11.0 | Spec: `JSFS.spec` |
 | **HTTP Scraping** | requests | 2.32.3 | `HTTPAdapter` connection pooling |
 | **HTML Parsing** | beautifulsoup4 | 4.12.3 | Parser: `lxml` (utama) / `html.parser` (fallback) |
-| **HTML Parser Engine** | lxml | 5.3.0 | — |
+| **HTML Parser Engine** | lxml + selectolax | 5.3.0 / 1.0.2 | Akselerasi C-speed opsional (`fast_sanitize_html_text`) |
 | **Selenium Fallback** | selenium | 4.27.1 | Bypass Cloudflare SINTA (opsional) |
 | **Chrome Driver** | undetected-chromedriver | 3.5.5 | Auto-manage via selenium |
 | **AI Engine** | Ollama REST API | — | `localhost:11434`, model `qwen2.5:3b` |
 | **Local Cache** | sqlite3 | bawaan Python | WAL mode, path via `get_app_dir()` |
-| **GUI Framework** | customtkinter | 5.2.2 | Soft Slate / Daylight Theme |
+| **GUI Framework** | pywebview (WebView2) | 6.2.1 | HTML5/CSS3/Vanilla JS native desktop window (`app_webview.py`, zero Not-Responding) |
 | **Data Export** | pandas | 2.2.3 | DataFrame → Excel/CSV |
 | **Excel Writer** | openpyxl | 3.1.5 | Multi-sheet `.xlsx` |
 | **PDF Reader** | pypdf | 6.21.0 | Ekstrak teks naskah |
@@ -869,4 +869,4 @@ Semua field ini wajib ada dan maknanya tidak boleh diubah:
 *Dokumen ini dikelola oleh pemilik proyek JSFS. Untuk pertanyaan atau perubahan aturan,
 buka diskusi sebelum mengubah kode yang terkait dengan bagian terkunci.*
 
-*Versi dokumen ini: 1.8.0 — Berlaku mulai: 2026-11-13*
+*Versi dokumen ini: 2.0.0 — Berlaku mulai: 2026-11-13*
