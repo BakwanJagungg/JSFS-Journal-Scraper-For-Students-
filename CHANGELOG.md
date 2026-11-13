@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-11-13
+
+### Added & Enhanced
+- **Instant-Boot Architecture (< 2s Startup) (`app_ui.py`, `exporter.py`, `doc_reader.py`, `scraper_sinta.py`)**:
+  - Memindahkan impor library berat (`pandas`, `openpyxl`, `pypdf`, `python-docx`, `selenium`, `undetected_chromedriver`, serta modul scraping/ekspor) ke dalam fungsi yang membutuhkannya (*Lazy / On-Demand Import*), memangkas waktu impor `app_ui` dari ~3.4s menjadi **< 0.4s**.
+  - Menunda pengecekan status Ollama dan inisialisasi/auto-purge cache SQLite selama `600 ms` menggunakan `self.after(600, ...)` setelah jendela utama tampil.
+- **Presisi APC `1.000,000 (IDR)` & Follow Redirect (`scraper_garuda.py`, `cache_engine.py`, `config.py`)**:
+  - Menambahkan `_parse_mixed_idr_number()` dan memperbarui `RE_PUB_AMOUNT`, `RE_IDR_1`, serta `RE_PUB_FREE_STRICT` agar nominal pemisah ribuan campuran seperti `"Article Publication: 1.000,000 (IDR)"` / `"1,000.000"` terbaca akurat sebagai `Rp 1.000.000` (1000000).
+  - Menyimpan URL akhir hasil HTTP redirect (`_final_url` di `safe_fetch_html`) sehingga `extract_ojs_deep_info` membentuk `/about/submissions`, `/about/editorialPolicies`, dan memindai navigasi `Author Fees` pada domain redirect akhir.
+  - Menaikkan `APP_VERSION` dan `CACHE_VERSION` ke `1.8.0` agar cache versi lama otomatis di-purge saat startup.
+- **Regex-First, AI-Second Fast Pipeline (`ai_engine.py`)**:
+  - Fase 3 menjalankan Regex super cepat terlebih dahulu untuk seluruh jurnal; Ollama AI (`READ_TIMEOUT = 4` detik ketat) hanya dipanggil jika Ollama aktif dan hasil Regex masih `"Kosong"` (maksimal `10` jurnal teratas).
+- **Build PyInstaller `--onedir` (`JSFS.spec`)**:
+  - Menambahkan `excludes` untuk modul tidak terpakai (`matplotlib`, `scipy`, dll.) dan beralih ke mode `--onedir` (`COLLECT`) menghasilkan `dist/JSFS/JSFS.exe` untuk startup instan tanpa dekompresi `_MEI` saat dibuka.
+
 ## [1.7.1] - 2026-11-13
 
 ### Added & Enhanced

@@ -24,7 +24,8 @@ MODEL             = os.getenv("JSFS_OLLAMA_MODEL", "qwen2.5:3b")
 AI_WORKERS        = max(1, min(int(os.getenv("JSFS_AI_WORKERS", "2")), 2))  # 1–2 worker
 
 PING_TIMEOUT      = 1.5     # detik, GET /api/tags
-READ_TIMEOUT      = 90      # detik, inferensi model kecil di CPU bisa lambat
+READ_TIMEOUT      = 4       # detik ketat per jurnal (v1.8.0 anti-bottleneck)
+MAX_AI_QUEUE_JOURNALS = 10  # batas antrean AI maksimal 10 jurnal kosong teratas (v1.8.0)
 STATUS_TTL_UP     = 60      # cache status saat Ollama aktif
 STATUS_TTL_DOWN   = 20      # cache status saat Ollama mati
 BREAKER_THRESHOLD = 5       # kegagalan transport berturut-turut
@@ -234,10 +235,11 @@ _FREE_RE = re.compile(
 
 
 def numbers_in_text(text: str) -> set:
-    """Semua nilai numerik yang 'sah' ada di teks (pemisah ribuan dibuang, 'juta/ribu' dikonversi)."""
+    """Semua nilai numerik yang 'sah' ada di teks (pemisah ribuan & campuran dibuang, 'juta/ribu' dikonversi)."""
     found = set()
     for tok in _NUM_RE.findall(text):
-        digits = re.sub(r"[.,]", "", tok)
+        norm_tok = re.sub(r"(?<=\d{3})[.,]\d{2}$", "", tok)
+        digits = re.sub(r"[.,]", "", norm_tok)
         if digits:
             try:
                 found.add(int(digits))
@@ -343,7 +345,7 @@ def _call_ollama(prompt: str) -> dict:
         "keep_alive": "30m",
         "options": {"temperature": 0, "num_ctx": 4096, "num_predict": 256},
     }
-    r = requests.post(f"{OLLAMA_URL}/api/generate", json=payload, timeout=(3, READ_TIMEOUT))
+    r = requests.post(f"{OLLAMA_URL}/api/generate", json=payload, timeout=(2, READ_TIMEOUT))
     r.raise_for_status()
     return json.loads(r.json()["response"])           # JSONDecodeError -> ValueError
 
@@ -402,41 +404,80 @@ def _safe_legacy(key: str, raw_text: str, empty):
         return empty
 
 
+def _clean_focus_text(raw_text: str) -> Optional[str]:
+    """Bersihkan boilerplate & noise profil OJS dari teks focus_scope; return None jika kosong/noise."""
+    if not (raw_text or "").strip():
+        return None
+    try:
+        from scraper_garuda import strip_ojs_profile_table_noise
+        cleaned_text = strip_ojs_profile_table_noise(raw_text)
+    except Exception:
+        cleaned_text = raw_text
+
+    if is_boilerplate_noise(cleaned_text) and len(cleaned_text.strip()) < 400:
+        return None
+    try:
+        from scraper_garuda import is_focus_scope_noise
+        if is_focus_scope_noise(cleaned_text) and len(cleaned_text.strip()) < 500:
+            return None
+    except Exception:
+        pass
+    return cleaned_text
+
+
+def _regex_focus_extract(raw_text: str) -> Dict:
+    """Ekstraksi Focus & Scope super cepat berbasis Regex Legacy (tanpa memanggil Ollama)."""
+    cleaned_text = _clean_focus_text(raw_text)
+    if not cleaned_text:
+        return {"focus_scope": "", "sumber": "Kosong"}
+    legacy_val = _safe_legacy("focus", cleaned_text, "")
+    if legacy_val:
+        try:
+            from scraper_garuda import is_focus_scope_noise, strip_ojs_profile_table_noise
+            legacy_val = strip_ojs_profile_table_noise(legacy_val)
+            if is_boilerplate_noise(legacy_val) or is_focus_scope_noise(legacy_val):
+                legacy_val = ""
+        except Exception:
+            if is_boilerplate_noise(legacy_val):
+                legacy_val = ""
+    sumber = "Regex" if legacy_val else "Kosong"
+    return {"focus_scope": legacy_val, "sumber": sumber}
+
+
+def _regex_apc_extract(raw_text: str) -> Dict:
+    """Ekstraksi APC super cepat berbasis Regex Legacy (tanpa memanggil Ollama)."""
+    empty = {"biaya_submit": None, "biaya_publikasi": None, "mata_uang": None}
+    if not (raw_text or "").strip():
+        return {**empty, "sumber": "Kosong"}
+    legacy_val = _safe_legacy("apc", raw_text, empty)
+    has_apc = (legacy_val.get("biaya_submit") is not None) or (legacy_val.get("biaya_publikasi") is not None)
+    sumber = "Regex" if has_apc else "Kosong"
+    return {**legacy_val, "sumber": sumber}
+
+
+def _ai_only_focus_job(raw_text: str) -> Optional[str]:
+    cleaned_text = _clean_focus_text(raw_text)
+    if not cleaned_text:
+        return None
+    return _try_ai(PROMPT_FOCUS, cleaned_text, _FOCUS_RX, _validate_focus)
+
+
+def _ai_only_apc_job(raw_text: str) -> Optional[Dict]:
+    if not (raw_text or "").strip():
+        return None
+    return _try_ai(PROMPT_APC, raw_text, _APC_RX, _validate_apc)
+
+
 # ───────────────────────── Job (tidak pernah melempar exception) ─────────────────────────
 def _focus_job(raw_text: str) -> Dict:
     try:
-        if not (raw_text or "").strip():
+        cleaned_text = _clean_focus_text(raw_text)
+        if not cleaned_text:
             return {"focus_scope": "", "sumber": "Kosong"}
-        # Bersihkan derau tabel profil OJS (v1.6.1)
-        try:
-            from scraper_garuda import strip_ojs_profile_table_noise
-            cleaned_text = strip_ojs_profile_table_noise(raw_text)
-        except Exception:
-            cleaned_text = raw_text
-
-        if is_boilerplate_noise(cleaned_text) and len(cleaned_text.strip()) < 400:
-            return {"focus_scope": "", "sumber": "Kosong"}
-        try:
-            from scraper_garuda import is_focus_scope_noise
-            if is_focus_scope_noise(cleaned_text) and len(cleaned_text.strip()) < 500:
-                return {"focus_scope": "", "sumber": "Kosong"}
-        except Exception:
-            pass
-
         res = _try_ai(PROMPT_FOCUS, cleaned_text, _FOCUS_RX, _validate_focus)
         if res is not None:
             return {"focus_scope": res, "sumber": "AI"}
-        legacy_val = _safe_legacy("focus", cleaned_text, "")
-        if legacy_val:
-            try:
-                from scraper_garuda import is_focus_scope_noise
-                if is_boilerplate_noise(legacy_val) or is_focus_scope_noise(legacy_val):
-                    legacy_val = ""
-            except Exception:
-                if is_boilerplate_noise(legacy_val):
-                    legacy_val = ""
-        sumber = "Regex" if legacy_val else "Kosong"
-        return {"focus_scope": legacy_val, "sumber": sumber}
+        return _regex_focus_extract(cleaned_text)
     except Exception as e:
         log.error("Error in _focus_job: %s", e)
         return {"focus_scope": "", "sumber": "Kosong"}
@@ -450,10 +491,7 @@ def _apc_job(raw_text: str) -> Dict:
         res = _try_ai(PROMPT_APC, raw_text, _APC_RX, _validate_apc)
         if res is not None:
             return {**res, "sumber": "AI"}
-        legacy_val = _safe_legacy("apc", raw_text, empty)
-        has_apc = (legacy_val.get("biaya_submit") is not None) or (legacy_val.get("biaya_publikasi") is not None)
-        sumber = "Regex" if has_apc else "Kosong"
-        return {**legacy_val, "sumber": sumber}
+        return _regex_apc_extract(raw_text)
     except Exception as e:
         log.error("Error in _apc_job: %s", e)
         return {**empty, "sumber": "Kosong"}
@@ -493,82 +531,127 @@ def _set_val(rec: Any, **kwargs) -> None:
             setattr(rec, k, v)
 
 
+def _apply_focus_value(rec: Any, f_val: str, f_src: str) -> None:
+    try:
+        from scraper_garuda import is_focus_scope_noise, strip_ojs_profile_table_noise, synthesize_focus_scope
+    except Exception:
+        strip_ojs_profile_table_noise = lambda x: x
+        is_focus_scope_noise = lambda x: False
+        synthesize_focus_scope = None
+
+    val = (f_val or "").strip()
+    has_noise = bool(val) and (is_boilerplate_noise(val) or is_focus_scope_noise(val))
+    if not val or val == "Informasi tidak ditemukan dalam situs jurnal" or "tidak ditemukan" in val.lower() or has_noise:
+        if synthesize_focus_scope is not None:
+            try:
+                val, f_src = synthesize_focus_scope(rec)
+            except Exception:
+                pass
+    else:
+        cleaned_val = strip_ojs_profile_table_noise(val)
+        if is_focus_scope_noise(cleaned_val) and synthesize_focus_scope is not None:
+            try:
+                val, f_src = synthesize_focus_scope(rec)
+            except Exception:
+                pass
+        else:
+            val = cleaned_val
+
+    _set_val(rec, focus_scope=val, sumber_focus=f_src)
+
+
+def _apply_apc_value(rec: Any, res: Dict, sumber: str) -> None:
+    b_sub = res.get("biaya_submit")
+    b_pub = res.get("biaya_publikasi")
+
+    # Smart Fallback Biaya Submit -> Biaya Publikasi (v1.6.2)
+    if (b_sub and b_sub > 50000) and (b_pub is None or b_pub == 0):
+        b_pub = b_sub
+
+    _set_val(
+        rec,
+        biaya_submit=b_sub,
+        biaya_publikasi=b_pub,
+        mata_uang=res.get("mata_uang"),
+        sumber_apc=sumber,
+    )
+
+
 def enrich_records(
     records: List[Any],
     on_progress: Optional[Callable[[int, int], None]] = None,
     cancel: Optional[threading.Event] = None,
 ) -> None:
-    """Fase 3: isi record in-place. Panggil HANYA untuk jurnal yang lolos pre-filter.
-    Mendukung list[dict] maupun list[JournalEntry].
-    Wajib ada record['raw_about'] dan (opsional) record['raw_submissions']."""
-    jobs = {}
-    for rec in records:
+    """
+    Fase 3 (v1.8.0 Regex-First, AI-Second):
+    1. Jalankan Regex Engine super cepat terlebih dahulu untuk seluruh jurnal.
+    2. Kirim ke antrean Ollama AI HANYA JIKA Ollama aktif DAN hasil Regex masih kosong
+       (sumber_apc == "Kosong" atau sumber_focus == "Kosong"), maks 10 jurnal teratas
+       dengan timeout ketat 4 detik per jurnal.
+    """
+    if not records:
+        return
+
+    total_recs = len(records)
+
+    # ── Tahap A: Regex-First untuk semua jurnal ──
+    for idx, rec in enumerate(records, 1):
+        if cancel is not None and cancel.is_set():
+            return
         about = _get_val(rec, "raw_about", "")
         subs = _get_val(rec, "raw_submissions", "") or about
-        jobs[submit_focus_scope(about)] = (rec, "focus")
-        jobs[submit_apc(subs)] = (rec, "apc")
 
-    done, total = 0, len(jobs)
-    for fut in as_completed(jobs):
-        if cancel is not None and cancel.is_set():
-            for f in jobs:
-                f.cancel()
-            break
-        rec, kind = jobs[fut]
-        try:
-            res = fut.result()
-        except Exception as e:
-            log.error("AI job exception: %s", e)
-            res = {"focus_scope": "", "sumber": "Regex"} if kind == "focus" else {
-                "biaya_submit": None, "biaya_publikasi": None, "mata_uang": None, "sumber": "Regex"
-            }
+        f_res = _regex_focus_extract(about)
+        _set_val(rec, focus_scope=(f_res.get("focus_scope") or "").strip(), sumber_focus=f_res.get("sumber", "Kosong"))
 
-        if kind == "focus":
-            f_val = (res.get("focus_scope") or "").strip()
-            f_src = res.get("sumber", "Regex")
-            try:
-                from scraper_garuda import is_focus_scope_noise
-                has_noise = is_focus_scope_noise(f_val)
-            except Exception:
-                has_noise = False
+        a_res = _regex_apc_extract(subs)
+        _apply_apc_value(rec, a_res, a_res.get("sumber", "Kosong"))
 
-            if not f_val or f_val == "Informasi tidak ditemukan dalam situs jurnal" or "tidak ditemukan" in f_val.lower() or has_noise:
-                try:
-                    from scraper_garuda import synthesize_focus_scope
-                    f_val, f_src = synthesize_focus_scope(rec)
-                except Exception:
-                    pass
-            else:
-                try:
-                    from scraper_garuda import strip_ojs_profile_table_noise, is_focus_scope_noise
-                    cleaned_val = strip_ojs_profile_table_noise(f_val)
-                    if is_focus_scope_noise(cleaned_val):
-                        from scraper_garuda import synthesize_focus_scope
-                        f_val, f_src = synthesize_focus_scope(rec)
-                    else:
-                        f_val = cleaned_val
-                except Exception:
-                    pass
-
-            _set_val(rec, focus_scope=f_val, sumber_focus=f_src)
-        else:
-            b_sub = res.get("biaya_submit")
-            b_pub = res.get("biaya_publikasi")
-
-            # Smart Fallback Biaya Submit -> Biaya Publikasi (v1.6.2)
-            if (b_sub and b_sub > 50000) and (b_pub is None or b_pub == 0):
-                b_pub = b_sub
-
-            _set_val(
-                rec,
-                biaya_submit=b_sub,
-                biaya_publikasi=b_pub,
-                mata_uang=res.get("mata_uang"),
-                sumber_apc=res.get("sumber", "Regex"),
-            )
-        done += 1
         if on_progress:
-            on_progress(done, total)
+            on_progress(idx, total_recs)
+
+    # ── Tahap B: AI-Second Selektif (hanya jika aktif & masih Kosong, maks 10 jurnal) ──
+    if _enabled and check_ollama_active():
+        ai_candidates = [
+            rec for rec in records
+            if _get_val(rec, "sumber_apc", "Kosong") == "Kosong"
+            or _get_val(rec, "sumber_focus", "Kosong") == "Kosong"
+        ][:MAX_AI_QUEUE_JOURNALS]
+
+        ai_jobs = {}
+        for rec in ai_candidates:
+            if _get_val(rec, "sumber_focus", "Kosong") == "Kosong":
+                about = _get_val(rec, "raw_about", "")
+                if (about or "").strip():
+                    ai_jobs[_AI_POOL.submit(_ai_only_focus_job, about)] = (rec, "focus")
+            if _get_val(rec, "sumber_apc", "Kosong") == "Kosong":
+                subs = _get_val(rec, "raw_submissions", "") or _get_val(rec, "raw_about", "")
+                if (subs or "").strip():
+                    ai_jobs[_AI_POOL.submit(_ai_only_apc_job, subs)] = (rec, "apc")
+
+        for fut in as_completed(ai_jobs):
+            if cancel is not None and cancel.is_set():
+                for f in ai_jobs:
+                    f.cancel()
+                break
+            rec, kind = ai_jobs[fut]
+            try:
+                ai_res = fut.result()
+            except Exception as e:
+                log.error("AI selective job exception: %s", e)
+                ai_res = None
+
+            if ai_res is None:
+                continue
+
+            if kind == "focus":
+                _set_val(rec, focus_scope=ai_res, sumber_focus="AI")
+            else:
+                _apply_apc_value(rec, ai_res, "AI")
+
+    # ── Tahap C: Synthesizer Focus & Scope fallback akhir (Zero-Empty Guarantee) ──
+    for rec in records:
+        _apply_focus_value(rec, _get_val(rec, "focus_scope", ""), _get_val(rec, "sumber_focus", "Regex"))
 
 
 def shutdown() -> None:

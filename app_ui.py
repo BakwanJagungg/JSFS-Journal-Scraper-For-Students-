@@ -1,5 +1,5 @@
 """
-app_ui.py — JSFS v1.7.0 (Deep APC Hunter Engine & Modern Bright GUI)
+app_ui.py — JSFS v1.8.0 (Instant-Boot < 2s, Ultra-Lightweight Engine & Presisi APC)
 Antarmuka desktop dengan responsivitas tinggi (Pixel-Perfect, Zero Clipping),
 Soft Slate Daylight Theme, Live KPI Pills Counter, dan 1-Click Share List.
 """
@@ -13,42 +13,15 @@ import threading
 import time
 import webbrowser
 from tkinter import filedialog, ttk
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, TYPE_CHECKING
 
 import customtkinter as ctk
 
-import ai_engine
-import ai_installer
-import cache_engine
+from config import INFO_NOT_FOUND, DEAD_LINK_TEXT, APP_VERSION
 from month_parser import lolos_filter_bulan, format_bulan_terbit
-import exporter
-# Modul pembaca berkas naskah dengan fallback aman
-try:
-    from doc_reader import (
-        extract_manuscript_metadata as parse_manuscript,
-        calculate_match_score as calculate_manuscript_match,
-        calculate_keyword_match_score,
-    )
-except ImportError:
-    try:
-        from doc_reader import parse_manuscript, calculate_manuscript_match, calculate_keyword_match_score
-    except ImportError:
-        def parse_manuscript(p: str) -> dict:
-            return {"status": "empty", "keywords": [], "dominant_terms": [], "title": ""}
-        def calculate_manuscript_match(meta: dict, j: any) -> dict:
-            return {"score": 0, "level": "Kurang Sesuai", "matched_terms": [], "explanation": ""}
-        def calculate_keyword_match_score(k: str, j: any) -> dict:
-            return {"score": 0, "level": "Kurang Sesuai", "matched_terms": [], "explanation": ""}
 
-from scraper_garuda import (
-    JournalEntry,
-    scrape_garuda,
-    merge_cross_source_entries,
-    get_high_capacity_session,
-    INFO_NOT_FOUND,
-    DEAD_LINK_TEXT,
-)
-from scraper_sinta import scrape_sinta, scrape_sinta_selenium
+if TYPE_CHECKING:
+    from scraper_garuda import JournalEntry
 
 # ───────────────────────── Konstanta Desain Soft Slate Daylight (v1.7.0) ─────────────────────────
 PAD, GAP = 12, 6                      # padding kartu, jarak antar elemen
@@ -212,8 +185,11 @@ def run_scraper(params: dict, on_progress, cancel: threading.Event, on_log=None)
     Mengumpulkan data mentah (raw_about, raw_submissions, bulan_terbit) tanpa menyentuh LLM.
     v1.6.1: High-Yield Candidate Pool Multiplier (3x over-fetching / minimal 60 kandidat).
     v1.7.1: Smart Typo Correction & Synonym Auto-Fallback saat hasil = 0.
+    v1.8.0: Lazy imports agar startup GUI instan (< 2 detik).
     """
     from doc_reader import get_fallback_keywords
+    from scraper_garuda import scrape_garuda, merge_cross_source_entries
+    from scraper_sinta import scrape_sinta, scrape_sinta_selenium
 
     keyword = params["keyword"]
     target = int(params["target"])
@@ -567,6 +543,8 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
 
     def _copy_share_list(self):
         """Menyalin seluruh daftar jurnal yang sedang terfilter ke clipboard dalam format siap share grup (v1.6.0)."""
+        import exporter
+
         targets = self._filtered_journals if self._filtered_journals else self._all_journals
         if not targets:
             return
@@ -629,6 +607,8 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
         self._populate_tree()
 
     def _populate_tree(self):
+        import exporter
+
         for item in self.tree.get_children():
             self.tree.delete(item)
 
@@ -674,6 +654,8 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
             )
 
     def _on_tree_select(self, event):
+        import exporter
+
         sel = self.tree.selection()
         if not sel:
             return
@@ -721,6 +703,8 @@ class JSFSDataPreviewer(ctk.CTkToplevel):
 
     def _copy_editor_chat_draft(self):
         """Menyalin template pesan tanya kuota publikasi sopan ke clipboard (Tahap 4.1)."""
+        import exporter
+
         if not self._selected_journal:
             return
         j = self._selected_journal
@@ -919,6 +903,7 @@ class AISetupDialog(ctk.CTkToplevel):
 
     def _worker_poll_status(self):
         try:
+            import ai_installer
             running = ai_installer.is_ollama_running(timeout=1.5)
             model_ok = ai_installer.is_model_installed(ai_installer.DEFAULT_MODEL, timeout=1.5) if running else False
             exe_found = ai_installer.find_ollama_executable() is not None
@@ -959,6 +944,7 @@ class AISetupDialog(ctk.CTkToplevel):
     def _on_click_download_ollama(self):
         if self._is_busy:
             return
+        import ai_installer
         if not ai_installer.is_ollama_running() and ai_installer.find_ollama_executable():
             self.lbl_progress.configure(text="Meluncurkan layanan Ollama di latar belakang...")
             ok = ai_installer.launch_ollama_service()
@@ -998,6 +984,7 @@ class AISetupDialog(ctk.CTkToplevel):
     def _on_click_pull_model(self):
         if self._is_busy:
             return
+        import ai_installer
         self._is_busy = True
         self.cancel_evt.clear()
         self.btn_download_ollama.configure(state="disabled")
@@ -1164,7 +1151,7 @@ class QuickGuideDialog(ctk.CTkToplevel):
 class JSFSApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("JSFS v1.7.0 — Journal Scraper For Students (Deep APC Hunter Engine)")
+        self.title("JSFS v1.8.0 — Journal Scraper For Students (Instant-Boot & Presisi APC)")
         self.geometry("1040x870")
         self.minsize(980, 640)                                  # Zero Clipping aturan #3
 
@@ -1191,7 +1178,7 @@ class JSFSApp(ctk.CTk):
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(80, self._poll_queue)             # pompa pesan thread -> GUI (80 ms)
-        self.after(300, self._refresh_badge)         # cek status Ollama (loop 30 dtk)
+        self.after(600, self._deferred_startup_tasks)  # tunda cek Ollama & cache cleanup 600ms pasca first-paint
 
     # ── fonts ──
     def _build_fonts(self):
@@ -1242,7 +1229,8 @@ class JSFSApp(ctk.CTk):
         )
         self.btn_help.pack(side="left", padx=(0, 6))
 
-        texts = (f"●  AI Aktif · {ai_engine.MODEL}", "○  Mode Regex (Klik untuk Setup)")
+        default_model = os.getenv("JSFS_OLLAMA_MODEL", "qwen2.5:3b")
+        texts = (f"●  AI Aktif · {default_model}", "○  Mode Regex (Klik untuk Setup)")
         self.badge = ctk.CTkButton(
             btn_box,
             text=texts[1],
@@ -1365,7 +1353,7 @@ class JSFSApp(ctk.CTk):
                       command=self._clear_log).grid(row=0, column=1, sticky="e")
         self.log_box = ctk.CTkTextbox(body, height=180, font=self.f_mono, wrap="word", state="disabled")
         self.log_box.grid(row=7, column=0, sticky="nsew", pady=(GAP, PAD))
-        self.log("Selamat datang di JSFS v1.7.1 (Zero-Result Resilience & Soft Slate Daylight).")
+        self.log("Selamat datang di JSFS v1.8.0 (Instant-Boot Engine & Soft Slate Daylight).")
 
         # 3. Tampilkan simple mode secara default & terapkan preset awal (aman karena log_box sudah aktif)
         self.frame_simple_mode.grid(row=3, column=0, sticky="nsew", pady=(0, GAP + 4))
@@ -1724,6 +1712,7 @@ class JSFSApp(ctk.CTk):
         if not self._latest_results:
             self.log("⚠ Belum ada hasil scraping untuk disalin.")
             return
+        import exporter
         share_text = exporter.generate_copypaste_list(self._latest_results)
         try:
             self.clipboard_clear()
@@ -1867,17 +1856,39 @@ class JSFSApp(ctk.CTk):
             "manuscript": self.manuscript_path,
         }
 
-    # ───────────────────────── Badge Ollama (loop 30 dtk) ─────────────────────────
+    # ───────────────────────── Startup Tertunda 600ms & Badge Ollama ─────────────────────────
+    def _deferred_startup_tasks(self):
+        """Menjalankan inisialisasi cache (auto-purge <1.8.0) dan cek Ollama 600ms setelah GUI tampil."""
+        def _bg():
+            try:
+                import cache_engine  # memicu _ensure_db() & auto-purge versi lama
+                _ = cache_engine.cache_engine
+            except Exception:
+                pass
+            try:
+                import ai_engine
+                self.ui_q.put(("ollama", ai_engine.check_ollama_active(force=True)))
+            except Exception:
+                pass
+
+        threading.Thread(target=_bg, daemon=True).start()
+        self.after(30_000, self._refresh_badge)
+
     def _refresh_badge(self):
-        threading.Thread(
-            target=lambda: self.ui_q.put(("ollama", ai_engine.check_ollama_active(force=True))),
-            daemon=True).start()
+        def _bg():
+            import ai_engine
+            self.ui_q.put(("ollama", ai_engine.check_ollama_active(force=True)))
+
+        threading.Thread(target=_bg, daemon=True).start()
         self.after(30_000, self._refresh_badge)
 
     def _apply_badge(self, active: bool):
+        model_name = os.getenv("JSFS_OLLAMA_MODEL", "qwen2.5:3b")
+        if "ai_engine" in sys.modules:
+            model_name = sys.modules["ai_engine"].MODEL
         if active:
             self.badge.configure(
-                text=f"●  AI Aktif · {ai_engine.MODEL}",
+                text=f"●  AI Aktif · {model_name}",
                 fg_color=OK_GREEN,
                 hover_color=GREEN_H,
                 text_color="white",
@@ -1916,6 +1927,8 @@ class JSFSApp(ctk.CTk):
         if not params["garuda"] and not params["sinta_src"]:
             self.log("⚠ Pilih setidaknya satu sumber (Garuda atau SINTA).")
             return
+
+        import ai_engine
 
         self.cancel_evt.clear()
         ai_engine.set_enabled(self.var_ai.get())
@@ -1971,10 +1984,10 @@ class JSFSApp(ctk.CTk):
                 q.put(("done", 0))
                 return
 
-            # FASE 3: AI Enrichment (Focus & Scope + APC Submit vs Publikasi)
-            mode_desc = f"AI Ollama ({ai_engine.MODEL})" if (self.var_ai.get() and ai_engine.check_ollama_active()) else "Regex Legacy v1.3.8"
-            q.put(("log", f"Fase 3: Ekstraksi data mendalam [{mode_desc}] untuk {len(survivors)} jurnal lolos filter..."))
-            q.put(("ai", 0, len(survivors) * 2))
+            # FASE 3: Regex-First, AI-Second (Maks 10 jurnal kosong & timeout 4s/jurnal)
+            import ai_engine
+            q.put(("log", f"Fase 3: Ekstraksi Regex-First (AI selektif maks {ai_engine.MAX_AI_QUEUE_JOURNALS} jurnal jika kosong) untuk {len(survivors)} jurnal..."))
+            q.put(("ai", 0, len(survivors)))
 
             ai_engine.enrich_records(
                 survivors,
@@ -1985,7 +1998,12 @@ class JSFSApp(ctk.CTk):
                 q.put(("done", None))
                 return
 
-            # Analisis Naskah & Skor Kesesuaian (v1.5.0 / v1.6.1)
+            # Analisis Naskah & Skor Kesesuaian (v1.5.0 / v1.6.1 / v1.8.0 Lazy Import)
+            from doc_reader import (
+                extract_manuscript_metadata as parse_manuscript,
+                calculate_match_score as calculate_manuscript_match,
+                calculate_keyword_match_score,
+            )
             if p.get("match") and p.get("manuscript") and os.path.exists(p["manuscript"]):
                 q.put(("log", f"Menganalisis kesesuaian naskah: {os.path.basename(p['manuscript'])}..."))
                 ms_data = parse_manuscript(p["manuscript"])
@@ -2059,6 +2077,7 @@ class JSFSApp(ctk.CTk):
             q.put(("kpi", {"total": len(final_survivors), "free": kpi_free, "paid": kpi_paid, "fast": kpi_fast}))
 
             # FASE 4: Export Data
+            import exporter
             q.put(("log", f"Fase 4: Mengekspor {len(final_survivors)} jurnal ke berkas output..."))
             exported = exporter.write_exports(
                 final_survivors,
@@ -2139,9 +2158,10 @@ class JSFSApp(ctk.CTk):
 
     def _on_close(self):
         self.cancel_evt.set()
-        ai_engine.shutdown()
-        cache_engine.close_all_connections()
-        self.destroy()
+        if "ai_engine" in sys.modules:
+            sys.modules["ai_engine"].shutdown()
+        if "cache_engine" in sys.modules:
+            sys.modules["cache_engine"].close_all_connections()
         self.destroy()
 
 

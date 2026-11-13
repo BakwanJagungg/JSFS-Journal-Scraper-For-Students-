@@ -11,7 +11,7 @@
   </p>
 
   <p align="center">
-    <a href="https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases"><img src="https://img.shields.io/badge/Release-v1.7.1-0284c7?style=for-the-badge&logo=github&logoColor=white" alt="Release"></a>
+    <a href="https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases"><img src="https://img.shields.io/badge/Release-v1.8.0-0284c7?style=for-the-badge&logo=github&logoColor=white" alt="Release"></a>
     <a href="#"><img src="https://img.shields.io/badge/Platform-Windows_10_%2F_11_64--bit-1e293b?style=for-the-badge&logo=windows&logoColor=white" alt="Platform"></a>
     <a href="#"><img src="https://img.shields.io/badge/Python-3.10_%7C_3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"></a>
     <a href="#"><img src="https://img.shields.io/badge/UI-CustomTkinter_Daylight-059669?style=for-the-badge&logo=gnome&logoColor=white" alt="CustomTkinter"></a>
@@ -21,7 +21,7 @@
   </p>
 
   <p align="center">
-    <a href="https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v1.7.1"><b>📥 Download JSFS.exe (v1.7.1)</b></a> •
+    <a href="https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v1.8.0"><b>📥 Download JSFS (v1.8.0)</b></a> •
     <a href="#-fitur-unggulan-v170"><b>✨ Fitur Unggulan</b></a> •
     <a href="#-arsitektur--pipeline-4-fase"><b>🏗️ Arsitektur</b></a> •
     <a href="#-4-quick-presets-mahasiswa"><b>🎯 Quick Presets</b></a> •
@@ -37,9 +37,9 @@
 
 Mencari jurnal target untuk publikasi skripsi, tesis, atau riset hibah di portal **SINTA** (*Kemdiktisaintek*) dan **Garuda** secara manual sering kali memakan waktu **berjam-jam bahkan berhari-hari**. Mahasiswa terpaksa membuka puluhan tab situs OJS (*Open Journal Systems*) satu per satu, hanya untuk menemukan informasi yang ambigu atau tersembunyi.
 
-### ⚔️ Perbandingan: Manual Search vs. JSFS v1.7.1
+### ⚔️ Perbandingan: Manual Search vs. JSFS v1.8.0
 
-| Parameter | ❌ Pencarian Manual (Web Browser) | ✅ Dengan JSFS v1.7.1 |
+| Parameter | ❌ Pencarian Manual (Web Browser) | ✅ Dengan JSFS v1.8.0 |
 |---|---|---|
 | **Waktu Pencarian** | 3–6 jam (membuka 30–50 tab satu per satu) | **< 60 detik** (otonom, konkuren & terfilter) |
 | **Biaya Publikasi (APC)** | Sering terjebak tulisan *"Open Access"* pembaca atau biaya tersembunyi di OJS 2 | **Deep APC Hunter Engine** memindai 5 titik OJS + Anti-OA-Trap & Paid Priority |
@@ -50,7 +50,7 @@ Mencari jurnal target untuk publikasi skripsi, tesis, atau riset hibah di portal
 
 ---
 
-## ✨ Fitur Unggulan (v1.7.1 Zero-Result Resilience & Modern Bright GUI)
+## ✨ Fitur Unggulan (v1.8.0 Instant-Boot & Presisi APC)
 
 ### 🎯 1. Deep APC Hunter Engine (Akurasi Biaya Setingkat Manusia)
 - **Multi-Path OJS 2 & OJS 3 Crawler**: Memindai secara konsisten 5 titik wajib:
@@ -147,15 +147,15 @@ Untuk kemudahan navigasi instan tanpa perlu mengatur belasan filter teknis, JSFS
 
 <div align="center">
   <br>
-  <a href="https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v1.7.1">
-    <img src="https://img.shields.io/badge/📥_Download_JSFS.exe-Versi_Terbaru_(v1.7.1)-0284c7?style=for-the-badge&logo=windows&logoColor=white" alt="Download JSFS.exe" height="42">
+  <a href="https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v1.8.0">
+    <img src="https://img.shields.io/badge/📥_Download_JSFS-Versi_Terbaru_(v1.8.0)-0284c7?style=for-the-badge&logo=windows&logoColor=white" alt="Download JSFS" height="42">
   </a>
   <br><br>
 </div>
 
-| Berkas Biner | Platform | Ukuran | Status Rilis |
+| Berkas Rilis | Platform | Mode Build | Status Rilis |
 |---|---|---|---|
-| **[`JSFS.exe`](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v1.7.1/JSFS.exe)** | Windows 10 / 11 (64-bit) | ~275 MB | 🟢 **Stable Release (v1.7.1)** |
+| **[`dist/JSFS/JSFS.exe`](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v1.8.0)** | Windows 10 / 11 (64-bit) | Portable `--onedir` (Instant-Boot < 2s) | 🟢 **Stable Release (v1.8.0)** |
 
 **Langkah Menjalankan:**
 1. Unduh berkas **`JSFS.exe`** dari tombol di atas atau melalui [Halaman Resmi GitHub Releases](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases).
@@ -267,8 +267,8 @@ Jika Anda memodifikasi kode sumber dan ingin mengompilasi ulang file `.exe`:
 python -m PyInstaller --noconfirm --clean JSFS.spec
 ```
 
-Berkas biner hasil kompilasi akan otomatis dibuat di:
-`dist/JSFS.exe` *(Ukuran: ~275 MB, siap digunakan di PC manapun tanpa instal Python)*.
+Berkas hasil kompilasi `--onedir` (Instant-Boot `< 1s`) akan otomatis dibuat di:
+`dist/JSFS/JSFS.exe` *(Folder portabel `dist/JSFS/` siap digunakan di PC manapun tanpa instal Python)*.
 
 ---
 
@@ -280,7 +280,8 @@ Berkas biner hasil kompilasi akan otomatis dibuat di:
 - [x] **v1.6.0**: Dynamic Menu Anchor Discovery, Cloudflare Decoder, dan 1-Click Copy-Paste List.
 - [x] **v1.6.1 – v1.6.2**: Forensic Data Purity, Anti-Email Flood, Telkom Area Code Whitelist, dan Smart Canonical Deduplication.
 - [x] **v1.7.0**: Deep APC Hunter Engine (Anti-OA-Trap, Paid Priority, 5-Point OJS Crawler), Modern Bright GUI (Soft Slate Daylight), Live KPI Counter Pills, dan 1-Click WA Share Button.
-- [x] **v1.7.1 (Versi Saat Ini)**: Zero-Result Resilience (Smart Typo Auto-Correction & Synonym Fallback), HTTP/Cloudflare Diagnostic, Empty State Banner, & Quick Presets Polish.
+- [x] **v1.7.1**: Zero-Result Resilience (Smart Typo Auto-Correction & Synonym Fallback), HTTP/Cloudflare Diagnostic, Empty State Banner, & Quick Presets Polish.
+- [x] **v1.8.0 (Versi Saat Ini)**: Instant-Boot Architecture (< 2s Startup via Lazy Imports & `--onedir` `dist/JSFS/JSFS.exe`), Regex-First Fast Pipeline (AI selektif maks 10 jurnal @ 4s timeout), & Presisi APC Pemisah Campuran (`1.000,000 IDR`) + Redirect Tracking.
 - [ ] **v2.0.0 (Mendatang)**: Platform Web App Multi-User (FastAPI + React / Tailwind CSS) untuk instalasi bersama di server laboratorium kampus.
 
 ---

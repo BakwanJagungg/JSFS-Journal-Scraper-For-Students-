@@ -8,7 +8,7 @@ import re
 import sys
 from datetime import datetime
 
-APP_VERSION = "1.7.1"
+APP_VERSION = "1.8.0"
 
 
 def get_app_dir() -> str:

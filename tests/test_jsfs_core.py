@@ -232,6 +232,19 @@ class TestJSFSCore(unittest.TestCase):
         self.assertIn("bisnis", fallbacks)
         self.assertTrue(len(fallbacks) >= 1)
 
+    def test_14_mixed_separator_apc(self):
+        """Memastikan ekstraksi nominal campuran '1.000,000 (IDR)' (Benefit UMS) -> Rp 1.000.000."""
+        cases = [
+            "Article Publication: 1.000,000 (IDR)",
+            "Article Publication: 1,000.000 (IDR)",
+            "Article Submission: 0.00 (IDR). Article Publication: 1.000,000 (IDR)",
+            "Publication Fee: Rp 1.000,000,00",
+        ]
+        for text in cases:
+            disp, val = parse_apc_from_context(text)
+            self.assertEqual(disp, "Rp 1.000.000", f"Gagal format untuk: {text}")
+            self.assertEqual(val, 1_000_000, f"Gagal nominal untuk: {text}")
+
 
 if __name__ == "__main__":
     unittest.main()

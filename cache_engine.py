@@ -21,7 +21,17 @@ from urllib.parse import urlparse
 
 log = logging.getLogger("jsfs.cache")
 
-CACHE_VERSION = "1.7.0"
+CACHE_VERSION = "1.8.0"
+
+
+def _ver_tuple(v: Optional[str]) -> tuple[int, ...]:
+    """Konversi string versi 'X.Y.Z' menjadi tuple integer untuk perbandingan aman."""
+    if not v:
+        return (0,)
+    try:
+        return tuple(int(p) for p in str(v).strip().split(".") if p.isdigit())
+    except Exception:
+        return (0,)
 
 
 def get_app_dir() -> str:
@@ -170,12 +180,12 @@ class JSFSCacheEngine:
                             value TEXT
                         );
                     """)
-                    # Mekanisme Auto-Purge jika versi cache sebelumnya < 1.7.0
+                    # Mekanisme Auto-Purge jika versi cache sebelumnya < CACHE_VERSION (v1.8.0)
                     cur = conn.cursor()
                     cur.execute("SELECT value FROM cache_metadata WHERE key = 'cache_version'")
                     v_row = cur.fetchone()
                     installed_version = v_row[0] if v_row else None
-                    if installed_version is None or installed_version < CACHE_VERSION:
+                    if installed_version is None or _ver_tuple(installed_version) < _ver_tuple(CACHE_VERSION):
                         log.info("Auto-purge cache SQLite OJS: upgrade dari versi %s ke %s...", installed_version, CACHE_VERSION)
                         conn.execute("DELETE FROM journal_cache;")
                         conn.execute("INSERT OR REPLACE INTO cache_metadata (key, value) VALUES ('cache_version', ?);", (CACHE_VERSION,))

@@ -477,8 +477,14 @@ def _scrape_sinta_single_keyword(
                 for fut in future_to_page:
                     p_num, html_txt, is_cf = fut.result()
                     if is_cf:
-                        console.print("[bold red]⚠️ SINTA memicu Cloudflare saat pemindaian paralel. Beralih ke browser automation...[/bold red]")
-                        return scrape_sinta_selenium(keyword, sinta_ranks, deep_detail=deep_detail, max_results=max_results, turbo_mode=turbo_mode, free_only=free_only, include_unknown_apc=include_unknown_apc)
+                        if allow_selenium_fallback:
+                            console.print("[bold red]⚠️ SINTA memicu Cloudflare saat pemindaian paralel. Beralih ke browser automation...[/bold red]")
+                            return scrape_sinta_selenium(keyword, sinta_ranks, deep_detail=deep_detail, max_results=max_results, turbo_mode=turbo_mode, free_only=free_only, include_unknown_apc=include_unknown_apc)
+                        diag_msg = "⚠️ Portal SINTA membatasi akses HTTP standar. Mengandalkan Portal Garuda atau aktifkan 'Gunakan Selenium' di Pengaturan Lengkap."
+                        console.print(f"[bold yellow]{diag_msg}[/bold yellow]")
+                        if log_cb:
+                            log_cb(diag_msg)
+                        return all_journals
                     page_results[p_num] = html_txt
 
             # Parse berurutan sesuai nomor halaman

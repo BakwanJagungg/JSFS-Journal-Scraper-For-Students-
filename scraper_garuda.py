@@ -123,11 +123,11 @@ PUB_TERMS = (
     r"page\s*charges?|biaya\s*(?:halaman|cetak))"
 )
 
-# RE_PUB_FREE_STRICT v1.7.0: Pola gratis eksplisit dengan variasi bahasa Indonesia dan OJS
+# RE_PUB_FREE_STRICT v1.8.0: Pola gratis eksplisit dengan boundary ketat angka 0 (anti false-positive 1.000,000)
 RE_PUB_FREE_STRICT = re.compile(
     r"(?:"
     r"(?:" + PUB_TERMS + r"(?:[^\n\r.,]{0,40}?(?:adalah|sebesar|:|=|-))?\s*"
-    r"(?:(?:rp\.?|idr)\s*0(?:\.00)?|0(?:\.00)?\s*(?:\(?idr\)?|\(?rp\.?\)|\(?usd\)?|\$)?|"
+    r"(?:(?:rp\.?|idr)\s*0(?:[.,]00)?(?=\s|$|\(|[^\d.,])|(?<!\d)0(?:[.,]00)?(?=\s|$|\(|[^\d.,])\s*(?:\(?idr\)?|\(?rp\.?\)|\(?usd\)?|\$)?|"
     r"gratis|free|none|tidak\s*(?:dipungut|dikenakan|memungut|mengenakan)\s*biaya|bebas\s*biaya|tanpa\s*(?:dipungut\s*)?biaya|dibebaskan\s*dari\s*biaya|free\s*of\s*charge)\b)|"
     r"(?:free\s*of\s*charge|no\s*(?:article\s*processing\s*)?fees?|tidak\s*(?:dipungut|dikenakan|memungut)\s*biaya|tanpa\s*biaya|bebas\s*biaya|dibebaskan\s*dari\s*biaya)\s*(?:for|pada|untuk)?\s*(?:publication|publishing|publikasi|penerbitan)|"
     r"charges?\s*no\s*(?:publication|article\s*processing)\s*fees?|"
@@ -137,29 +137,47 @@ RE_PUB_FREE_STRICT = re.compile(
     re.IGNORECASE,
 )
 
+# RE_PUB_AMOUNT & RE_IDR_1 v1.8.0: Mendukung pemisah ribuan campuran '1.000,000 (IDR)' dan '1,000.000' + desimal 2 digit
 RE_PUB_AMOUNT = re.compile(
-    PUB_TERMS + r"(?:[^\n\r.,]{0,40}?(?:adalah|sebesar|:|=|-))?\s*"
+    PUB_TERMS + r"(?:[^\n\r.]{0,45}?(?:adalah|sebesar|\bis\b|:|=|-))?\s*"
     r"(?:"
-    r"(?:Rp\.?|IDR)\s*([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{5,8})(?:[.,]00)?(?:,-)?|"
-    r"([0-9]{1,3}(?:[.,][0-9]{3})+|[0-9]{5,8})(?:[.,]00)?\s*(?:\(?IDR\)?|Rp\.?)(?:,-)?|"
+    r"(?:Rp\.?|IDR)\s*([0-9]{1,3}(?:[.,][0-9]{3})+(?:[.,][0-9]{2})?|[0-9]{5,8}(?:[.,][0-9]{2})?)(?:,-)?|"
+    r"([0-9]{1,3}(?:[.,][0-9]{3})+(?:[.,][0-9]{2})?|[0-9]{5,8}(?:[.,][0-9]{2})?)\s*(?:\(?IDR\)?|\(?Rp\.?\)?)(?:,-)?|"
     r"(?:(?:\$|USD)\s*([0-9]+(?:[.,][0-9]{1,2})?)(?:\s*USD)?)|"
-    r"([0-9]+(?:[.,][0-9]{1,2})?)\s*(?:USD|\$)|"
+    r"([0-9]+(?:[.,][0-9]{1,2})?)\s*(?:\(?USD\)?|\$)|"
     r"([0-9]+(?:\.[0-9]+)?)\s*(?:rb|ribu|jt|juta)"
     r")",
     re.IGNORECASE,
 )
 
 RE_USD_1 = re.compile(r"(?:\$|USD)\s*([0-9]+(?:[.,][0-9]{1,2})?)\b", re.IGNORECASE)
-RE_USD_2 = re.compile(r"\b([0-9]+(?:[.,][0-9]{1,2})?)\s*(?:USD|\$)", re.IGNORECASE)
+RE_USD_2 = re.compile(r"\b([0-9]+(?:[.,][0-9]{1,2})?)\s*(?:\(?USD\)?|\$)", re.IGNORECASE)
 
 RE_IDR_1 = re.compile(
-    r"(?:(?:Rp\.?|IDR)\s*([0-9]{1,3}(?:[.,][0-9]{3})+)(?:[.,]00)?|([0-9]{1,3}(?:[.,][0-9]{3})+)(?:[.,]00)?\s*(?:\(?IDR\)?|Rp\.?))",
+    r"(?:(?:Rp\.?|IDR)\s*([0-9]{1,3}(?:[.,][0-9]{3})+(?:[.,][0-9]{2})?)|([0-9]{1,3}(?:[.,][0-9]{3})+(?:[.,][0-9]{2})?)\s*(?:\(?IDR\)?|\(?Rp\.?\)?))",
     re.IGNORECASE,
 )
 RE_IDR_2 = re.compile(
-    r"(?:(?:Rp\.?|IDR)\s*([0-9]{5,8})(?:[.,]00)?|([0-9]{5,8})(?:[.,]00)?\s*(?:\(?IDR\)?|Rp\.?))",
+    r"(?:(?:Rp\.?|IDR)\s*([0-9]{5,8})(?:[.,]00)?|([0-9]{5,8})(?:[.,]00)?\s*(?:\(?IDR\)?|\(?Rp\.?\)?))",
     re.IGNORECASE,
 )
+
+
+def _parse_mixed_idr_number(raw_num: str) -> Optional[int]:
+    """
+    Menormalisasi angka nominal IDR termasuk format pemisah campuran titik-dan-koma:
+    - '1.000,000' -> 1000000
+    - '1,000.000' -> 1000000
+    - '1.000.000,00' / '500,000.00' -> 1000000 / 500000 (membuang 2-digit sen di akhir)
+    """
+    if not raw_num:
+        return None
+    s = raw_num.strip()
+    s = re.sub(r"(?<=\d{3})[.,]\d{2}$", "", s)
+    digits = re.sub(r"[.,\s]", "", s)
+    if not digits.isdigit():
+        return None
+    return int(digits)
 
 # Anti-OA-Trap v1.7.0 (VISION.md 3.1.2):
 # Frasa kebijakan akses pembaca yang WAJIB dibuang sebelum pencocokan kata gratis/free
@@ -438,6 +456,7 @@ def safe_fetch_html(
         )
         status_code = resp.status_code
         headers = dict(resp.headers)
+        headers["_final_url"] = getattr(resp, "url", "") or url
 
         # 1. Content-Type Guard
         ct = (headers.get("Content-Type") or "").lower()
@@ -1239,18 +1258,15 @@ def parse_apc_from_context(context_text: str) -> tuple[str, Optional[int]]:
 
     # 1. Prioritas 1: Pindai seluruh kemunculan RE_PUB_AMOUNT dengan Paid Priority Rule
     for m_amt in RE_PUB_AMOUNT.finditer(text):
-        # IDR
+        # IDR (mendukung pemisah campuran 1.000,000 / 1,000.000 & sen .00 / ,00)
         idr_raw = m_amt.group(1) or m_amt.group(2)
         if idr_raw:
-            clean = idr_raw.replace(".", "").replace(",", "")
-            try:
-                val = int(clean)
+            val = _parse_mixed_idr_number(idr_raw)
+            if val is not None:
                 if val == 0:
                     zero_pub_found = True
                 elif APC_SANITY_MIN_IDR <= val <= APC_SANITY_MAX_IDR:
                     return f"Rp {val:,}".replace(",", "."), val
-            except ValueError:
-                pass
         # USD
         usd_raw = m_amt.group(3) or m_amt.group(4)
         if usd_raw:
@@ -1298,14 +1314,9 @@ def parse_apc_from_context(context_text: str) -> tuple[str, Optional[int]]:
 
         m_idr = RE_IDR_1.search(text) or RE_IDR_2.search(text)
         if m_idr:
-            raw_num = (m_idr.group(1) or m_idr.group(2) or "").replace(".", "").replace(",", "").strip()
-            if raw_num:
-                try:
-                    idr_val = int(raw_num)
-                    if APC_SANITY_MIN_IDR <= idr_val <= APC_SANITY_MAX_IDR:
-                        return f"Rp {idr_val:,}".replace(",", "."), idr_val
-                except ValueError:
-                    pass
+            idr_val = _parse_mixed_idr_number(m_idr.group(1) or m_idr.group(2) or "")
+            if idr_val is not None and APC_SANITY_MIN_IDR <= idr_val <= APC_SANITY_MAX_IDR:
+                return f"Rp {idr_val:,}".replace(",", "."), idr_val
 
     # 3. Prioritas 2: Biaya Publikasi Eksplisit Gratis / Free / Rp 0 (Hanya jika tidak ada nominal berbayar)
     if zero_pub_found or RE_PUB_FREE_STRICT.search(text):
@@ -1684,12 +1695,10 @@ def legacy_extract_apc_dict(raw_text: str) -> dict:
                         pass
                 m_idr = RE_IDR_1.search(sent) or RE_IDR_2.search(sent)
                 if m_idr:
-                    try:
-                        digits = re.sub(r"[.,]", "", m_idr.group(1) or m_idr.group(2) or "")
-                        biaya_submit = int(digits)
+                    parsed_sub = _parse_mixed_idr_number(m_idr.group(1) or m_idr.group(2) or "")
+                    if parsed_sub is not None:
+                        biaya_submit = parsed_sub
                         mata_uang = "IDR"
-                    except Exception:
-                        pass
 
     # Deteksi biaya publikasi via parse_apc_from_context legacy
     disp, num = parse_apc_from_context(text)
@@ -1909,12 +1918,18 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
 
     try:
         # Pass 1: Halaman Utama OJS / Detail Garuda (Aman dari PDF & file besar via safe_fetch_html)
-        status_code, html_text, _ = safe_fetch_html(session, target_url, timeout=DEEP_SCRAPE_TIMEOUT)
+        status_code, html_text, pass1_headers = safe_fetch_html(session, target_url, timeout=DEEP_SCRAPE_TIMEOUT)
         if status_code == 200 and html_text:
             soup = BeautifulSoup(html_text, "lxml")
-            plain_text = sanitize_dom(soup)
-            freq_contexts.append(plain_text[:2500])
-            raw_about_parts.append(sanitize_dom(clean_soup_for_scope(soup)))
+
+            # Follow HTTP redirect (v1.8.0): gunakan domain akhir hasil redirect (mis. journals.ums.ac.id -> journals2.ums.ac.id)
+            if "garuda.kemdiktisaintek.go.id" not in target_url:
+                final_url = pass1_headers.get("_final_url", "")
+                if final_url and final_url.startswith("http"):
+                    redir_root = cache_engine.normalize_ojs_root_url(final_url) or final_url
+                    if redir_root != effective_ojs_url:
+                        effective_ojs_url = redir_root
+                        info["ojs_url"] = redir_root
 
             # Jika ini halaman Garuda (/journal/view/{id}), ambil link OJS asli dari artikel
             if "garuda.kemdiktisaintek.go.id" in target_url:
@@ -1930,6 +1945,22 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
                         effective_ojs_url = h
                         info["ojs_url"] = h
                         break
+
+                # Jika link OJS asli ditemukan dari Garuda, kunjungi beranda OJS-nya untuk mengikuti redirect & membaca menu Author Fees
+                if effective_ojs_url != target_url and effective_ojs_url.startswith("http"):
+                    ojs_code, ojs_html, ojs_headers = safe_fetch_html(session, effective_ojs_url, timeout=DEEP_SCRAPE_TIMEOUT)
+                    if ojs_code == 200 and ojs_html:
+                        ojs_final = ojs_headers.get("_final_url", "")
+                        if ojs_final and ojs_final.startswith("http"):
+                            redir_root = cache_engine.normalize_ojs_root_url(ojs_final) or ojs_final
+                            effective_ojs_url = redir_root
+                            info["ojs_url"] = redir_root
+                        html_text = ojs_html
+                        soup = BeautifulSoup(html_text, "lxml")
+
+            plain_text = sanitize_dom(soup)
+            freq_contexts.append(plain_text[:2500])
+            raw_about_parts.append(sanitize_dom(clean_soup_for_scope(soup)))
 
             # Evaluasi Status Server OJS
             info["status_server"] = get_domain_ssl_health(session, effective_ojs_url or target_url)
@@ -2028,19 +2059,23 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
                     if full_h not in discovered_archive_links:
                         discovered_archive_links.append(full_h)
 
-            # Prioritas rute penelusuran OJS terakselerasi
+            # Prioritas rute penelusuran OJS terakselerasi (Fee & Submissions didahulukan agar tidak terpotong slice)
             subpaths: list[str] = []
             if info["apc_status"] in (APC_UNKNOWN, INFO_NOT_FOUND) and discovered_fee_links:
                 subpaths.extend(discovered_fee_links[:2])
+
+            subpaths.extend([
+                f"{clean_base}/about/submissions",
+                f"{clean_base}/about/editorialPolicies",
+                f"{clean_base}/about/editorialPolicies#authorFees",
+            ])
+
             if not all_emails and discovered_contact_links:
                 subpaths.extend(discovered_contact_links[:2])
             if info["focus_scope"] == INFO_NOT_FOUND and discovered_scope_links:
                 subpaths.extend(discovered_scope_links[:2])
 
             subpaths.extend([
-                f"{clean_base}/about/submissions",
-                f"{clean_base}/about/editorialPolicies",
-                f"{clean_base}/about/editorialPolicies#authorFees",
                 f"{clean_base}/about/editorialPolicies#focusAndScope",
                 f"{clean_base}/about/focusAndScope",
                 f"{clean_base}/about/contact",
@@ -2056,7 +2091,7 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
                     seen_sub.add(sp)
                     ordered_subpaths.append(sp)
 
-            for sub_url in ordered_subpaths[:6]:
+            for sub_url in ordered_subpaths[:8]:
                 if stop_event and stop_event.is_set():
                     break
                 try:

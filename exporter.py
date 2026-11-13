@@ -3,6 +3,8 @@
 # exporter.py — Modul ekspor hasil ke Markdown, CSV, dan Excel v1.4.0 (Hybrid AI Engine)
 # =============================================================================
 
+from __future__ import annotations
+
 import os
 import re
 from datetime import datetime
@@ -10,11 +12,7 @@ from typing import Optional, Union, List
 from concurrent.futures import ThreadPoolExecutor
 import requests
 import urllib3
-import pandas as pd
 from rich.console import Console
-import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
 
 # Nonaktifkan peringatan SSL tidak aman
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -489,6 +487,8 @@ def _clean_entry_value(val: Optional[str]) -> str:
 
 def _journals_to_dataframe(journals: list[JournalEntry], url_status_map: dict[str, bool]) -> pd.DataFrame:
     """Konversi list JournalEntry ke Pandas DataFrame lengkap v1.5.0."""
+    import pandas as pd
+
     has_match_score = any(getattr(j, "match_score", 0) > 0 for j in journals)
     data = []
     for i, j in enumerate(journals):
@@ -860,6 +860,10 @@ def export_excel(
 
     all_urls = [j.link_ojs for j in journals if j.link_ojs and j.link_ojs.startswith("http")]
     url_status = validate_urls_async(all_urls)
+
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
 
     wb = openpyxl.Workbook()
     ws = wb.active

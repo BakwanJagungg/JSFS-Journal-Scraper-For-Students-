@@ -1,6 +1,6 @@
 # =============================================================================
 # JSFS - Journal Scraper For Students
-# doc_reader.py — Modul Pembaca & Analisis Naskah Artikel Ilmiah (.docx / .pdf) v1.3.5
+# doc_reader.py — Modul Pembaca & Analisis Naskah Artikel Ilmiah (.docx / .pdf) v1.8.0 (Lazy Imports)
 # =============================================================================
 
 import os
@@ -9,19 +9,6 @@ import zipfile
 import xml.etree.ElementTree as ET
 from collections import Counter
 from typing import Optional, Union
-
-# Try importing standard document parsing libraries
-try:
-    import docx
-    HAS_DOCX = True
-except ImportError:
-    HAS_DOCX = False
-
-try:
-    import pypdf
-    HAS_PYPDF = True
-except ImportError:
-    HAS_PYPDF = False
 
 
 # Daftar Stopwords Indonesia & Inggris Akademis (Dieliminasi untuk Istilah Dominan)
@@ -70,19 +57,19 @@ def extract_text_from_docx(file_path: str) -> str:
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"Berkas tidak ditemukan: {file_path}")
 
-    if HAS_DOCX:
-        try:
-            doc = docx.Document(file_path)
-            paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-            for table in doc.tables:
-                for row in table.rows:
-                    for cell in row.cells:
-                        txt = cell.text.strip()
-                        if txt and txt not in paragraphs:
-                            paragraphs.append(txt)
-            return "\n".join(paragraphs)
-        except Exception:
-            pass
+    try:
+        import docx  # Lazy import (v1.8.0)
+        doc = docx.Document(file_path)
+        paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    txt = cell.text.strip()
+                    if txt and txt not in paragraphs:
+                        paragraphs.append(txt)
+        return "\n".join(paragraphs)
+    except Exception:
+        pass
 
     # Fallback murni Python (zipfile + xml.etree)
     try:
@@ -108,7 +95,9 @@ def extract_text_from_pdf(file_path: str) -> str:
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"Berkas tidak ditemukan: {file_path}")
 
-    if not HAS_PYPDF:
+    try:
+        import pypdf  # Lazy import (v1.8.0)
+    except ImportError:
         raise ImportError("Modul pypdf belum terpasang. Jalankan: pip install pypdf")
 
     try:
