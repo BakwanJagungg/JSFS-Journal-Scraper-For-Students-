@@ -23,7 +23,7 @@ except ImportError:
     HAS_SELECTOLAX = False
 from dataclasses import dataclass
 from typing import Optional
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from rich.console import Console
 
 import warnings
@@ -427,13 +427,26 @@ def get_high_capacity_session(is_deep_scrape: bool = False) -> requests.Session:
             raise_on_status=False,
         )
     adapter = HTTPAdapter(
-        pool_connections=HTTP_POOL_CONNECTIONS,
-        pool_maxsize=HTTP_POOL_MAXSIZE,
+        pool_connections=max(128, HTTP_POOL_CONNECTIONS),
+        pool_maxsize=max(128, HTTP_POOL_MAXSIZE),
         max_retries=retries,
     )
     session.mount("http://", adapter)
     session.mount("https://", adapter)
     return session
+
+
+_thread_local_sessions = threading.local()
+
+
+def get_thread_local_session(is_deep_scrape: bool = True) -> requests.Session:
+    """Menggunakan thread-local Session keep-alive agar worker OJS tidak mengulang handshake TCP/TLS."""
+    attr = "deep_session" if is_deep_scrape else "portal_session"
+    sess = getattr(_thread_local_sessions, attr, None)
+    if sess is None:
+        sess = get_high_capacity_session(is_deep_scrape=is_deep_scrape)
+        setattr(_thread_local_sessions, attr, sess)
+    return sess
 
 
 # ── ZERO-CRASH & ANTI-FREEZE HTTP FETCHER (v1.6.0) ───────────────────────────
@@ -2113,6 +2126,19 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
                     seen_sub.add(sp)
                     ordered_subpaths.append(sp)
 
+            def _has_complete_core_data() -> bool:
+                has_apc = info["apc_status"] not in (APC_UNKNOWN, INFO_NOT_FOUND, "", DEAD_LINK_TEXT)
+                has_contact = bool(all_emails or all_phones)
+                if not (has_apc and has_contact):
+                    return False
+                quick_sched = month_parser.resolve_schedule_and_frequency(
+                    raw_text=f"{' '.join(freq_contexts)} {raw_frequency}"
+                )
+                return bool(quick_sched.get("months_num"))
+
+            if _has_complete_core_data():
+                ordered_subpaths = []
+
             for sub_url in ordered_subpaths[:8]:
                 if stop_event and stop_event.is_set():
                     break
@@ -2195,6 +2221,8 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
                                     break
                 except Exception:
                     pass
+                if _has_complete_core_data():
+                    break
         else:
             if "kemdiktisaintek.go.id" not in target_url:
                 info["apc_status"] = DEAD_LINK_TEXT
@@ -2742,6 +2770,7 @@ def _scrape_garuda_single_keyword(
     session: Optional[requests.Session] = None,
     free_only: bool = False,
     include_unknown_apc: bool = True,
+    progress_cb=None,
 ) -> list[JournalEntry]:
     """Scraping satu kata kunci pada Portal Garuda dengan paginasi dinamis dan short-circuiting (v1.3.8)."""
     if session is None:
@@ -2812,8 +2841,22 @@ def _scrape_garuda_single_keyword(
                 console.print(f"[dim]   Target pool {pool_target} kandidat Garuda tercapai.[/dim]")
                 break
 
-        delay = random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX)
-        time.sleep(delay)
+        if callable(progress_cb):
+            try:
+                progress_cb(
+                    phase="fase1_portal",
+                    done=page,
+                    total=0,
+                    current_item=f"Garuda '{keyword}' — Hal. {page} ({len(journals)} jurnal)",
+                )
+            except Exception:
+                pass
+
+        if turbo_mode and max_results >= 100:
+            time.sleep(0.02)
+        else:
+            delay = random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX)
+            time.sleep(delay)
 
     # Filter peringkat SINTA jika diminta
     if sinta_ranks and all_journals:
@@ -2842,13 +2885,16 @@ def _scrape_garuda_single_keyword(
         deep_session = get_high_capacity_session(is_deep_scrape=True)
 
         try:
+            deep_done = 0
+            deep_total = len(filtered)
             with ThreadPoolExecutor(max_workers=active_workers) as executor:
                 def _do_garuda_deep(entry: JournalEntry):
                     nonlocal matched_count
                     if stop_event.is_set():
-                        return
+                        return entry
                     try:
-                        res = extract_ojs_deep_info(deep_session, entry.link_ojs, stop_event=stop_event)
+                        worker_sess = get_thread_local_session(is_deep_scrape=True)
+                        res = extract_ojs_deep_info(worker_sess, entry.link_ojs, stop_event=stop_event)
                         entry.link_ojs = res.get("ojs_url", entry.link_ojs)
                         if res.get("official_title") and (len(entry.nama_jurnal) > 55 or entry.nama_jurnal.isupper()):
                             entry.nama_jurnal = res["official_title"]
@@ -2916,10 +2962,26 @@ def _scrape_garuda_single_keyword(
                                 stop_event.set()
                     except Exception:
                         pass
+                    return entry
 
                 futures = [executor.submit(_do_garuda_deep, entry) for entry in filtered]
-                for f in futures:
-                    f.result()
+                for f in as_completed(futures):
+                    try:
+                        done_entry = f.result()
+                    except Exception:
+                        done_entry = None
+                    deep_done += 1
+                    if callable(progress_cb):
+                        try:
+                            progress_cb(
+                                phase="fase2_deep",
+                                done=deep_done,
+                                total=deep_total,
+                                current_item=(done_entry.nama_jurnal if done_entry else f"Garuda deep {deep_done}/{deep_total}"),
+                                entry=done_entry,
+                            )
+                        except Exception:
+                            pass
         except Exception:
             pass
 
@@ -2945,6 +3007,7 @@ def scrape_garuda(
     turbo_mode: bool = True,
     free_only: bool = False,
     include_unknown_apc: bool = True,
+    progress_cb=None,
 ) -> list[JournalEntry]:
     """
     Scraping Portal Garuda dengan dukungan multi-keyword adaptif dan short-circuiting (v1.3.6).
@@ -2973,6 +3036,7 @@ def scrape_garuda(
                 session=session,
                 free_only=free_only,
                 include_unknown_apc=include_unknown_apc,
+                progress_cb=progress_cb,
             )
             all_res.extend(kw_journals)
             all_res = merge_cross_source_entries(all_res)
@@ -2990,5 +3054,6 @@ def scrape_garuda(
         session=session,
         free_only=free_only,
         include_unknown_apc=include_unknown_apc,
+        progress_cb=progress_cb,
     )
 

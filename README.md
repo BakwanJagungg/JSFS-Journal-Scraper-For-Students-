@@ -11,7 +11,7 @@
   </p>
 
   <p align="center">
-    <a href="https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases"><img src="https://img.shields.io/badge/Release-v2.0.1-0284c7?style=for-the-badge&logo=github&logoColor=white" alt="Release"></a>
+    <a href="https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases"><img src="https://img.shields.io/badge/Release-v2.0.2-0284c7?style=for-the-badge&logo=github&logoColor=white" alt="Release"></a>
     <a href="#"><img src="https://img.shields.io/badge/Platform-Windows_10_%2F_11_64--bit-1e293b?style=for-the-badge&logo=windows&logoColor=white" alt="Platform"></a>
     <a href="#"><img src="https://img.shields.io/badge/Python-3.10_%7C_3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"></a>
     <a href="#"><img src="https://img.shields.io/badge/UI-WebView2_HTML5_Desktop-059669?style=for-the-badge&logo=microsoftedge&logoColor=white" alt="WebView2"></a>
@@ -21,7 +21,7 @@
   </p>
 
   <p align="center">
-    <a href="https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v2.0.1"><b>📥 Download JSFS (v2.0.1)</b></a> •
+    <a href="https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v2.0.2"><b>📥 Download JSFS (v2.0.2)</b></a> •
     <a href="#-fitur-unggulan-v170"><b>✨ Fitur Unggulan</b></a> •
     <a href="#-arsitektur--pipeline-4-fase"><b>🏗️ Arsitektur</b></a> •
     <a href="#-4-quick-presets-mahasiswa"><b>🎯 Quick Presets</b></a> •
@@ -37,9 +37,9 @@
 
 Mencari jurnal target untuk publikasi skripsi, tesis, atau riset hibah di portal **SINTA** (*Kemdiktisaintek*) dan **Garuda** secara manual sering kali memakan waktu **berjam-jam bahkan berhari-hari**. Mahasiswa terpaksa membuka puluhan tab situs OJS (*Open Journal Systems*) satu per satu, hanya untuk menemukan informasi yang ambigu atau tersembunyi.
 
-### ⚔️ Perbandingan: Manual Search vs. JSFS v2.0.1
+### ⚔️ Perbandingan: Manual Search vs. JSFS v2.0.2
 
-| Parameter | ❌ Pencarian Manual (Web Browser) | ✅ Dengan JSFS v2.0.1 |
+| Parameter | ❌ Pencarian Manual (Web Browser) | ✅ Dengan JSFS v2.0.2 |
 |---|---|---|
 | **Waktu Pencarian** | 3–6 jam (membuka 30–50 tab satu per satu) | **< 60 detik** (otonom, konkuren & terfilter) |
 | **Biaya Publikasi (APC)** | Sering terjebak tulisan *"Open Access"* pembaca atau biaya tersembunyi di OJS 2 | **Deep APC Hunter Engine** memindai 5 titik OJS + Anti-OA-Trap & Paid Priority |

@@ -8,7 +8,7 @@ import re
 import sys
 from datetime import datetime
 
-APP_VERSION = "2.0.1"
+APP_VERSION = "2.0.2"
 
 
 def get_app_dir() -> str:
@@ -85,8 +85,8 @@ NORMAL_SCRAPE_WORKERS = min(32, (os.cpu_count() or 4) * 2)
 DEEP_SCRAPE_WORKERS = TURBO_SCRAPE_WORKERS
 
 # --- High-Capacity Connection Pooling & Adaptive Timeout (v1.5.1 Speed Acceleration) ---
-HTTP_POOL_CONNECTIONS = 64
-HTTP_POOL_MAXSIZE = 64
+HTTP_POOL_CONNECTIONS = 128
+HTTP_POOL_MAXSIZE = 128
 HTTP_TIMEOUT = 5  # Toleransi 5 detik untuk penelusuran portal SINTA / Garuda
 DEEP_SCRAPE_TIMEOUT = (2.0, 3.5)  # (connect: 2.0s, read: 3.5s) timeout diperketat untuk OJS
 FAST_FAIL_TIMEOUT = (2.0, 2.5)    # (connect: 2.0s, read: 2.5s) fast-fail circuit breaker OJS domain

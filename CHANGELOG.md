@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.2] - 2026-11-13
+
+### Added & Improved (Real-Time Telemetry & 3x Faster Scraping)
+- **Real-Time Per-Journal Telemetry (`app_webview.py`, `scraper_garuda.py`, `scraper_sinta.py`, `ai_engine.py`)**:
+  - Menambahkan state progres terpusat yang dilindungi `threading.Lock()` di `JSFSApi` (`phase`, `phase_label`, `current_item`, `elapsed_seconds`, `rate_per_sec`, `live_counts`, `scrape_done`/`scrape_total`, `ai_done`/`ai_total`).
+  - Memasang `progress_cb` / `on_ai_progress` berbasis `as_completed(futures)` per halaman portal dan per jurnal OJS serta memublikasikan hasil sementara secara streaming setelah Fase 2 pre-filter agar tabel segera tampil.
+- **Native `<progress>` Shimmer, Elapsed Timer & Live KPI (`ui_web/index.html`, `ui_web/style.css`, `ui_web/app.js`)**:
+  - Mengganti progress track kustom dengan elemen semantik `<progress>` dilengkapi animasi shimmer indeterminate saat `total === 0`, `font-variant-numeric: tabular-nums` untuk timer `00:00` & kecepatan `~X/dtk`, ticker 1-baris dengan `text-overflow: ellipsis`, serta interval polling `150ms`.
+- **3x Faster Early-Exit Scraping Engine (`config.py`, `scraper_garuda.py`, `scraper_sinta.py`)**:
+  - Mengaktifkan `HTTPAdapter(pool_connections=128, pool_maxsize=128)` serta `get_thread_local_session(is_deep_scrape=True)` untuk keep-alive TCP/TLS pool persisten per worker thread.
+  - Menambahkan *early-exit sub-path stop* (`_has_complete_core_data`) di `extract_ojs_deep_info()` untuk langsung berhenti memindai halaman sekunder bila data APC + jadwal terbit + kontak inti sudah lengkap.
+
 ## [2.0.1] - 2026-11-13
 
 ### Improved (Visual-First WebView2 UX Redesign)

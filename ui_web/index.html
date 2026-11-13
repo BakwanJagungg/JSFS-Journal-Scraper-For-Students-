@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light dark" />
-  <title>JSFS v2.0.1 — Journal Scraper For Students</title>
+  <title>JSFS v2.0.2 — Journal Scraper For Students</title>
   <script>
     (function () {
       try {
@@ -34,7 +34,7 @@
           </svg>
         </div>
         <div class="brand-copy">
-          <h1 class="brand-title">JSFS <span class="brand-version">v2.0.1</span></h1>
+          <h1 class="brand-title">JSFS <span class="brand-version">v2.0.2</span></h1>
           <p class="brand-caption">Asisten Pencari Jurnal SINTA &amp; Garuda untuk Mahasiswa</p>
         </div>
       </div>
@@ -274,24 +274,30 @@
       </div>
 
       <div class="progress-strip">
-        <div class="prog-bars">
-          <div class="prog-unit">
-            <div class="prog-meta">
-              <span id="scrape-label">Mencari jurnal dari SINTA &amp; Garuda...</span>
-              <span id="scrape-prog-text" class="prog-num">0 / 0</span>
+        <div class="prog-main">
+          <div class="prog-bars">
+            <div class="prog-unit">
+              <div class="prog-meta">
+                <span id="scrape-label">Siap menjelajahi SINTA &amp; Garuda</span>
+                <span id="scrape-prog-text" class="prog-num">0 / 0</span>
+              </div>
+              <progress id="scrape-prog-bar" class="progress-bar" max="100" value="0" aria-label="Progres pencarian portal"></progress>
             </div>
-            <div class="progress-track" role="progressbar" aria-label="Progres pencarian portal" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="scrape-prog-bar-wrap">
-              <div class="progress-fill" id="scrape-prog-fill"></div>
+
+            <div class="prog-unit">
+              <div class="prog-meta">
+                <span id="ai-label">Memeriksa biaya &amp; jadwal terbit</span>
+                <span id="ai-prog-text" class="prog-num">0 / 0</span>
+              </div>
+              <progress id="ai-prog-bar" class="progress-bar is-success" max="100" value="0" aria-label="Progres analisis biaya dan jadwal"></progress>
             </div>
           </div>
 
-          <div class="prog-unit">
-            <div class="prog-meta">
-              <span id="ai-label">Memeriksa biaya &amp; jadwal terbit...</span>
-              <span id="ai-prog-text" class="prog-num">0 / 0</span>
-            </div>
-            <div class="progress-track" role="progressbar" aria-label="Progres analisis biaya dan jadwal" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="ai-prog-bar-wrap">
-              <div class="progress-fill is-success" id="ai-prog-fill"></div>
+          <div class="prog-telemetry-row" aria-live="polite">
+            <span id="current-item-ticker" class="telemetry-ticker" title="Status proses aktif saat ini">Masukkan topik lalu klik Cari Jurnal untuk memulai</span>
+            <div class="telemetry-badges">
+              <span id="elapsed-timer" class="telemetry-badge" title="Waktu berjalan">00:00</span>
+              <span id="scrape-rate" class="telemetry-badge" title="Kecepatan rata-rata">~0.0/dtk</span>
             </div>
           </div>
         </div>

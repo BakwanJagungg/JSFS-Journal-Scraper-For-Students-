@@ -13,6 +13,8 @@
     excelPath: "",
     activePreset: "skripsi",
     pollTimer: null,
+    clockTimer: null,
+    runStartedClientMs: 0,
     aiPollTimer: null,
     logOffset: 0,
     detailIndex: -1,
@@ -522,15 +524,38 @@
   }
 
   // ── Backend Sync & Polling ───────────────────────────────────────────────────
-  function updateProgressBar(prefix, done, total) {
-    const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
-    $(`${prefix}-prog-text`).textContent = `${done} / ${total}`;
-    $(`${prefix}-prog-fill`).style.width = `${pct}%`;
-    const wrap = $(`${prefix}-prog-bar-wrap`);
-    if (wrap) wrap.setAttribute("aria-valuenow", String(pct));
+  function formatElapsed(sec) {
+    const total = Math.max(0, Math.floor(Number(sec) || 0));
+    const mm = String(Math.floor(total / 60)).padStart(2, "0");
+    const ss = String(total % 60).padStart(2, "0");
+    return `${mm}:${ss}`;
   }
 
-  function updateRunningUI(running, phaseStatus) {
+  function updateProgressBar(prefix, done, total, isIndeterminate) {
+    const bar = $(`${prefix}-prog-bar`);
+    const txt = $(`${prefix}-prog-text`);
+    const numDone = Number(done) || 0;
+    const numTotal = Number(total) || 0;
+
+    if (isIndeterminate) {
+      if (bar) {
+        bar.removeAttribute("value");
+        bar.classList.add("indeterminate");
+      }
+      if (txt) txt.textContent = numDone > 0 ? `${numDone} hal.` : "Memindai...";
+      return;
+    }
+
+    if (bar) {
+      bar.classList.remove("indeterminate");
+      const safeMax = Math.max(1, numTotal);
+      bar.max = safeMax;
+      bar.value = Math.min(safeMax, Math.max(0, numDone));
+    }
+    if (txt) txt.textContent = `${numDone} / ${numTotal}`;
+  }
+
+  function updateRunningUI(running, phaseStatus, phase) {
     state.running = running;
     $("btn-start").classList.toggle("is-hidden", running);
     $("btn-stop").classList.toggle("is-hidden", !running);
@@ -539,12 +564,23 @@
       badge.textContent = phaseStatus || (running ? "Sedang mencari..." : "Siap mencari");
       badge.classList.toggle("is-running", running);
     }
-    if (running && $("scrape-label")) {
-      $("scrape-label").textContent = "Mencari jurnal dari SINTA & Garuda...";
-      $("ai-label").textContent = "Memeriksa biaya & jadwal terbit...";
-    } else if (!running && state.results.length > 0) {
-      $("scrape-label").textContent = "Pencarian portal selesai";
-      $("ai-label").textContent = "Pemeriksaan biaya & jadwal selesai";
+
+    const scrapeLbl = $("scrape-label");
+    const aiLbl = $("ai-label");
+    if (running) {
+      if (phase === "fase3_ai" || phase === "fase4_export") {
+        if (scrapeLbl) scrapeLbl.textContent = "Pencarian & deep crawl selesai";
+        if (aiLbl) aiLbl.textContent = phaseStatus || "Validasi cerdas AI & ekspor...";
+      } else {
+        if (scrapeLbl) scrapeLbl.textContent = phaseStatus || "Menjelajahi halaman portal SINTA & Garuda...";
+        if (aiLbl) aiLbl.textContent = "Menunggu antrean validasi biaya & jadwal";
+      }
+    } else if (state.results.length > 0) {
+      if (scrapeLbl) scrapeLbl.textContent = "Pencarian portal selesai";
+      if (aiLbl) aiLbl.textContent = "Pemeriksaan biaya & jadwal selesai";
+    } else {
+      if (scrapeLbl) scrapeLbl.textContent = "Siap menjelajahi SINTA & Garuda";
+      if (aiLbl) aiLbl.textContent = "Memeriksa biaya & jadwal terbit";
     }
   }
 
@@ -555,16 +591,41 @@
       st.logs.forEach(appendLog);
     }
 
-    if (st.progress) {
-      updateProgressBar("scrape", st.progress.scrape_done || 0, st.progress.scrape_target || 0);
-      updateProgressBar("ai", st.progress.ai_done || 0, st.progress.ai_target || 0);
+    const prog = st.progress || {};
+    const sDone = st.scrape_done ?? prog.scrape_done ?? 0;
+    const sTotal = st.scrape_total ?? prog.scrape_target ?? 0;
+    const aDone = st.ai_done ?? prog.ai_done ?? 0;
+    const aTotal = st.ai_total ?? prog.ai_target ?? 0;
+    const phase = st.phase || "idle";
+    const isPortalIndeterminate = !!st.running && (sTotal === 0) && (phase === "fase1_portal" || phase === "idle");
+
+    updateProgressBar("scrape", sDone, sTotal, isPortalIndeterminate);
+    updateProgressBar("ai", aDone, aTotal, !!st.running && phase === "fase3_ai" && aTotal === 0);
+
+    const kpiData = st.live_counts || st.kpi;
+    if (kpiData) {
+      $("kpi-total").textContent = String(kpiData.total ?? 0);
+      $("kpi-free").textContent = String(kpiData.free ?? 0);
+      $("kpi-paid").textContent = String(kpiData.paid ?? 0);
+      $("kpi-fast").textContent = String(kpiData.fast ?? 0);
     }
 
-    if (st.kpi) {
-      $("kpi-total").textContent = String(st.kpi.total ?? 0);
-      $("kpi-free").textContent = String(st.kpi.free ?? 0);
-      $("kpi-paid").textContent = String(st.kpi.paid ?? 0);
-      $("kpi-fast").textContent = String(st.kpi.fast ?? 0);
+    if ($("elapsed-timer") && typeof st.elapsed_seconds === "number") {
+      $("elapsed-timer").textContent = formatElapsed(st.elapsed_seconds);
+    }
+    if ($("scrape-rate") && typeof st.rate_per_sec === "number") {
+      $("scrape-rate").textContent = `~${st.rate_per_sec.toFixed(1)}/dtk`;
+    }
+    const ticker = $("current-item-ticker");
+    if (ticker) {
+      if (st.running && st.current_item) {
+        ticker.textContent = st.current_item;
+        ticker.title = st.current_item;
+      } else if (!st.running && state.results.length > 0) {
+        ticker.textContent = `Selesai: ${state.results.length} jurnal siap ditinjau di tabel.`;
+      } else if (!st.running) {
+        ticker.textContent = "Masukkan topik lalu klik Cari Jurnal untuk memulai";
+      }
     }
 
     const aiPill = $("btn-ai-status");
@@ -589,10 +650,16 @@
       renderResultsTable(state.results);
     }
 
-    updateRunningUI(!!st.running, st.phase_status);
-    if (!st.running && state.pollTimer) {
-      clearInterval(state.pollTimer);
-      state.pollTimer = null;
+    updateRunningUI(!!st.running, st.phase_label || st.phase_status, phase);
+    if (!st.running) {
+      if (state.pollTimer) {
+        clearInterval(state.pollTimer);
+        state.pollTimer = null;
+      }
+      if (state.clockTimer) {
+        clearInterval(state.clockTimer);
+        state.clockTimer = null;
+      }
     }
   }
 
@@ -625,9 +692,13 @@
     }
 
     setTargetCount(params.target);
-    updateRunningUI(true, "Mencari jurnal dari SINTA & Garuda...");
-    updateProgressBar("scrape", 0, params.target);
-    updateProgressBar("ai", 0, 0);
+    state.runStartedClientMs = Date.now();
+    if ($("elapsed-timer")) $("elapsed-timer").textContent = "00:00";
+    if ($("scrape-rate")) $("scrape-rate").textContent = "~0.0/dtk";
+    if ($("current-item-ticker")) $("current-item-ticker").textContent = `Menghubungi portal untuk '${params.keyword}'...`;
+    updateRunningUI(true, "Menjelajahi halaman portal SINTA & Garuda...", "fase1_portal");
+    updateProgressBar("scrape", 0, 0, true);
+    updateProgressBar("ai", 0, 0, false);
 
     const apiMethod = window.pywebview.api.start_search || window.pywebview.api.start_scrape;
     const res = await apiMethod(params);
@@ -637,7 +708,14 @@
       return;
     }
     if (!state.pollTimer) {
-      state.pollTimer = setInterval(pollStatusOnce, 250);
+      state.pollTimer = setInterval(pollStatusOnce, 150);
+    }
+    if (!state.clockTimer) {
+      state.clockTimer = setInterval(() => {
+        if (state.running && $("elapsed-timer") && state.runStartedClientMs > 0) {
+          $("elapsed-timer").textContent = formatElapsed((Date.now() - state.runStartedClientMs) / 1000);
+        }
+      }, 500);
     }
   }
 

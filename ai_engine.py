@@ -581,6 +581,7 @@ def enrich_records(
     records: List[Any],
     on_progress: Optional[Callable[[int, int], None]] = None,
     cancel: Optional[threading.Event] = None,
+    on_ai_progress: Optional[Callable[[int, int, Any], None]] = None,
 ) -> None:
     """
     Fase 3 (v1.8.0 Regex-First, AI-Second):
@@ -629,25 +630,32 @@ def enrich_records(
                 if (subs or "").strip():
                     ai_jobs[_AI_POOL.submit(_ai_only_apc_job, subs)] = (rec, "apc")
 
+        ai_total_jobs = len(ai_jobs)
+        ai_done_jobs = 0
         for fut in as_completed(ai_jobs):
             if cancel is not None and cancel.is_set():
                 for f in ai_jobs:
                     f.cancel()
                 break
             rec, kind = ai_jobs[fut]
+            ai_done_jobs += 1
             try:
                 ai_res = fut.result()
             except Exception as e:
                 log.error("AI selective job exception: %s", e)
                 ai_res = None
 
-            if ai_res is None:
-                continue
+            if ai_res is not None:
+                if kind == "focus":
+                    _set_val(rec, focus_scope=ai_res, sumber_focus="AI")
+                else:
+                    _apply_apc_value(rec, ai_res, "AI")
 
-            if kind == "focus":
-                _set_val(rec, focus_scope=ai_res, sumber_focus="AI")
-            else:
-                _apply_apc_value(rec, ai_res, "AI")
+            if on_ai_progress:
+                try:
+                    on_ai_progress(ai_done_jobs, ai_total_jobs, rec)
+                except Exception:
+                    pass
 
     # ── Tahap C: Synthesizer Focus & Scope fallback akhir (Zero-Empty Guarantee) ──
     for rec in records:

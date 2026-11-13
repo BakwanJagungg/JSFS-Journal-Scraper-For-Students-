@@ -69,7 +69,7 @@ def _copy_to_clipboard(text: str) -> bool:
         user32.CloseClipboard()
 
 
-def _run_scraper(params: dict, on_progress, cancel: threading.Event, on_log=None) -> list:
+def _run_scraper(params: dict, on_progress, cancel: threading.Event, on_log=None, on_telemetry=None) -> list:
     """Menjalankan Fase 1 Garuda & SINTA dengan Smart Typo Fallback (dipertahankan dari v1.7.1)."""
     from doc_reader import get_fallback_keywords
     from scraper_garuda import merge_cross_source_entries, scrape_garuda
@@ -95,6 +95,7 @@ def _run_scraper(params: dict, on_progress, cancel: threading.Event, on_log=None
                 turbo_mode=turbo,
                 free_only=False,
                 include_unknown_apc=True,
+                progress_cb=on_telemetry,
             )
             pass_records.extend(g_results)
             on_progress(len(pass_records), target)
@@ -121,6 +122,7 @@ def _run_scraper(params: dict, on_progress, cancel: threading.Event, on_log=None
                     include_unknown_apc=True,
                     allow_selenium_fallback=False,
                     log_cb=on_log,
+                    progress_cb=on_telemetry,
                 )
             pass_records.extend(s_results)
             on_progress(len(pass_records), target)
@@ -164,7 +166,12 @@ class JSFSApi:
         self._worker: Optional[threading.Thread] = None
 
         self._running = False
+        self._phase = "idle"
         self._phase_status = "Siap mencari jurnal"
+        self._current_item = ""
+        self._run_started_at = 0.0
+        self._elapsed_seconds = 0.0
+        self._seen_deep_names: set[str] = set()
         self._logs: list[str] = []
         self._progress = {"scrape_done": 0, "scrape_target": 0, "ai_done": 0, "ai_target": 0}
         self._kpi = {"total": 0, "free": 0, "paid": 0, "fast": 0}
@@ -295,16 +302,38 @@ class JSFSApi:
     def get_status(self, log_offset: int = 0) -> dict[str, Any]:
         with self._lock:
             safe_off = max(0, min(int(log_offset), len(self._logs)))
+            elapsed = (
+                round(max(0.0, time.monotonic() - self._run_started_at), 1)
+                if self._running and self._run_started_at > 0
+                else self._elapsed_seconds
+            )
+            items_prog = max(
+                int(self._progress.get("scrape_done", 0)),
+                int(self._kpi.get("total", 0)),
+            )
+            rate = round(items_prog / elapsed, 1) if elapsed >= 0.5 else 0.0
+            kpi_snap = dict(self._kpi)
+            prog_snap = dict(self._progress)
             return {
                 "logs": self._logs[safe_off:],
                 "next_log_offset": len(self._logs),
-                "progress": dict(self._progress),
-                "kpi": dict(self._kpi),
+                "progress": prog_snap,
+                "scrape_done": prog_snap.get("scrape_done", 0),
+                "scrape_total": prog_snap.get("scrape_target", 0),
+                "ai_done": prog_snap.get("ai_done", 0),
+                "ai_total": prog_snap.get("ai_target", 0),
+                "kpi": kpi_snap,
+                "live_counts": kpi_snap,
                 "results": list(self._serialized_results),
                 "results_version": self._results_version,
                 "excel_path": self._latest_excel_path,
                 "running": self._running,
+                "phase": self._phase,
+                "phase_label": self._phase_status,
                 "phase_status": self._phase_status,
+                "current_item": self._current_item,
+                "elapsed_seconds": elapsed,
+                "rate_per_sec": rate,
                 "ollama_active": self._ollama_active,
                 "cache_count": self._cache_count,
             }
@@ -327,8 +356,13 @@ class JSFSApi:
             params["target"] = target
             if target >= 100:
                 params["turbo"] = True
-            self._phase_status = "Mencari jurnal dari SINTA & Garuda..."
-            self._progress = {"scrape_done": 0, "scrape_target": target, "ai_done": 0, "ai_target": 0}
+            self._phase = "fase1_portal"
+            self._phase_status = "Menjelajahi halaman portal SINTA & Garuda..."
+            self._current_item = f"Memulai pencarian '{params.get('keyword', '')}'..."
+            self._run_started_at = time.monotonic()
+            self._elapsed_seconds = 0.0
+            self._seen_deep_names = set()
+            self._progress = {"scrape_done": 0, "scrape_target": 0, "ai_done": 0, "ai_target": 0}
             self._kpi = {"total": 0, "free": 0, "paid": 0, "fast": 0}
             self._latest_excel_path = ""
 
@@ -359,7 +393,8 @@ class JSFSApi:
             ai_engine.set_workers(int(p.get("ai_workers", 2)))
             with self._lock:
                 self._ollama_active = bool(ai_engine.check_ollama_active())
-                self._phase_status = "Mencari jurnal dari SINTA & Garuda..."
+                self._phase = "fase1_portal"
+                self._phase_status = "Menjelajahi halaman portal SINTA & Garuda..."
 
             if target >= 100:
                 self._log(f"⚡ Target {target} jurnal: Turbo Mode diaktifkan otomatis untuk kecepatan maksimal.")
@@ -377,14 +412,13 @@ class JSFSApi:
                 on_progress=lambda d, t: self._set_scrape_prog(d, t),
                 cancel=self._cancel_evt,
                 on_log=self._log,
+                on_telemetry=self._on_scraper_telemetry,
             )
             if self._cancel_evt.is_set():
                 self._finish_run()
                 return
 
             self._log(f"Fase 1 selesai: {len(records)} jurnal berhasil di-crawl.")
-            with self._lock:
-                self._kpi = {"total": len(records), "free": 0, "paid": 0, "fast": 0}
 
             # FASE 2: Pre-Filter SINTA & Bulan Terbit
             survivors = []
@@ -400,8 +434,23 @@ class JSFSApi:
                 survivors = survivors[:pool_limit]
 
             self._log(f"Fase 2: Pre-filter -> {len(survivors)}/{len(records)} jurnal lolos seleksi SINTA & Bulan.")
-            with self._lock:
-                self._kpi = {"total": len(survivors), "free": 0, "paid": 0, "fast": 0}
+            cur_m_f2 = time.localtime().tm_mon
+            near_m_f2 = {cur_m_f2, (cur_m_f2 % 12) + 1, ((cur_m_f2 + 1) % 12) + 1}
+            if survivors:
+                inter_ser = self._serialize_results(survivors[:target])
+                with self._lock:
+                    self._latest_entries = survivors[:target]
+                    self._serialized_results = inter_ser
+                    self._results_version += 1
+                    self._kpi = {
+                        "total": len(survivors),
+                        "free": sum(1 for r in survivors if r.get("biaya_publikasi") == 0 or "gratis" in str(r.get("apc_status", "")).lower()),
+                        "paid": sum(1 for r in survivors if (r.get("biaya_publikasi") or 0) > 0),
+                        "fast": sum(1 for r in survivors if any(m in r.get("bulan_terbit", []) for m in near_m_f2)),
+                    }
+            else:
+                with self._lock:
+                    self._kpi = {"total": 0, "free": 0, "paid": 0, "fast": 0}
 
             if not survivors:
                 self._log("⚠️ Tidak ada jurnal yang lolos pre-filter. Selesai.")
@@ -414,16 +463,30 @@ class JSFSApi:
 
             # FASE 3: Regex-First, AI-Second
             with self._lock:
-                self._phase_status = "Memeriksa biaya & jadwal terbit..."
+                self._phase = "fase3_ai"
+                self._phase_status = "Ekstraksi biaya & jadwal terbit..."
+                self._current_item = f"Memvalidasi {len(survivors)} jurnal kandidat..."
             self._log(
                 f"Fase 3: Ekstraksi Regex-First (AI selektif maks {ai_engine.MAX_AI_QUEUE_JOURNALS} "
                 f"jurnal jika kosong) untuk {len(survivors)} jurnal..."
             )
             self._set_ai_prog(0, len(survivors))
+
+            def _on_ai_telemetry(done: int, total: int, entry=None):
+                name = getattr(entry, "nama_jurnal", "") or ""
+                with self._lock:
+                    self._phase = "fase3_ai"
+                    self._phase_status = f"Validasi cerdas AI ({done}/{total} jurnal)..."
+                    if name:
+                        self._current_item = name
+                    self._progress["ai_done"] = int(done)
+                    self._progress["ai_target"] = int(total)
+
             ai_engine.enrich_records(
                 survivors,
                 on_progress=lambda d, t: self._set_ai_prog(d, t),
                 cancel=self._cancel_evt,
+                on_ai_progress=_on_ai_telemetry,
             )
             if self._cancel_evt.is_set():
                 self._finish_run()
@@ -506,6 +569,10 @@ class JSFSApi:
             kpi_fast = sum(1 for r in final_survivors if any(m in r.get("bulan_terbit", []) for m in near_months))
 
             # FASE 4: Export Output
+            with self._lock:
+                self._phase = "fase4_export"
+                self._phase_status = f"Menyimpan berkas Excel & Markdown ({len(final_survivors)} jurnal)..."
+                self._current_item = "Menulis berkas output (.xlsx / .md)"
             self._log(f"Fase 4: Mengekspor {len(final_survivors)} jurnal ke berkas output...")
             formats = list(p.get("formats", [".xlsx", ".md"]))
             exported = exporter.write_exports(
@@ -542,6 +609,40 @@ class JSFSApi:
         finally:
             self._finish_run()
 
+    def _on_scraper_telemetry(self, phase: str = "fase1_portal", done: int = 0, total: int = 0, current_item: str = "", entry=None):
+        """Callback thread-safe per-halaman / per-jurnal untuk telemetry UI real-time."""
+        with self._lock:
+            self._phase = phase
+            if phase == "fase1_portal":
+                self._phase_status = "Menjelajahi halaman portal SINTA & Garuda..."
+            elif phase == "fase2_deep":
+                self._phase_status = f"Memeriksa biaya & jadwal ({done}/{total} jurnal)..."
+            if current_item:
+                self._current_item = str(current_item)
+            self._progress["scrape_done"] = int(done)
+            self._progress["scrape_target"] = int(total)
+
+            if entry is not None:
+                key = (getattr(entry, "nama_jurnal", "") or getattr(entry, "link_ojs", "") or "").strip().lower()
+                if key and key not in self._seen_deep_names:
+                    self._seen_deep_names.add(key)
+                    b_pub = getattr(entry, "biaya_publikasi", None)
+                    if b_pub is None:
+                        b_pub = getattr(entry, "apc_amount", None)
+                    apc_low = str(getattr(entry, "apc_status", "") or "").lower()
+                    is_free = (b_pub == 0) or ("gratis" in apc_low) or ("rp 0" in apc_low) or ("bebas biaya" in apc_low)
+                    cur_m = time.localtime().tm_mon
+                    near_months = {cur_m, (cur_m % 12) + 1, ((cur_m + 1) % 12) + 1}
+                    bulan_list = getattr(entry, "bulan_terbit", None) or []
+                    is_fast = any(m in bulan_list for m in near_months)
+                    self._kpi["total"] = len(self._seen_deep_names)
+                    if is_free:
+                        self._kpi["free"] += 1
+                    elif isinstance(b_pub, (int, float)) and b_pub > 0:
+                        self._kpi["paid"] += 1
+                    if is_fast:
+                        self._kpi["fast"] += 1
+
     def _set_scrape_prog(self, done: int, total: int):
         with self._lock:
             self._progress["scrape_done"] = int(done)
@@ -555,7 +656,11 @@ class JSFSApi:
     def _finish_run(self):
         with self._lock:
             self._running = False
-            self._phase_status = "Selesai" if self._serialized_results else "Siap mencari jurnal"
+            if self._run_started_at > 0:
+                self._elapsed_seconds = round(max(0.0, time.monotonic() - self._run_started_at), 1)
+            self._phase = "done" if self._serialized_results else "idle"
+            self._phase_status = "Pencarian selesai" if self._serialized_results else "Siap mencari jurnal"
+            self._current_item = ""
 
     def upload_manuscript(self) -> dict[str, Any]:
         return self.pick_manuscript()

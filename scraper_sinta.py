@@ -12,7 +12,7 @@ import requests
 import urllib3
 from bs4 import BeautifulSoup
 from typing import Optional
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from rich.console import Console
 
 # Nonaktifkan peringatan SSL tidak aman
@@ -396,6 +396,7 @@ def _scrape_sinta_single_keyword(
     include_unknown_apc: bool = True,
     allow_selenium_fallback: bool = False,
     log_cb=None,
+    progress_cb=None,
 ) -> list[JournalEntry]:
     """
     Scraping satu kata kunci Direktori SINTA via High-Speed Concurrent HTTP requests (v1.3.8).
@@ -440,6 +441,16 @@ def _scrape_sinta_single_keyword(
 
     console.print(f"[green]   ✓ Ditemukan {len(p1_journals)} jurnal di halaman 1[/green]")
     all_journals.extend(p1_journals)
+    if callable(progress_cb):
+        try:
+            progress_cb(
+                phase="fase1_portal",
+                done=1,
+                total=0,
+                current_item=f"SINTA '{keyword}' — Hal. 1 ({len(all_journals)} jurnal)",
+            )
+        except Exception:
+            pass
 
     rank_labels = [f"S{r}" for r in sinta_ranks] + [f"Sinta {r}" for r in sinta_ranks] if sinta_ranks else []
     matching_count = len([j for j in all_journals if any(r in j.peringkat_sinta for r in rank_labels)]) if sinta_ranks else len(all_journals)
@@ -472,10 +483,12 @@ def _scrape_sinta_single_keyword(
                 return p, None, False
 
             page_results: dict[int, Optional[str]] = {}
+            pages_done_in_run = 1
             with ThreadPoolExecutor(max_workers=min(len(page_numbers), 16)) as executor:
                 future_to_page = {executor.submit(_fetch_page_worker, p): p for p in page_numbers}
-                for fut in future_to_page:
+                for fut in as_completed(future_to_page):
                     p_num, html_txt, is_cf = fut.result()
+                    pages_done_in_run += 1
                     if is_cf:
                         if allow_selenium_fallback:
                             console.print("[bold red]⚠️ SINTA memicu Cloudflare saat pemindaian paralel. Beralih ke browser automation...[/bold red]")
@@ -485,6 +498,16 @@ def _scrape_sinta_single_keyword(
                         if log_cb:
                             log_cb(diag_msg)
                         return all_journals
+                    if callable(progress_cb):
+                        try:
+                            progress_cb(
+                                phase="fase1_portal",
+                                done=p_num,
+                                total=pages_to_scan,
+                                current_item=f"SINTA '{keyword}' — Hal. {p_num}/{pages_to_scan}",
+                            )
+                        except Exception:
+                            pass
                     page_results[p_num] = html_txt
 
             # Parse berurutan sesuai nomor halaman
@@ -535,14 +558,18 @@ def _scrape_sinta_single_keyword(
         matched_count = 0
         deep_session = get_high_capacity_session(is_deep_scrape=True)
 
+        deep_done = 0
+        deep_total = len(filtered)
         try:
+            from scraper_garuda import get_thread_local_session
             with ThreadPoolExecutor(max_workers=active_workers) as executor:
                 def _do_sinta_deep(entry: JournalEntry):
                     nonlocal matched_count
                     if stop_event.is_set():
-                        return
+                        return entry
                     try:
-                        _process_deep_sinta_entry(deep_session, entry, stop_event=stop_event)
+                        worker_sess = get_thread_local_session(is_deep_scrape=True)
+                        _process_deep_sinta_entry(worker_sess, entry, stop_event=stop_event)
                         with matched_lock:
                             if free_only:
                                 apc_low = entry.apc_status.lower()
@@ -556,10 +583,26 @@ def _scrape_sinta_single_keyword(
                                 stop_event.set()
                     except Exception:
                         pass
+                    return entry
 
                 futures = [executor.submit(_do_sinta_deep, entry) for entry in filtered]
-                for f in futures:
-                    f.result()
+                for f in as_completed(futures):
+                    try:
+                        done_entry = f.result()
+                    except Exception:
+                        done_entry = None
+                    deep_done += 1
+                    if callable(progress_cb):
+                        try:
+                            progress_cb(
+                                phase="fase2_deep",
+                                done=deep_done,
+                                total=deep_total,
+                                current_item=(done_entry.nama_jurnal if done_entry else f"SINTA deep {deep_done}/{deep_total}"),
+                                entry=done_entry,
+                            )
+                        except Exception:
+                            pass
         except Exception:
             pass
 
@@ -587,6 +630,7 @@ def scrape_sinta(
     include_unknown_apc: bool = True,
     allow_selenium_fallback: bool = False,
     log_cb=None,
+    progress_cb=None,
 ) -> list[JournalEntry]:
     """
     Scraping Direktori SINTA dengan dukungan multi-keyword adaptif dan short-circuiting (v1.3.6).
@@ -617,6 +661,7 @@ def scrape_sinta(
                 include_unknown_apc=include_unknown_apc,
                 allow_selenium_fallback=allow_selenium_fallback,
                 log_cb=log_cb,
+                progress_cb=progress_cb,
             )
             all_res.extend(kw_journals)
             all_res = merge_cross_source_entries(all_res)
@@ -636,6 +681,7 @@ def scrape_sinta(
         include_unknown_apc=include_unknown_apc,
         allow_selenium_fallback=allow_selenium_fallback,
         log_cb=log_cb,
+        progress_cb=progress_cb,
     )
 
 
