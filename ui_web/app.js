@@ -26,6 +26,12 @@
     return !!(window.pywebview && window.pywebview.api);
   }
 
+  function clampTarget(val) {
+    const num = Number(val);
+    if (!Number.isFinite(num) || num < 1) return 25;
+    return Math.min(1000, Math.round(num));
+  }
+
   function showToast(msg) {
     const el = $("toast");
     if (!el) return;
@@ -42,7 +48,7 @@
     if (!box) return;
     const line = document.createElement("div");
     line.className = "log-line";
-    if (text.includes("⚠️") || text.includes("⚠")) line.classList.add("is-warn");
+    if (text.includes("⚠")) line.classList.add("is-warn");
     else if (text.includes("❌") || text.includes("Error")) line.classList.add("is-err");
     else if (text.includes("✅") || text.includes("💾") || text.includes("Selesai")) line.classList.add("is-ok");
     line.textContent = text;
@@ -50,30 +56,25 @@
     box.scrollTop = box.scrollHeight;
   }
 
-  // ── Theme Toggle (Dark / Daylight) ───────────────────────────────────────────
-  function syncThemeUI() {
+  // ── Theme Toggle (Daylight Default + Dark Mode) ──────────────────────────────
+  function applyScheme(scheme) {
+    const clean = scheme === "dark" ? "dark" : "light";
     const meta = document.querySelector('meta[name="color-scheme"]');
-    const cur = meta ? meta.getAttribute("content") : "light";
-    const isDark = cur === "dark";
-    const icon = $("theme-icon");
-    const label = $("theme-label");
-    if (icon) icon.textContent = isDark ? "☀️" : "🌙";
-    if (label) label.textContent = isDark ? "Daylight" : "Mode Gelap";
+    if (meta) meta.setAttribute("content", clean);
+    document.documentElement.setAttribute("data-theme", clean);
   }
 
   function toggleTheme() {
     const meta = document.querySelector('meta[name="color-scheme"]');
-    if (!meta) return;
-    const isDark = meta.getAttribute("content") === "dark";
-    const next = isDark ? "light" : "dark";
-    meta.setAttribute("content", next);
+    const cur = meta ? meta.getAttribute("content") : "light";
+    const next = cur === "dark" ? "light" : "dark";
+    applyScheme(next);
     try {
       localStorage.setItem("color-scheme", next);
     } catch (e) {}
-    syncThemeUI();
   }
 
-  // ── Native <dialog> Handling ─────────────────────────────────────────────────
+  // ── Native <dialog> Setup ────────────────────────────────────────────────────
   function openDialog(id) {
     const dlg = $(id);
     if (dlg && typeof dlg.showModal === "function" && !dlg.open) {
@@ -86,12 +87,23 @@
       dlg.addEventListener("close", () => {
         dlg.returnValue = "";
       });
-      dlg.addEventListener("click", (ev) => {
-        if (ev.target === dlg) {
-          dlg.close();
-        }
-      });
     });
+
+    if (!("closedBy" in HTMLDialogElement.prototype)) {
+      const outside = (e, dialog) => {
+        const r = dialog.getBoundingClientRect();
+        return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+      };
+      document.querySelectorAll('dialog[closedby="any"]').forEach((dlg) => {
+        let pressedOutside = false;
+        dlg.addEventListener("pointerdown", (e) => {
+          pressedOutside = outside(e, dlg);
+        });
+        dlg.addEventListener("pointerup", (e) => {
+          if (pressedOutside && outside(e, dlg)) dlg.close();
+        });
+      });
+    }
 
     document.querySelectorAll("[data-close-dialog]").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -101,7 +113,43 @@
     });
   }
 
-  // ── Presets & Form Helpers ───────────────────────────────────────────────────
+  // ── Target Sync (Main Input <-> Modal Input <-> Quick Chips) ─────────────────
+  function setTargetCount(val) {
+    const clamped = clampTarget(val);
+    const mainInput = $("target-count");
+    const modalInput = $("modal-target-count");
+    if (mainInput) mainInput.value = String(clamped);
+    if (modalInput) modalInput.value = String(clamped);
+    if (clamped >= 100 && $("chk-turbo")) {
+      $("chk-turbo").checked = true;
+    }
+    updateActiveFilterBadge();
+    return clamped;
+  }
+
+  function updateActiveFilterBadge() {
+    const sintaCount = document.querySelectorAll('input[name="sinta"]:checked').length;
+    const monthCount = document.querySelectorAll('input[name="month"]:checked').length;
+    const onlyFree = $("chk-only-free")?.checked;
+    const useSel = $("chk-selenium")?.checked;
+    const maxRp = parseCurrency($("input-max-rp")?.value);
+
+    let activeCount = 0;
+    if (sintaCount > 0 && sintaCount < 6) activeCount += 1;
+    if (monthCount > 0 && monthCount < 12) activeCount += 1;
+    if (onlyFree) activeCount += 1;
+    if (maxRp > 0 && maxRp < 15000000) activeCount += 1;
+    if (useSel) activeCount += 1;
+    if (!$("chk-garuda")?.checked || !$("chk-sinta-src")?.checked) activeCount += 1;
+
+    const badge = $("active-filter-badge");
+    if (badge) {
+      badge.textContent = String(activeCount);
+      badge.classList.toggle("is-hidden", activeCount === 0);
+    }
+  }
+
+  // ── Presets & Filter Helpers ─────────────────────────────────────────────────
   function setSintaChecks(ranks) {
     document.querySelectorAll('input[name="sinta"]').forEach((cb) => {
       cb.checked = ranks.includes(Number(cb.value));
@@ -122,47 +170,62 @@
   function applyPreset(key, silent) {
     state.activePreset = key;
     document.querySelectorAll(".preset-card").forEach((card) => {
-      card.classList.toggle("is-active", card.getAttribute("data-preset") === key);
+      const active = card.getAttribute("data-preset") === key;
+      card.classList.toggle("is-active", active);
+      card.setAttribute("aria-pressed", active ? "true" : "false");
     });
 
-    const pill = $("active-preset-pill");
     if (key === "skripsi") {
       setSintaChecks([3, 4, 5]);
-      $("select-target").value = "25";
+      setTargetCount(25);
       $("chk-only-free").checked = false;
       $("chk-include-na").checked = true;
       $("input-min-rp").value = "0";
       $("input-max-rp").value = "1.500.000";
       setMonthChecks([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-      if (pill) pill.textContent = "Preset Aktif: 🎓 Target Skripsi S1 (S3–S5)";
-      if (!silent) appendLog("📌 Preset Aktif: 🎓 Target Skripsi S1 (SINTA 3–5, Target 25, Biaya maks Rp 1,5 jt).");
+      if (!silent) appendLog("Preset Aktif: Target Skripsi S1 (SINTA 3–5, maks Rp 1,5 jt).");
     } else if (key === "gratis") {
       setSintaChecks([2, 3, 4, 5, 6]);
-      $("select-target").value = "50";
+      setTargetCount(50);
       $("chk-only-free").checked = true;
       $("chk-include-na").checked = true;
       setMonthChecks([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-      if (pill) pill.textContent = "Preset Aktif: 💰 Jurnal Gratis (Rp 0)";
-      if (!silent) appendLog("📌 Preset Aktif: 💰 Jurnal Bebas Biaya (Bebas APC, SINTA 2–6, Target 50).");
+      if (!silent) appendLog("Preset Aktif: Jurnal Gratis (Rp 0, SINTA 2–6).");
     } else if (key === "cepat") {
       setSintaChecks([3, 4, 5, 6]);
-      $("select-target").value = "25";
+      setTargetCount(25);
       $("chk-only-free").checked = false;
       $("chk-include-na").checked = true;
       const near = getNearThreeMonths();
       setMonthChecks(near);
       const names = near.slice().sort((a, b) => a - b).map((m) => MONTH_NAMES[m - 1]).join(", ");
-      if (pill) pill.textContent = `Preset Aktif: ⚡ Terbit Terdekat (${names})`;
-      if (!silent) appendLog(`📌 Preset Aktif: ⚡ Terbit Terdekat (${names}, SINTA 3–6, Target 25).`);
+      if (!silent) appendLog(`Preset Aktif: Terbit Terdekat (${names}, SINTA 3–6).`);
     } else if (key === "reputasi") {
       setSintaChecks([1, 2]);
-      $("select-target").value = "25";
+      setTargetCount(25);
       $("chk-only-free").checked = false;
       $("chk-include-na").checked = true;
+      $("input-max-rp").value = "15.000.000";
       setMonthChecks([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-      if (pill) pill.textContent = "Preset Aktif: 🏆 Reputasi Tinggi (S1–S2)";
-      if (!silent) appendLog("📌 Preset Aktif: 🏆 Reputasi Tinggi (SINTA 1 & 2, Target 25).");
+      if (!silent) appendLog("Preset Aktif: Reputasi Tinggi (SINTA 1–2).");
     }
+    updateActiveFilterBadge();
+  }
+
+  function resetAllFilters() {
+    $("chk-garuda").checked = true;
+    $("chk-sinta-src").checked = true;
+    $("chk-include-unknown-month").checked = true;
+    $("chk-match").checked = true;
+    $("chk-turbo").checked = true;
+    $("chk-selenium").checked = false;
+    $("chk-ai").checked = true;
+    $("select-ai-workers").value = "2";
+    document.querySelectorAll('input[name="fmt"]').forEach((cb) => {
+      cb.checked = cb.value === ".xlsx" || cb.value === ".md";
+    });
+    applyPreset("skripsi", false);
+    showToast("Filter dikembalikan ke pengaturan default.");
   }
 
   function parseCurrency(raw) {
@@ -174,6 +237,7 @@
     const sinta = Array.from(document.querySelectorAll('input[name="sinta"]:checked')).map((c) => Number(c.value));
     const months = Array.from(document.querySelectorAll('input[name="month"]:checked')).map((c) => Number(c.value));
     const formats = Array.from(document.querySelectorAll('input[name="fmt"]:checked')).map((c) => c.value);
+    const target = clampTarget($("target-count").value);
 
     return {
       keyword: $("input-keyword").value.trim(),
@@ -183,13 +247,13 @@
       include_unknown: $("chk-include-unknown-month").checked,
       min_rp: parseCurrency($("input-min-rp").value),
       max_rp: parseCurrency($("input-max-rp").value) || 15000000,
-      target: Number($("select-target").value) || 25,
+      target,
       garuda: $("chk-garuda").checked,
       sinta_src: $("chk-sinta-src").checked,
       only_free: $("chk-only-free").checked,
       include_na: $("chk-include-na").checked,
       match: $("chk-match").checked,
-      turbo: $("chk-turbo").checked,
+      turbo: $("chk-turbo").checked || target >= 100,
       selenium: $("chk-selenium").checked,
       ai_enabled: $("chk-ai").checked,
       ai_workers: Number($("select-ai-workers").value) || 2,
@@ -197,7 +261,7 @@
     };
   }
 
-  // ── Render Results Table & Sortable Columns ──────────────────────────────────
+  // ── Results Rendering & Sortable Table ───────────────────────────────────────
   function classifyApc(item) {
     const cat = item.apc_category;
     if (cat === "free" || cat === "paid" || cat === "unknown") return cat;
@@ -210,30 +274,23 @@
 
   function renderResultsTable(items) {
     const tbody = $("results-tbody");
-    if (!tbody) return;
+    const emptyPanel = $("empty-state-panel");
+    const tableWrap = $("results-table-wrap");
+    if (!tbody || !emptyPanel || !tableWrap) return;
+
     tbody.innerHTML = "";
     state.selectedIndex = -1;
     $("btn-copy-editor").disabled = true;
 
-    if (!items || items.length === 0) {
-      const tr = document.createElement("tr");
-      tr.className = "empty-row";
-      const td = document.createElement("td");
-      td.colSpan = 7;
-      td.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-icon" aria-hidden="true">📚</div>
-          <p><strong>Belum ada jurnal yang ditampilkan.</strong></p>
-          <p class="muted">Coba kata kunci lain atau periksa kembali filter SINTA/Bulan Anda.</p>
-        </div>`;
-      tr.appendChild(td);
-      tbody.appendChild(tr);
-      $("btn-copy-wa").disabled = true;
+    const hasItems = Array.isArray(items) && items.length > 0;
+    emptyPanel.classList.toggle("is-hidden", hasItems);
+    tableWrap.classList.toggle("is-hidden", !hasItems);
+    $("btn-copy-wa").disabled = !hasItems;
+
+    if (!hasItems) {
       updateVisibleRowNumbers();
       return;
     }
-
-    $("btn-copy-wa").disabled = false;
 
     items.forEach((item, idx) => {
       const tr = document.createElement("tr");
@@ -255,12 +312,10 @@
       tr.dataset.sortBiaya_sort = String(item.biaya_sort ?? 999999999);
       tr.dataset.sortJadwal_sort = String(item.terbit_terdekat || "zzz");
 
-      // #
       const tdNum = document.createElement("td");
       tdNum.className = "col-num";
       tdNum.textContent = String(idx + 1);
 
-      // Nama & Penerbit
       const tdName = document.createElement("td");
       const nm = document.createElement("span");
       nm.className = "j-name";
@@ -275,18 +330,16 @@
       if (item.health_warning) {
         const warn = document.createElement("span");
         warn.className = "j-warn";
-        warn.textContent = "⚠ Data kontak/jadwal minim — cek situs";
+        warn.textContent = "Data kontak/jadwal minim — cek situs";
         tdName.appendChild(warn);
       }
 
-      // SINTA
       const tdSinta = document.createElement("td");
       const badgeSinta = document.createElement("span");
       badgeSinta.className = "badge badge-sinta";
       badgeSinta.textContent = item.sinta ? `SINTA ${item.sinta}` : "Garuda";
       tdSinta.appendChild(badgeSinta);
 
-      // Match
       const tdMatch = document.createElement("td");
       const scoreEl = document.createElement("div");
       scoreEl.className = "match-score";
@@ -296,7 +349,6 @@
       levelEl.textContent = item.kesesuaian_naskah || "Cukup Sesuai";
       tdMatch.append(scoreEl, levelEl);
 
-      // Biaya APC
       const tdApc = document.createElement("td");
       const badgeApc = document.createElement("span");
       badgeApc.className =
@@ -311,7 +363,6 @@
         tdApc.appendChild(subNote);
       }
 
-      // Jadwal Terbit
       const tdJadwal = document.createElement("td");
       const jadTop = document.createElement("div");
       jadTop.textContent = item.jadwal_terbit || "-";
@@ -320,7 +371,6 @@
       jadEst.textContent = `Terdekat: ${item.terbit_terdekat || "-"}`;
       tdJadwal.append(jadTop, jadEst);
 
-      // Kontak & Aksi
       const tdAct = document.createElement("td");
       const contactLine = document.createElement("div");
       contactLine.className = "muted";
@@ -333,7 +383,7 @@
       const btnDetail = document.createElement("button");
       btnDetail.type = "button";
       btnDetail.className = "btn btn-secondary btn-xs";
-      btnDetail.textContent = "🔎 Detail";
+      btnDetail.textContent = "Detail";
       btnDetail.addEventListener("click", (ev) => {
         ev.stopPropagation();
         selectRow(idx);
@@ -345,7 +395,7 @@
         const btnWeb = document.createElement("button");
         btnWeb.type = "button";
         btnWeb.className = "btn btn-ghost btn-xs";
-        btnWeb.textContent = "🌐 Web";
+        btnWeb.textContent = "Buka Web";
         btnWeb.addEventListener("click", (ev) => {
           ev.stopPropagation();
           if (hasApi()) window.pywebview.api.open_url(item.url);
@@ -372,8 +422,7 @@
 
   function updateVisibleRowNumbers() {
     let visible = 0;
-    const rows = document.querySelectorAll("#results-tbody tr:not(.empty-row)");
-    rows.forEach((tr) => {
+    document.querySelectorAll("#results-tbody tr").forEach((tr) => {
       if (!tr.classList.contains("is-hidden")) {
         visible += 1;
         const numCell = tr.querySelector("td.col-num");
@@ -391,7 +440,7 @@
     const q = ($("filter-search").value || "").trim().toLowerCase();
     const apc = $("filter-apc").value || "all";
 
-    document.querySelectorAll("#results-tbody tr:not(.empty-row)").forEach((tr) => {
+    document.querySelectorAll("#results-tbody tr").forEach((tr) => {
       const matchText = !q || (tr.dataset.search || "").includes(q);
       const matchApc = apc === "all" || tr.dataset.apc === apc;
       tr.classList.toggle("is-hidden", !(matchText && matchApc));
@@ -399,39 +448,38 @@
     updateVisibleRowNumbers();
   }
 
-  function sortTableBy(colKey, sortType, thEl) {
+  function sortTableBy(colKey, sortType, thEl, labelText) {
     const tbody = $("results-tbody");
     if (!tbody || !state.results.length) return;
 
-    const currentSort = thEl.getAttribute("aria-sort");
-    const nextDir = currentSort === "ascending" ? "descending" : "ascending";
-
-    document.querySelectorAll("#results-table thead th[aria-sort]").forEach((th) => {
-      th.setAttribute("aria-sort", th === thEl ? nextDir : "none");
+    const nextDir = thEl.getAttribute("aria-sort") === "ascending" ? "descending" : "ascending";
+    document.querySelectorAll("#results-table thead th").forEach((th) => {
+      if (th === thEl) th.setAttribute("aria-sort", nextDir);
+      else th.removeAttribute("aria-sort");
     });
 
     const dataKey = "sort" + colKey.charAt(0).toUpperCase() + colKey.slice(1);
-    const rows = Array.from(tbody.querySelectorAll("tr:not(.empty-row)"));
+    const rows = Array.from(tbody.querySelectorAll("tr"));
     rows.sort((a, b) => {
       const va = a.dataset[dataKey] ?? "";
       const vb = b.dataset[dataKey] ?? "";
-      let cmp = 0;
-      if (sortType === "num") {
-        cmp = (Number(va) || 0) - (Number(vb) || 0);
-      } else {
-        cmp = collator.compare(va, vb);
-      }
+      const cmp =
+        sortType === "number"
+          ? (Number(va) || 0) - (Number(vb) || 0)
+          : collator.compare(va, vb);
       return nextDir === "ascending" ? cmp : -cmp;
     });
 
     rows.forEach((row) => {
-      if (typeof tbody.moveBefore === "function") {
-        tbody.moveBefore(row, null);
-      } else {
-        tbody.appendChild(row);
-      }
+      if (typeof tbody.moveBefore === "function") tbody.moveBefore(row, null);
+      else tbody.appendChild(row);
     });
+
     updateVisibleRowNumbers();
+    const status = $("sort-status");
+    if (status) {
+      status.textContent = `Diurutkan berdasarkan ${labelText}, ${nextDir === "ascending" ? "menaik" : "menurun"}, ${rows.length} baris`;
+    }
   }
 
   function openJournalDetail(idx) {
@@ -452,7 +500,7 @@
       ["Email Redaksi", item.email || "-"],
       ["Telepon / WA", item.telepon || "-"],
       ["Focus & Scope", item.focus_scope || "-", true],
-      ["Catatan & Tautan Biaya", item.apc_url || item.url || "-", true],
+      ["Tautan Situs / Halaman Biaya", item.apc_url || item.url || "-", true],
     ];
 
     const grid = document.createElement("div");
@@ -473,7 +521,7 @@
     openDialog("dialog-detail");
   }
 
-  // ── Backend Sync & Actions ───────────────────────────────────────────────────
+  // ── Backend Sync & Polling ───────────────────────────────────────────────────
   function updateProgressBar(prefix, done, total) {
     const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
     $(`${prefix}-prog-text`).textContent = `${done} / ${total}`;
@@ -482,13 +530,22 @@
     if (wrap) wrap.setAttribute("aria-valuenow", String(pct));
   }
 
-  function updateRunningUI(running) {
+  function updateRunningUI(running, phaseStatus) {
     state.running = running;
     $("btn-start").classList.toggle("is-hidden", running);
     $("btn-stop").classList.toggle("is-hidden", !running);
     const badge = $("run-state-badge");
-    badge.textContent = running ? "Sedang Berjalan..." : "Siap Mencari";
-    badge.classList.toggle("is-running", running);
+    if (badge) {
+      badge.textContent = phaseStatus || (running ? "Sedang mencari..." : "Siap mencari");
+      badge.classList.toggle("is-running", running);
+    }
+    if (running && $("scrape-label")) {
+      $("scrape-label").textContent = "Mencari jurnal dari SINTA & Garuda...";
+      $("ai-label").textContent = "Memeriksa biaya & jadwal terbit...";
+    } else if (!running && state.results.length > 0) {
+      $("scrape-label").textContent = "Pencarian portal selesai";
+      $("ai-label").textContent = "Pemeriksaan biaya & jadwal selesai";
+    }
   }
 
   function applyStatusSnapshot(st) {
@@ -514,7 +571,7 @@
     const aiText = $("ai-status-text");
     if (typeof st.ollama_active === "boolean" && aiPill && aiText) {
       aiPill.classList.toggle("is-ai-ready", st.ollama_active);
-      aiText.textContent = st.ollama_active ? "● AI Aktif" : "○ Mode Regex";
+      aiText.textContent = st.ollama_active ? "AI Ollama Aktif" : "Mode Regex Cepat";
     }
 
     if (typeof st.cache_count === "number") {
@@ -532,7 +589,7 @@
       renderResultsTable(state.results);
     }
 
-    updateRunningUI(!!st.running);
+    updateRunningUI(!!st.running, st.phase_status);
     if (!st.running && state.pollTimer) {
       clearInterval(state.pollTimer);
       state.pollTimer = null;
@@ -551,27 +608,29 @@
   }
 
   async function startSearch(ev) {
-    ev.preventDefault();
+    if (ev) ev.preventDefault();
     if (!hasApi()) {
-      showToast("Bridge Python WebView2 belum siap.");
+      showToast("Menunggu sambungan desktop selesai dimuat...");
       return;
     }
     const params = collectParams();
     if (!params.keyword) {
-      showToast("Masukkan kata kunci terlebih dahulu.");
+      showToast("Masukkan topik atau kata kunci penelitian terlebih dahulu.");
       $("input-keyword").focus();
       return;
     }
     if (!params.garuda && !params.sinta_src) {
-      showToast("Pilih setidaknya satu sumber (Garuda atau SINTA).");
+      showToast("Aktifkan minimal satu portal (Garuda atau SINTA) di Filter Lanjutan.");
       return;
     }
 
-    updateRunningUI(true);
+    setTargetCount(params.target);
+    updateRunningUI(true, "Mencari jurnal dari SINTA & Garuda...");
     updateProgressBar("scrape", 0, params.target);
     updateProgressBar("ai", 0, 0);
 
-    const res = await window.pywebview.api.start_scrape(params);
+    const apiMethod = window.pywebview.api.start_search || window.pywebview.api.start_scrape;
+    const res = await apiMethod(params);
     if (res && res.ok === false) {
       updateRunningUI(false);
       showToast(res.message || "Gagal memulai pencarian.");
@@ -579,6 +638,22 @@
     }
     if (!state.pollTimer) {
       state.pollTimer = setInterval(pollStatusOnce, 250);
+    }
+  }
+
+  async function uploadManuscript() {
+    if (!hasApi()) return;
+    const apiMethod = window.pywebview.api.upload_manuscript || window.pywebview.api.pick_manuscript;
+    const res = await apiMethod();
+    if (res && res.path) {
+      state.manuscriptPath = res.path;
+      $("manuscript-name").textContent = res.name || res.path;
+      $("manuscript-banner").classList.remove("is-hidden");
+      $("btn-clear-manuscript").classList.remove("is-hidden");
+      if (res.suggested_keyword && !$("input-keyword").value.trim()) {
+        $("input-keyword").value = res.suggested_keyword;
+      }
+      appendLog(`Naskah dilampirkan: ${res.name || res.path}`);
     }
   }
 
@@ -608,62 +683,97 @@
     }
   }
 
-  function startAiTaskPoll() {
-    if (!state.aiPollTimer) {
-      state.aiPollTimer = setInterval(refreshAiSetupDialog, 350);
-    }
-  }
-
   function bindEvents() {
-    syncThemeUI();
     setupDialogs();
+
+    window.addEventListener("storage", (e) => {
+      if (e.key === "color-scheme") {
+        applyScheme(e.newValue || "light");
+      }
+    });
 
     $("btn-theme-toggle").addEventListener("click", toggleTheme);
     $("btn-guide").addEventListener("click", () => openDialog("dialog-guide"));
+    $("btn-advanced-filter").addEventListener("click", () => openDialog("dialog-filters"));
+
+    $("btn-apply-filters").addEventListener("click", () => {
+      setTargetCount($("modal-target-count").value);
+      updateActiveFilterBadge();
+      const dlg = $("dialog-filters");
+      if (dlg && dlg.open) dlg.close();
+      showToast("Filter pencarian diterapkan.");
+    });
+
+    $("btn-reset-filters").addEventListener("click", resetAllFilters);
+
     $("btn-ai-status").addEventListener("click", () => {
       openDialog("dialog-ai-setup");
       refreshAiSetupDialog();
     });
+
     $("btn-open-ai-modal").addEventListener("click", () => {
+      const fd = $("dialog-filters");
+      if (fd && fd.open) fd.close();
       openDialog("dialog-ai-setup");
       refreshAiSetupDialog();
+    });
+
+    $("target-count").addEventListener("input", (e) => {
+      if ($("modal-target-count")) $("modal-target-count").value = e.target.value;
+    });
+    $("target-count").addEventListener("change", (e) => setTargetCount(e.target.value));
+
+    $("modal-target-count").addEventListener("input", (e) => {
+      if ($("target-count")) $("target-count").value = e.target.value;
+    });
+    $("modal-target-count").addEventListener("change", (e) => setTargetCount(e.target.value));
+
+    document.querySelectorAll(".chip-btn[data-target-val]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        setTargetCount(btn.getAttribute("data-target-val"));
+      });
+    });
+
+    document.querySelectorAll("#dialog-filters input, #dialog-filters select").forEach((el) => {
+      el.addEventListener("change", updateActiveFilterBadge);
     });
 
     document.querySelectorAll(".preset-card").forEach((btn) => {
       btn.addEventListener("click", () => applyPreset(btn.getAttribute("data-preset"), false));
     });
 
-    $("btn-months-all").addEventListener("click", () => setMonthChecks([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]));
-    $("btn-months-none").addEventListener("click", () => setMonthChecks([]));
-    $("btn-months-near").addEventListener("click", () => setMonthChecks(getNearThreeMonths()));
+    $("btn-months-all").addEventListener("click", () => {
+      setMonthChecks([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+      updateActiveFilterBadge();
+    });
+    $("btn-months-none").addEventListener("click", () => {
+      setMonthChecks([]);
+      updateActiveFilterBadge();
+    });
+    $("btn-months-near").addEventListener("click", () => {
+      setMonthChecks(getNearThreeMonths());
+      updateActiveFilterBadge();
+    });
 
     $("search-form").addEventListener("submit", startSearch);
     $("btn-stop").addEventListener("click", async () => {
       if (hasApi()) {
         await window.pywebview.api.stop_scrape();
-        showToast("Menghentikan proses...");
+        showToast("Menghentikan pencarian...");
       }
     });
 
-    $("btn-pick-manuscript").addEventListener("click", async () => {
-      if (!hasApi()) return;
-      const res = await window.pywebview.api.pick_manuscript();
-      if (res && res.path) {
-        state.manuscriptPath = res.path;
-        $("manuscript-name").textContent = res.name || res.path;
-        $("manuscript-banner").classList.remove("is-hidden");
-        $("btn-clear-manuscript").classList.remove("is-hidden");
-        if (res.suggested_keyword && !$("input-keyword").value.trim()) {
-          $("input-keyword").value = res.suggested_keyword;
-        }
-        appendLog(`📎 Naskah dilampirkan: ${res.name || res.path}`);
-      }
-    });
-
+    $("btn-pick-manuscript").addEventListener("click", uploadManuscript);
     $("btn-clear-manuscript").addEventListener("click", () => {
       state.manuscriptPath = "";
       $("manuscript-banner").classList.add("is-hidden");
       $("btn-clear-manuscript").classList.add("is-hidden");
+    });
+
+    $("btn-toggle-log").addEventListener("click", () => {
+      const drawer = $("technical-log-drawer");
+      const hidden = drawer.classList.toggle("is-hidden");
+      $("btn-toggle-log").setAttribute("aria-expanded", hidden ? "false" : "true");
     });
 
     $("btn-clear-cache").addEventListener("click", async () => {
@@ -680,35 +790,31 @@
       const btn = th.querySelector(".th-sort");
       if (!btn) return;
       btn.addEventListener("click", () => {
-        sortTableBy(th.dataset.sortKey, th.dataset.sortType, th);
+        sortTableBy(th.dataset.sortKey, th.dataset.sortType, th, btn.textContent.trim());
       });
     });
 
     $("btn-copy-wa").addEventListener("click", async () => {
       if (!hasApi()) return;
-      const visibleIndices = Array.from(document.querySelectorAll("#results-tbody tr:not(.empty-row):not(.is-hidden)"))
+      const visibleIndices = Array.from(document.querySelectorAll("#results-tbody tr:not(.is-hidden)"))
         .map((tr) => Number(tr.dataset.idx));
       const res = await window.pywebview.api.copy_share_list(visibleIndices);
       showToast(res && res.ok ? "Daftar format Share WA disalin ke clipboard!" : "Belum ada data untuk disalin.");
     });
 
-    $("btn-copy-editor").addEventListener("click", async () => {
-      if (!hasApi() || state.selectedIndex < 0) return;
-      const res = await window.pywebview.api.copy_editor_chat(state.selectedIndex, $("input-keyword").value.trim());
-      showToast(res && res.ok ? "Draf chat editor disalin ke clipboard!" : "Gagal menyalin draf chat.");
-    });
+    const copyEditorHandler = async (idx) => {
+      if (!hasApi() || idx < 0) return;
+      const fn = window.pywebview.api.copy_editor_draft || window.pywebview.api.copy_editor_chat;
+      const res = await fn(idx, $("input-keyword").value.trim());
+      showToast(res && res.ok ? "Draf pesan editor disalin ke clipboard!" : "Gagal menyalin draf pesan.");
+    };
 
-    $("btn-detail-chat").addEventListener("click", async () => {
-      if (!hasApi() || state.detailIndex < 0) return;
-      const res = await window.pywebview.api.copy_editor_chat(state.detailIndex, $("input-keyword").value.trim());
-      showToast(res && res.ok ? "Draf chat editor disalin ke clipboard!" : "Gagal menyalin draf chat.");
-    });
+    $("btn-copy-editor").addEventListener("click", () => copyEditorHandler(state.selectedIndex));
+    $("btn-detail-chat").addEventListener("click", () => copyEditorHandler(state.detailIndex));
 
     $("btn-detail-open-url").addEventListener("click", () => {
       const item = state.results[state.detailIndex];
-      if (hasApi() && item && item.url) {
-        window.pywebview.api.open_url(item.url);
-      }
+      if (hasApi() && item && item.url) window.pywebview.api.open_url(item.url);
     });
 
     $("btn-open-excel").addEventListener("click", async () => {
@@ -722,7 +828,6 @@
       if (hasApi()) await window.pywebview.api.open_output_folder();
     });
 
-    // AI Modal Buttons
     $("btn-ai-refresh").addEventListener("click", refreshAiSetupDialog);
     $("btn-ai-launch").addEventListener("click", async () => {
       if (!hasApi()) return;
@@ -733,18 +838,19 @@
     $("btn-ai-install").addEventListener("click", async () => {
       if (!hasApi()) return;
       await window.pywebview.api.install_ollama();
-      startAiTaskPoll();
+      if (!state.aiPollTimer) state.aiPollTimer = setInterval(refreshAiSetupDialog, 350);
     });
     $("btn-ai-pull").addEventListener("click", async () => {
       if (!hasApi()) return;
       await window.pywebview.api.pull_ai_model();
-      startAiTaskPoll();
+      if (!state.aiPollTimer) state.aiPollTimer = setInterval(refreshAiSetupDialog, 350);
     });
   }
 
   function onBridgeReady() {
     applyPreset("skripsi", true);
-    appendLog("✨ JSFS v2.0 siap digunakan (WebView2 Hardware-Accelerated Desktop UI).");
+    renderResultsTable([]);
+    appendLog("JSFS v2.0.1 siap digunakan.");
     pollStatusOnce();
     setTimeout(pollStatusOnce, 700);
   }
@@ -758,4 +864,3 @@
     }
   });
 })();
-

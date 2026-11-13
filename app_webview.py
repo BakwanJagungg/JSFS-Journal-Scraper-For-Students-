@@ -77,11 +77,11 @@ def _run_scraper(params: dict, on_progress, cancel: threading.Event, on_log=None
 
     keyword = params["keyword"]
     sinta_ranks = sorted(list(params["sinta"]))
-    target = params["target"]
-    candidate_target = max(target * 3, 60)
+    target = max(1, min(1000, int(params.get("target", 25))))
+    candidate_target = min(max(target * 2, 60), 1500)
     use_garuda = params["garuda"]
     use_sinta = params["sinta_src"]
-    turbo = params.get("turbo", True)
+    turbo = bool(params.get("turbo", True)) or target >= 100
     use_selenium = params.get("selenium", False)
 
     def _scrape_pass(kw_query: str) -> list:
@@ -164,6 +164,7 @@ class JSFSApi:
         self._worker: Optional[threading.Thread] = None
 
         self._running = False
+        self._phase_status = "Siap mencari jurnal"
         self._logs: list[str] = []
         self._progress = {"scrape_done": 0, "scrape_target": 0, "ai_done": 0, "ai_target": 0}
         self._kpi = {"total": 0, "free": 0, "paid": 0, "fast": 0}
@@ -303,9 +304,13 @@ class JSFSApi:
                 "results_version": self._results_version,
                 "excel_path": self._latest_excel_path,
                 "running": self._running,
+                "phase_status": self._phase_status,
                 "ollama_active": self._ollama_active,
                 "cache_count": self._cache_count,
             }
+
+    def start_search(self, params: dict[str, Any]) -> dict[str, Any]:
+        return self.start_scrape(params)
 
     def start_scrape(self, params: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
@@ -313,7 +318,16 @@ class JSFSApi:
                 return {"ok": False, "message": "Proses pencarian masih berlangsung."}
             self._running = True
             self._cancel_evt.clear()
-            target = int(params.get("target", 25))
+            try:
+                raw_target = int(params.get("target", 25))
+            except (TypeError, ValueError):
+                raw_target = 25
+            target = max(1, min(1000, raw_target))
+            params = dict(params)
+            params["target"] = target
+            if target >= 100:
+                params["turbo"] = True
+            self._phase_status = "Mencari jurnal dari SINTA & Garuda..."
             self._progress = {"scrape_done": 0, "scrape_target": target, "ai_done": 0, "ai_target": 0}
             self._kpi = {"total": 0, "free": 0, "paid": 0, "fast": 0}
             self._latest_excel_path = ""
@@ -335,7 +349,8 @@ class JSFSApi:
 
         try:
             keyword = str(p.get("keyword", "")).strip()
-            target = int(p.get("target", 25))
+            target = max(1, min(1000, int(p.get("target", 25))))
+            turbo_mode = bool(p.get("turbo", True)) or target >= 100
             sinta_set = {int(x) for x in p.get("sinta", [1, 2, 3, 4, 5, 6])}
             months_set = {int(x) for x in p.get("months", list(range(1, 13)))}
             include_unknown_month = bool(p.get("include_unknown", True))
@@ -344,7 +359,10 @@ class JSFSApi:
             ai_engine.set_workers(int(p.get("ai_workers", 2)))
             with self._lock:
                 self._ollama_active = bool(ai_engine.check_ollama_active())
+                self._phase_status = "Mencari jurnal dari SINTA & Garuda..."
 
+            if target >= 100:
+                self._log(f"⚡ Target {target} jurnal: Turbo Mode diaktifkan otomatis untuk kecepatan maksimal.")
             self._log(f"Fase 1: Scraping massal untuk '{keyword}' (Target: {target} jurnal)...")
             records = _run_scraper(
                 {
@@ -353,7 +371,7 @@ class JSFSApi:
                     "target": target,
                     "garuda": bool(p.get("garuda", True)),
                     "sinta_src": bool(p.get("sinta_src", True)),
-                    "turbo": bool(p.get("turbo", True)),
+                    "turbo": turbo_mode,
                     "selenium": bool(p.get("selenium", False)),
                 },
                 on_progress=lambda d, t: self._set_scrape_prog(d, t),
@@ -395,6 +413,8 @@ class JSFSApi:
                 return
 
             # FASE 3: Regex-First, AI-Second
+            with self._lock:
+                self._phase_status = "Memeriksa biaya & jadwal terbit..."
             self._log(
                 f"Fase 3: Ekstraksi Regex-First (AI selektif maks {ai_engine.MAX_AI_QUEUE_JOURNALS} "
                 f"jurnal jika kosong) untuk {len(survivors)} jurnal..."
@@ -535,6 +555,10 @@ class JSFSApi:
     def _finish_run(self):
         with self._lock:
             self._running = False
+            self._phase_status = "Selesai" if self._serialized_results else "Siap mencari jurnal"
+
+    def upload_manuscript(self) -> dict[str, Any]:
+        return self.pick_manuscript()
 
     def pick_manuscript(self) -> dict[str, Any]:
         if not self._window:
@@ -577,6 +601,9 @@ class JSFSApi:
         text = exporter.generate_copypaste_list(subset)
         ok = _copy_to_clipboard(text)
         return {"ok": ok, "text": text}
+
+    def copy_editor_draft(self, index: int, keyword: str = "") -> dict[str, Any]:
+        return self.copy_editor_chat(index, keyword)
 
     def copy_editor_chat(self, index: int, keyword: str = "") -> dict[str, Any]:
         with self._lock:

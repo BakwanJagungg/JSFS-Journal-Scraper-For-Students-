@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-11-13
+
+### Improved (Visual-First WebView2 UX Redesign)
+- **Design System & Vector Iconography (`ui_web/index.html`, `ui_web/style.css`, `ui_web/app.js`)**:
+  - Menetapkan *Daylight* theme (`data-theme="light"`) sebagai default dengan token semantik bersih (`--bg-canvas: #f8fafc`, `--bg-surface: #ffffff`, `--border-subtle: #e2e8f0`, `--accent-primary: #2563eb`, `--accent-success: #059669`) serta toggle mulus ke Dark Mode.
+  - Mengganti seluruh emoji tombol/preset dengan ikon vektor **inline SVG 18px–22px** bergaya konsisten.
+- **Custom Target Jurnal 1–1000 & Filter Lanjutan dalam Modal (`ui_web/index.html`, `app_webview.py`)**:
+  - Menambahkan `<input type="number" id="target-count" min="1" max="1000" list="target-presets">` sehingga pengguna bebas mengetik jumlah target jurnal berapa pun (mis. `100`, `500`, `1000`). Target `>= 100` otomatis mengaktifkan Turbo Mode di backend Python (`app_webview.py`).
+  - Memindahkan seluruh opsi teknis (*Pengaturan Lengkap*: SINTA 1–6, Bulan 1–12, Batas Biaya, Turbo, Selenium, Ollama AI) ke `<dialog id="dialog-filters">` agar area tabel hasil tampil dominan *above the fold*.
+- **Strip KPI 1 Baris, Ilustrasi Empty State 3 Langkah & Collapsible Log**:
+  - Memadatkan 4 statistik KPI menjadi 1 baris horizontal ramping (`max-height: 56px`), menghadirkan ilustrasi SVG + panduan 3 langkah saat hasil masih kosong, serta menyembunyikan log teknis di balik tombol **Lihat Log Teknis**.
+
 ## [2.0.0] - 2026-11-13
 
 ### Changed & Added (Major Desktop Re-Architecture)

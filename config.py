@@ -1,6 +1,6 @@
 # =============================================================================
 # JSFS - Journal Scraper For Students
-# config.py — Konfigurasi global scraper v2.0.0 (Modern WebView2 UI + Selectolax Scraper)
+# config.py — Konfigurasi global scraper v2.0.1 (Visual-First WebView2 UI + Selectolax)
 # =============================================================================
 
 import os
@@ -8,7 +8,7 @@ import re
 import sys
 from datetime import datetime
 
-APP_VERSION = "2.0.0"
+APP_VERSION = "2.0.1"
 
 
 def get_app_dir() -> str:
