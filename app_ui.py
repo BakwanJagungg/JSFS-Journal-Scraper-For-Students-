@@ -206,12 +206,15 @@ class DualProgress(ctk.CTkFrame):
 
 
 # ───────────────────────── Pipeline Backend ─────────────────────────
-def run_scraper(params: dict, on_progress, cancel: threading.Event) -> list[JournalEntry]:
+def run_scraper(params: dict, on_progress, cancel: threading.Event, on_log=None) -> list[JournalEntry]:
     """
     Fase 1: Fast Broad Scraping (128 workers HTTP/Selenium).
     Mengumpulkan data mentah (raw_about, raw_submissions, bulan_terbit) tanpa menyentuh LLM.
     v1.6.1: High-Yield Candidate Pool Multiplier (3x over-fetching / minimal 60 kandidat).
+    v1.7.1: Smart Typo Correction & Synonym Auto-Fallback saat hasil = 0.
     """
+    from doc_reader import get_fallback_keywords
+
     keyword = params["keyword"]
     target = int(params["target"])
     candidate_target = max(target * 3, 60)
@@ -221,25 +224,11 @@ def run_scraper(params: dict, on_progress, cancel: threading.Event) -> list[Jour
     turbo = params.get("turbo", True)
     use_selenium = params.get("selenium", False)
 
-    records: list[JournalEntry] = []
-
-    if use_garuda and not cancel.is_set():
-        g_results = scrape_garuda(
-            keyword=keyword,
-            sinta_ranks=sinta_ranks,
-            deep_detail=True,
-            max_results=candidate_target,
-            turbo_mode=turbo,
-            free_only=False,
-            include_unknown_apc=True,
-        )
-        records.extend(g_results)
-        on_progress(len(records), target)
-
-    if use_sinta and not cancel.is_set():
-        if use_selenium:
-            s_results = scrape_sinta_selenium(
-                keyword=keyword,
+    def _scrape_pass(kw_query: str) -> list[JournalEntry]:
+        pass_records: list[JournalEntry] = []
+        if use_garuda and not cancel.is_set():
+            g_results = scrape_garuda(
+                keyword=kw_query,
                 sinta_ranks=sinta_ranks,
                 deep_detail=True,
                 max_results=candidate_target,
@@ -247,18 +236,53 @@ def run_scraper(params: dict, on_progress, cancel: threading.Event) -> list[Jour
                 free_only=False,
                 include_unknown_apc=True,
             )
-        else:
-            s_results = scrape_sinta(
-                keyword=keyword,
-                sinta_ranks=sinta_ranks,
-                deep_detail=True,
-                max_results=candidate_target,
-                turbo_mode=turbo,
-                free_only=False,
-                include_unknown_apc=True,
-            )
-        records.extend(s_results)
-        on_progress(len(records), target)
+            pass_records.extend(g_results)
+            on_progress(len(pass_records), target)
+
+        if use_sinta and not cancel.is_set():
+            if use_selenium:
+                s_results = scrape_sinta_selenium(
+                    keyword=kw_query,
+                    sinta_ranks=sinta_ranks,
+                    deep_detail=True,
+                    max_results=candidate_target,
+                    turbo_mode=turbo,
+                    free_only=False,
+                    include_unknown_apc=True,
+                )
+            else:
+                s_results = scrape_sinta(
+                    keyword=kw_query,
+                    sinta_ranks=sinta_ranks,
+                    deep_detail=True,
+                    max_results=candidate_target,
+                    turbo_mode=turbo,
+                    free_only=False,
+                    include_unknown_apc=True,
+                    allow_selenium_fallback=False,
+                    log_cb=on_log,
+                )
+            pass_records.extend(s_results)
+            on_progress(len(pass_records), target)
+        return pass_records
+
+    records: list[JournalEntry] = _scrape_pass(keyword)
+
+    if not records and not cancel.is_set():
+        fallback_kws = get_fallback_keywords(keyword)
+        if fallback_kws:
+            warn_msg = f"⚠️ Kata kunci '{keyword}' tidak menemukan hasil. Mencoba perluasan kata kunci / koreksi ejaan..."
+            if on_log:
+                on_log(warn_msg)
+            for fb_kw in fallback_kws:
+                if cancel.is_set():
+                    break
+                if on_log:
+                    on_log(f"↻ Mencoba kata kunci alternatif: '{fb_kw}'")
+                fb_records = _scrape_pass(fb_kw)
+                if fb_records:
+                    records.extend(fb_records)
+                    break
 
     if records:
         records = merge_cross_source_entries(records)
@@ -1323,11 +1347,11 @@ class JSFSApp(ctk.CTk):
 
         # Baris 4: progress ganda
         self.progress = DualProgress(body, self.f_n)
-        self.progress.grid(row=4, column=0, sticky="ew", pady=(0, GAP + 2))
+        self.progress.grid(row=4, column=0, sticky="ew", pady=(0, GAP + 4))
 
-        # Baris 5: Live KPI Counter Pills (v1.7.0 F3)
+        # Baris 5: Live KPI Counter Pills (v1.7.0 F3) + Empty State Banner (v1.7.1)
         self.kpi_frame = self._build_kpi_pills(body)
-        self.kpi_frame.grid(row=5, column=0, sticky="ew", pady=(0, GAP + 2))
+        self.kpi_frame.grid(row=5, column=0, sticky="ew", pady=(0, GAP + 4))
 
         # Baris 6-7: log box (Dibuat terlebih dahulu sebelum memanggil preset log)
         lh = ctk.CTkFrame(body, fg_color="transparent")
@@ -1341,15 +1365,19 @@ class JSFSApp(ctk.CTk):
                       command=self._clear_log).grid(row=0, column=1, sticky="e")
         self.log_box = ctk.CTkTextbox(body, height=180, font=self.f_mono, wrap="word", state="disabled")
         self.log_box.grid(row=7, column=0, sticky="nsew", pady=(GAP, PAD))
-        self.log("Selamat datang di JSFS v1.7.0 (Deep APC Hunter & Modern Bright Architecture).")
+        self.log("Selamat datang di JSFS v1.7.1 (Zero-Result Resilience & Soft Slate Daylight).")
 
         # 3. Tampilkan simple mode secara default & terapkan preset awal (aman karena log_box sudah aktif)
-        self.frame_simple_mode.grid(row=3, column=0, sticky="nsew", pady=(0, GAP + 2))
+        self.frame_simple_mode.grid(row=3, column=0, sticky="nsew", pady=(0, GAP + 4))
         self._apply_preset_skripsi()
 
     def _build_kpi_pills(self, parent) -> ctk.CTkFrame:
-        """Membangun 4 kartu Live KPI Counter Pills real-time (v1.7.0 F3)."""
-        frame = ctk.CTkFrame(parent, fg_color="transparent")
+        """Membangun 4 kartu Live KPI Counter Pills + Empty State Banner (v1.7.1)."""
+        outer = ctk.CTkFrame(parent, fg_color="transparent")
+        outer.grid_columnconfigure(0, weight=1)
+
+        frame = ctk.CTkFrame(outer, fg_color="transparent")
+        frame.grid(row=0, column=0, sticky="ew")
         frame.grid_columnconfigure((0, 1, 2, 3), weight=1, uniform="kpi")
 
         pills = [
@@ -1366,7 +1394,23 @@ class JSFSApp(ctk.CTk):
             lbl.pack(padx=8, pady=6)
             setattr(self, attr, lbl)
 
-        return frame
+        self.lbl_empty_banner = ctk.CTkLabel(
+            outer,
+            text="💡 Tips: Coba gunakan kata kunci 1–2 kata umum seperti 'manajemen' atau 'sistem informasi', atau aktifkan Mode Lengkap -> Gunakan Selenium.",
+            font=self.f_s,
+            fg_color=("#fef3c7", "#3b2f13"),
+            text_color=("#92400e", "#fcd34d"),
+            corner_radius=8,
+            anchor="w",
+            justify="left",
+            wraplength=800,
+            padx=12,
+            pady=6,
+        )
+        self.lbl_empty_banner.grid(row=1, column=0, sticky="ew", padx=3, pady=(6, 0))
+        self.lbl_empty_banner.grid_remove()
+
+        return outer
 
     def _update_kpi(self, d: dict):
         """Memperbarui nilai counter KPI secara aman pada main GUI thread."""
@@ -1381,6 +1425,8 @@ class JSFSApp(ctk.CTk):
     def _reset_kpi(self):
         """Mereset nilai counter KPI ke 0 saat memulai run baru."""
         self._update_kpi({"total": 0, "free": 0, "paid": 0, "fast": 0})
+        if hasattr(self, "lbl_empty_banner") and self.lbl_empty_banner:
+            self.lbl_empty_banner.grid_remove()
 
     # ── kartu-kartu ──
     def _row(self, parent, label: str, label_w: int):
@@ -1474,37 +1520,40 @@ class JSFSApp(ctk.CTk):
                      wraplength=300).pack(fill="x", pady=(GAP, 0))
         return card
 
-    # ── kartu mode simpel & preset mahasiswa (v1.5.1) ──
+    # ── kartu mode simpel & preset mahasiswa (v1.5.1 / v1.7.1) ──
     def _build_simple_mode_card(self, parent):
         card, body, _ = make_card(parent, "✨ Pilih Kategori / Preset Cepat Mahasiswa", self.f_h)
         body.grid_columnconfigure(0, weight=1)
         body.grid_columnconfigure(1, weight=1)
 
         presets = [
-            ("🎓 Target Skripsi S1", "SINTA 3–5 • Biaya Murah/Gratis", "#1f6aa5", "#144870", self._apply_preset_skripsi),
-            ("💰 Jurnal Gratis (Rp 0)", "Bebas Biaya Publikasi • S2–S6", "#13a06f", "#0e7a55", self._apply_preset_gratis),
-            ("⚡ Terbit Terdekat", "Edisi 1–3 Bulan ke Depan", "#d97706", "#b45309", self._apply_preset_cepat),
-            ("🏆 Reputasi Tinggi", "SINTA 1 & 2 (Scopus / Nasional)", "#7c3aed", "#6d28d9", self._apply_preset_reputasi),
+            ("skripsi", "🎓 Target Skripsi S1", "SINTA 3–5 • Biaya Murah/Gratis", "#1f6aa5", "#144870", self._apply_preset_skripsi),
+            ("gratis", "💰 Jurnal Gratis (Rp 0)", "Bebas Biaya Publikasi • S2–S6", "#13a06f", "#0e7a55", self._apply_preset_gratis),
+            ("cepat", "⚡ Terbit Terdekat", "Edisi 1–3 Bulan ke Depan", "#d97706", "#b45309", self._apply_preset_cepat),
+            ("reputasi", "🏆 Reputasi Tinggi", "SINTA 1 & 2 (Scopus / Nasional)", "#7c3aed", "#6d28d9", self._apply_preset_reputasi),
         ]
+        self._preset_cards: dict[str, tuple[ctk.CTkFrame, ctk.CTkButton, str]] = {}
 
-        for idx, (title, sub, col, hover_col, cmd) in enumerate(presets):
+        for idx, (key, title, sub, col, hover_col, cmd) in enumerate(presets):
             row_idx = idx // 2
             col_idx = idx % 2
-            btn_f = ctk.CTkFrame(body, fg_color=("#f1f5f9", "#1c1c1c"), corner_radius=8, border_width=1, border_color=BORDER_CARD)
-            btn_f.grid(row=row_idx, column=col_idx, sticky="ew", padx=(0, GAP) if col_idx == 0 else (GAP, 0), pady=4)
+            btn_f = ctk.CTkFrame(body, fg_color=("#f1f5f9", "#1c1c1c"), corner_radius=10, border_width=1, border_color=BORDER_CARD)
+            btn_f.grid(row=row_idx, column=col_idx, sticky="ew", padx=(0, GAP) if col_idx == 0 else (GAP, 0), pady=5)
             btn_f.grid_columnconfigure(0, weight=1)
 
             b = ctk.CTkButton(
                 btn_f,
                 text=title,
                 font=self.f_h,
-                height=34,
+                height=36,
                 fg_color=col,
                 hover_color=hover_col,
+                cursor="hand2",
                 command=cmd,
             )
-            b.grid(row=0, column=0, sticky="ew", padx=6, pady=(6, 2))
-            ctk.CTkLabel(btn_f, text=sub, font=self.f_s, text_color=MUTED).grid(row=1, column=0, sticky="ew", padx=6, pady=(0, 6))
+            b.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 3))
+            ctk.CTkLabel(btn_f, text=sub, font=self.f_s, text_color=MUTED).grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 8))
+            self._preset_cards[key] = (btn_f, b, col)
 
         ctrl_row = ctk.CTkFrame(body, fg_color="transparent")
         ctrl_row.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(GAP + 2, 0))
@@ -1546,6 +1595,24 @@ class JSFSApp(ctk.CTk):
     def _on_simple_target_change(self, val: str):
         self.cmb_target.set(val)
 
+    def _set_active_preset_ui(self, active_key: str):
+        """Sorot kartu Quick Preset yang sedang aktif dengan indikator kontras (v1.7.1)."""
+        if not hasattr(self, "_preset_cards"):
+            return
+        for key, (frame, _btn, accent) in self._preset_cards.items():
+            if key == active_key:
+                frame.configure(
+                    border_width=2,
+                    border_color=accent,
+                    fg_color=("#e0f2fe", "#1e293b"),
+                )
+            else:
+                frame.configure(
+                    border_width=1,
+                    border_color=BORDER_CARD,
+                    fg_color=("#f1f5f9", "#1c1c1c"),
+                )
+
     def _apply_preset_skripsi(self):
         for n in (1, 2, 6):
             self.sinta_vars[n].set(False)
@@ -1563,6 +1630,7 @@ class JSFSApp(ctk.CTk):
         self.month_filter._set_all(True)
         if hasattr(self, "lbl_active_preset"):
             self.lbl_active_preset.configure(text="Preset Aktif: 🎓 Target Skripsi S1 (S3–S5)")
+        self._set_active_preset_ui("skripsi")
         self.log("📌 Preset Aktif: 🎓 Target Skripsi S1 (SINTA 3–5, Target 25, Biaya maks Rp 1,5 jt, Semua Bulan).")
 
     def _apply_preset_gratis(self):
@@ -1577,6 +1645,7 @@ class JSFSApp(ctk.CTk):
         self.month_filter._set_all(True)
         if hasattr(self, "lbl_active_preset"):
             self.lbl_active_preset.configure(text="Preset Aktif: 💰 Jurnal Gratis (Rp 0)")
+        self._set_active_preset_ui("gratis")
         self.log("📌 Preset Aktif: 💰 Jurnal Bebas Biaya (Hanya jurnal tanpa biaya publikasi / Bebas APC, S2–S6).")
 
     def _apply_preset_cepat(self):
@@ -1600,6 +1669,7 @@ class JSFSApp(ctk.CTk):
         m_names = [self.month_filter.NAMES[m - 1] for m in sorted(target_months)]
         if hasattr(self, "lbl_active_preset"):
             self.lbl_active_preset.configure(text=f"Preset Aktif: ⚡ Terbit Terdekat ({', '.join(m_names)})")
+        self._set_active_preset_ui("cepat")
         self.log(f"📌 Preset Aktif: ⚡ Terbit Terdekat (Edisi terbit {', '.join(m_names)}, S3–S6, Target 25).")
 
     def _apply_preset_reputasi(self):
@@ -1615,6 +1685,7 @@ class JSFSApp(ctk.CTk):
         self.month_filter._set_all(True)
         if hasattr(self, "lbl_active_preset"):
             self.lbl_active_preset.configure(text="Preset Aktif: 🏆 Reputasi Tinggi (S1–S2)")
+        self._set_active_preset_ui("reputasi")
         self.log("📌 Preset Aktif: 🏆 Reputasi Tinggi (SINTA 1 & 2 / Nasional Akreditasi A & Scopus untuk tesis/hibah).")
 
     # ── action bar (dipatok di bawah) ──
@@ -1634,7 +1705,8 @@ class JSFSApp(ctk.CTk):
         self.btn_preview.grid(row=0, column=1, sticky="ew", padx=(0, GAP))
 
         self.btn_copy_list = ctk.CTkButton(bar, text="📋 Salin Daftar (Share WA)", height=46, font=self.f_btn,
-                                          fg_color=INDIGO, hover_color=INDIGO_H, state="disabled",
+                                          fg_color=("#cbd5e1", "#334155"), hover_color=INDIGO_H,
+                                          text_color=("#64748b", "#94a3b8"), state="disabled",
                                           command=self._copy_main_share_list)
         self.btn_copy_list.grid(row=0, column=2, sticky="ew")
 
@@ -1751,14 +1823,28 @@ class JSFSApp(ctk.CTk):
             self.btn_start.configure(text="HENTIKAN", fg_color=RED, hover_color=RED_H, command=self._on_stop)
             self.btn_preview.configure(state="disabled")
             if hasattr(self, "btn_copy_list"):
-                self.btn_copy_list.configure(state="disabled")
+                self.btn_copy_list.configure(
+                    state="disabled",
+                    fg_color=("#cbd5e1", "#334155"),
+                    text_color=("#64748b", "#94a3b8"),
+                )
         else:
             self.btn_start.configure(text="MULAI SCRAPING", fg_color=BLUE, hover_color=BLUE_H,
                                      command=self._on_start)
             if self._latest_results:
                 self.btn_preview.configure(state="normal")
                 if hasattr(self, "btn_copy_list"):
-                    self.btn_copy_list.configure(state="normal")
+                    self.btn_copy_list.configure(
+                        state="normal",
+                        fg_color=INDIGO,
+                        text_color="#ffffff",
+                    )
+            elif hasattr(self, "btn_copy_list"):
+                self.btn_copy_list.configure(
+                    state="disabled",
+                    fg_color=("#cbd5e1", "#334155"),
+                    text_color=("#64748b", "#94a3b8"),
+                )
 
     def _collect_params(self) -> dict:
         digits = lambda s: int(re.sub(r"\D", "", s) or 0)
@@ -1850,7 +1936,12 @@ class JSFSApp(ctk.CTk):
         try:
             # FASE 1: Fast Broad Scraping (128 Workers)
             q.put(("log", f"Fase 1: Scraping massal untuk '{p['keyword']}' (Target: {p['target']} jurnal)..."))
-            records = run_scraper(p, lambda d, t: q.put(("scrape", d, t)), self.cancel_evt)
+            records = run_scraper(
+                p,
+                lambda d, t: q.put(("scrape", d, t)),
+                self.cancel_evt,
+                on_log=lambda msg: q.put(("log", msg)),
+            )
             if self.cancel_evt.is_set():
                 q.put(("done", None))
                 return
@@ -2029,12 +2120,21 @@ class JSFSApp(ctk.CTk):
                 else:
                     self._insert_log_batch([f"[{time.strftime('%H:%M:%S')}] ✔ Selesai. {msg[1]} jurnal berhasil diekspor ke folder output/."])
                     if self._latest_results:
+                        if hasattr(self, "lbl_empty_banner") and self.lbl_empty_banner:
+                            self.lbl_empty_banner.grid_remove()
                         self.btn_preview.configure(
                             state="normal",
                             text=f"PREVIEW HASIL ({len(self._latest_results)})",
                         )
                         if hasattr(self, "btn_copy_list"):
-                            self.btn_copy_list.configure(state="normal")
+                            self.btn_copy_list.configure(
+                                state="normal",
+                                fg_color=INDIGO,
+                                text_color="#ffffff",
+                            )
+                    else:
+                        if hasattr(self, "lbl_empty_banner") and self.lbl_empty_banner:
+                            self.lbl_empty_banner.grid()
         self.after(80, self._poll_queue)
 
     def _on_close(self):

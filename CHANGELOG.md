@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.1] - 2026-11-13
+
+### Added & Enhanced
+- **Zero-Result Resilience & Smart Typo Auto-Correction (`doc_reader.py`, `scraper_garuda.py`, `scraper_sinta.py`, `jsfs.py`, `app_ui.py`)**:
+  - Menambahkan koreksi salah ketik kata kunci akademik berbasis `difflib.get_close_matches()` (`correct_keyword_typo()`) terhadap kamus akademik populer (mis. `bisins` → `bisnis`, `akutansi` → `akuntansi`, `manajmen` → `manajemen`).
+  - Menambahkan `get_fallback_keywords()` untuk pemecahan kata kunci spesifik menjadi 1–2 kata inti dan perluasan sinonim dwibahasa dari `BILINGUAL_ACADEMIC_SYNONYMS` secara otomatis ketika pencarian awal menghasilkan 0 kandidat.
+- **HTTP Diagnostics & Modern Browser Header Rotation (`config.py`, `scraper_sinta.py`, `scraper_garuda.py`)**:
+  - Rotasi `User-Agent` Chrome 130+ Windows lengkap dengan header `Accept`, `Accept-Language: id-ID,id;q=0.9,en-US;q=0.8`, dan `Referer`.
+  - Diagnostik jelas ketika Portal SINTA membatasi akses HTTP standar (403/Cloudflare) saat opsi Selenium belum dicentang, sehingga Portal Garuda tetap berjalan mulus tanpa macet.
+- **UI/UX Polish (`app_ui.py`)**:
+  - **Empty State & Diagnostic Banner**: Menampilkan banner saran praktis di area KPI ketika hasil akhir pencarian adalah `0 jurnal`.
+  - **Quick Presets Active Indicator**: Indikator kartu aktif yang kontras, sudut lebih rapi, serta *hover feedback* (`cursor="hand2"`) pada 4 tombol Quick Presets.
+  - **Smart WA Share Button State**: Tombol `📋 Salin Daftar (Share WA)` tampil abu-abu nonaktif saat hasil kosong dan langsung menyala aktif Indigo (`#4F46E5`) saat data jurnal tersedia.
+- **Automated Core Test Suite (`tests/test_jsfs_core.py`)**:
+  - Menambahkan `test_13_typo_correction_and_fallback` untuk memverifikasi koreksi ejaan dan fallback kata kunci.
+
 ## [1.7.0] - 2026-11-08
 
 ### Added & Enhanced

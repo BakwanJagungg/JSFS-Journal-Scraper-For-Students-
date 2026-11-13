@@ -30,6 +30,7 @@ import cache_engine
 from config import (
     SINTA_JOURNAL_URL,
     HEADERS,
+    get_browser_headers,
     REQUEST_DELAY_MIN,
     REQUEST_DELAY_MAX,
     MAX_PAGES_LIMIT,
@@ -393,6 +394,8 @@ def _scrape_sinta_single_keyword(
     session: Optional[requests.Session] = None,
     free_only: bool = False,
     include_unknown_apc: bool = True,
+    allow_selenium_fallback: bool = False,
+    log_cb=None,
 ) -> list[JournalEntry]:
     """
     Scraping satu kata kunci Direktori SINTA via High-Speed Concurrent HTTP requests (v1.3.8).
@@ -411,11 +414,19 @@ def _scrape_sinta_single_keyword(
     # Pass 1: Uji probe halaman pertama untuk deteksi proteksi Cloudflare
     console.print(f"[yellow]📄 SINTA Halaman 1[/yellow] → {SINTA_JOURNAL_URL}?q={keyword}&page=1")
     try:
-        r1 = session.get(SINTA_JOURNAL_URL, params={"q": keyword, "page": 1}, timeout=HTTP_TIMEOUT, verify=False)
+        req_headers = get_browser_headers(referer="https://sinta.kemdiktisaintek.go.id/")
+        session.headers.update(req_headers)
+        r1 = session.get(SINTA_JOURNAL_URL, params={"q": keyword, "page": 1}, headers=req_headers, timeout=HTTP_TIMEOUT, verify=False)
         if _is_cloudflare_blocked(r1.text, r1.status_code):
-            console.print("[bold red]⚠️ SINTA memblokir request (Cloudflare Challenge Detected).[/bold red]")
-            console.print("[dim]   Mengalihkan secara otomatis ke browser automation / fallback...[/dim]")
-            return scrape_sinta_selenium(keyword, sinta_ranks, deep_detail=deep_detail, max_results=max_results, turbo_mode=turbo_mode, free_only=free_only, include_unknown_apc=include_unknown_apc)
+            if allow_selenium_fallback:
+                console.print("[bold red]⚠️ SINTA memblokir request (Cloudflare Challenge Detected).[/bold red]")
+                console.print("[dim]   Mengalihkan secara otomatis ke browser automation / fallback...[/dim]")
+                return scrape_sinta_selenium(keyword, sinta_ranks, deep_detail=deep_detail, max_results=max_results, turbo_mode=turbo_mode, free_only=free_only, include_unknown_apc=include_unknown_apc)
+            diag_msg = "⚠️ Portal SINTA membatasi akses HTTP standar. Mengandalkan Portal Garuda atau aktifkan 'Gunakan Selenium' di Pengaturan Lengkap."
+            console.print(f"[bold yellow]{diag_msg}[/bold yellow]")
+            if log_cb:
+                log_cb(diag_msg)
+            return []
         r1.raise_for_status()
     except requests.exceptions.RequestException as e:
         console.print(f"[red]✗ Koneksi SINTA gagal: {e}[/red]")
@@ -568,6 +579,8 @@ def scrape_sinta(
     turbo_mode: bool = True,
     free_only: bool = False,
     include_unknown_apc: bool = True,
+    allow_selenium_fallback: bool = False,
+    log_cb=None,
 ) -> list[JournalEntry]:
     """
     Scraping Direktori SINTA dengan dukungan multi-keyword adaptif dan short-circuiting (v1.3.6).
@@ -596,6 +609,8 @@ def scrape_sinta(
                 session=session,
                 free_only=free_only,
                 include_unknown_apc=include_unknown_apc,
+                allow_selenium_fallback=allow_selenium_fallback,
+                log_cb=log_cb,
             )
             all_res.extend(kw_journals)
             all_res = merge_cross_source_entries(all_res)
@@ -613,6 +628,8 @@ def scrape_sinta(
         session=session,
         free_only=free_only,
         include_unknown_apc=include_unknown_apc,
+        allow_selenium_fallback=allow_selenium_fallback,
+        log_cb=log_cb,
     )
 
 

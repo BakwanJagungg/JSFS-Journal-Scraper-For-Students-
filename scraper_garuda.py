@@ -39,6 +39,7 @@ if sys.platform == "win32":
 from config import (
     GARUDA_JOURNAL_URL,
     HEADERS,
+    get_browser_headers,
     REQUEST_DELAY_MIN,
     REQUEST_DELAY_MAX,
     MAX_PAGES_LIMIT,
@@ -384,7 +385,7 @@ def get_high_capacity_session(is_deep_scrape: bool = False) -> requests.Session:
     agar tidak terjadi hanging sockets pada server OJS yang lambat / offline.
     """
     session = requests.Session()
-    session.headers.update(HEADERS)
+    session.headers.update(get_browser_headers())
     if is_deep_scrape:
         retries = Retry(
             total=1,
@@ -2705,7 +2706,13 @@ def _scrape_garuda_single_keyword(
         console.print(f"[yellow]📄 Garuda Halaman {page}/{max_pages}[/yellow] → {url}?q={keyword}&page={page}")
 
         try:
-            response = session.get(url, params=params, timeout=20, verify=False)
+            response = session.get(
+                url,
+                params=params,
+                headers=get_browser_headers(referer="https://garuda.kemdiktisaintek.go.id/"),
+                timeout=20,
+                verify=False,
+            )
 
             if response.status_code in (403, 503) or any(
                 cf_word in response.text.lower()

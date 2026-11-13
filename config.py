@@ -8,7 +8,7 @@ import re
 import sys
 from datetime import datetime
 
-APP_VERSION = "1.7.0"
+APP_VERSION = "1.7.1"
 
 
 def get_app_dir() -> str:
@@ -23,17 +23,31 @@ GARUDA_JOURNAL_URL = f"{GARUDA_BASE_URL}/journal"
 SINTA_BASE_URL = "https://sinta.kemdiktisaintek.go.id"
 SINTA_JOURNAL_URL = f"{SINTA_BASE_URL}/journals"
 
-# --- Request Headers (imitasi browser sungguhan) ---
+import random
+
+# --- Request Headers (imitasi browser modern Chrome 130+ Windows) ---
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+]
+
 HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "User-Agent": USER_AGENTS[2],
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
     "Connection": "keep-alive",
 }
+
+
+def get_browser_headers(referer: str = "") -> dict:
+    """Mengembalikan header browser modern dengan rotasi User-Agent dan Referer opsional."""
+    headers = dict(HEADERS)
+    headers["User-Agent"] = random.choice(USER_AGENTS)
+    if referer:
+        headers["Referer"] = referer
+    return headers
 
 # --- Delay antar request (detik) ---
 REQUEST_DELAY_MIN = 0.1  # detik minimum (akselerasi turbo)

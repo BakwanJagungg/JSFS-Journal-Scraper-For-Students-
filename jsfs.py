@@ -205,16 +205,33 @@ def run(args):
     turbo_val = getattr(args, "turbo", True)
     candidate_limit = max(limit_val * 3, 60)
 
-    if args.source in ("garuda", "both"):
-        garuda_results = scrape_garuda(keyword, sinta_ranks, deep_detail=deep_mode, max_results=candidate_limit, turbo_mode=turbo_val)
-        all_results.extend(garuda_results)
+    def _scrape_pass(kw_query: str) -> list[JournalEntry]:
+        pass_results: list[JournalEntry] = []
+        if args.source in ("garuda", "both"):
+            garuda_results = scrape_garuda(kw_query, sinta_ranks, deep_detail=deep_mode, max_results=candidate_limit, turbo_mode=turbo_val)
+            pass_results.extend(garuda_results)
 
-    if args.source in ("sinta", "both"):
-        if args.selenium:
-            sinta_results = scrape_sinta_selenium(keyword, sinta_ranks, deep_detail=deep_mode, max_results=candidate_limit, turbo_mode=turbo_val)
-        else:
-            sinta_results = scrape_sinta(keyword, sinta_ranks, deep_detail=deep_mode, max_results=candidate_limit, turbo_mode=turbo_val)
-        all_results.extend(sinta_results)
+        if args.source in ("sinta", "both"):
+            if args.selenium:
+                sinta_results = scrape_sinta_selenium(kw_query, sinta_ranks, deep_detail=deep_mode, max_results=candidate_limit, turbo_mode=turbo_val)
+            else:
+                sinta_results = scrape_sinta(kw_query, sinta_ranks, deep_detail=deep_mode, max_results=candidate_limit, turbo_mode=turbo_val, allow_selenium_fallback=False)
+            pass_results.extend(sinta_results)
+        return pass_results
+
+    all_results.extend(_scrape_pass(keyword))
+
+    if not all_results:
+        import doc_reader
+        fallback_kws = doc_reader.get_fallback_keywords(keyword)
+        if fallback_kws:
+            console.print(f"[yellow]⚠️ Kata kunci '{keyword}' tidak menemukan hasil. Mencoba perluasan kata kunci / koreksi ejaan...[/yellow]")
+            for fb_kw in fallback_kws:
+                console.print(f"[cyan]   ↻ Mencoba kata kunci alternatif: '{fb_kw}'[/cyan]")
+                fb_results = _scrape_pass(fb_kw)
+                if fb_results:
+                    all_results.extend(fb_results)
+                    break
 
     # Deduplikasi & Penggabungan Data Lintas Sumber (Cross-Source Fallback Merging)
     unique_results = merge_cross_source_entries(all_results)

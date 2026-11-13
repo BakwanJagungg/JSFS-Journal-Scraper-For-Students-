@@ -207,6 +207,31 @@ class TestJSFSCore(unittest.TestCase):
         retrieved = cache_engine.cache_engine.get_journal(fake_url, allow_incomplete=False)
         self.assertIsNone(retrieved, "Entri incomplete harus di-bypass (return None)!")
 
+    def test_13_typo_correction_and_fallback(self):
+        """Memastikan koreksi typo kata kunci akademik dan fallback sinonim v1.7.1 berjalan akurat."""
+        from doc_reader import correct_keyword_typo, get_fallback_keywords
+
+        cases = [
+            ("bisins", "bisnis"),
+            ("akutansi", "akuntansi"),
+            ("manajmen", "manajemen"),
+            ("informtika", "informatika"),
+            ("pendidkan", "pendidikan"),
+            ("hukm", "hukum"),
+        ]
+        for typo, expected in cases:
+            corrected, changed = correct_keyword_typo(typo)
+            self.assertTrue(changed, f"Harus mendeteksi typo untuk '{typo}'")
+            self.assertEqual(corrected, expected)
+
+        unchanged, flag = correct_keyword_typo("manajemen")
+        self.assertFalse(flag)
+        self.assertEqual(unchanged, "manajemen")
+
+        fallbacks = get_fallback_keywords("bisins")
+        self.assertIn("bisnis", fallbacks)
+        self.assertTrue(len(fallbacks) >= 1)
+
 
 if __name__ == "__main__":
     unittest.main()

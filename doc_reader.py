@@ -571,6 +571,118 @@ def calculate_match_score(manuscript_meta: dict, journal_obj: any) -> dict:
     }
 
 
+import difflib
+
+# Kamus kosakata akademik populer (Indonesia & Inggris) untuk koreksi salah ketik (v1.7.1)
+ACADEMIC_VOCABULARY: list[str] = sorted(set([
+    "bisnis", "manajemen", "akuntansi", "informatika", "pendidikan", "ekonomi",
+    "komunikasi", "kesehatan", "pertanian", "hukum", "teknik", "psikologi",
+    "keperawatan", "kedokteran", "farmasi", "kebidanan", "arsitektur", "sipil",
+    "elektro", "mesin", "industri", "biologi", "kimia", "fisika", "matematika",
+    "statistika", "sastra", "bahasa", "agama", "islam", "syariah", "sosial",
+    "politik", "pemerintahan", "administrasi", "keuangan", "perbankan",
+    "pemasaran", "kewirausahaan", "teknologi", "komputer", "jaringan",
+    "data", "lingkungan", "kehutanan", "perikanan", "peternakan", "pariwisata",
+    "seni", "desain", "olahraga", "geografi", "sejarah", "sosiologi",
+    "kriminologi", "perpustakaan", "ilmu", "sains", "digital", "keamanan",
+    "sistem informasi", "kecerdasan buatan", "hubungan internasional",
+    "business", "management", "accounting", "informatics", "education",
+    "economics", "communication", "health", "agriculture", "law",
+    "engineering", "psychology", "nursing", "medicine", "pharmacy",
+    "computer", "science", "finance", "marketing", "sustainability",
+] + [
+    term.lower()
+    for k, vals in BILINGUAL_ACADEMIC_SYNONYMS.items()
+    for term in ([k] + list(vals))
+]))
+
+_ACADEMIC_WORDS: list[str] = sorted(set(
+    w for phrase in ACADEMIC_VOCABULARY for w in phrase.split() if len(w) >= 3
+))
+
+
+def correct_keyword_typo(keyword: str) -> tuple[str, bool]:
+    """
+    Koreksi salah ketik kata kunci akademik menggunakan difflib.get_close_matches (v1.7.1).
+    Contoh: 'bisins' -> ('bisnis', True), 'akutansi' -> ('akuntansi', True).
+    """
+    raw = (keyword or "").strip()
+    if not raw:
+        return raw, False
+
+    lower_raw = raw.lower()
+    if lower_raw in ACADEMIC_VOCABULARY:
+        return raw, False
+
+    words = lower_raw.split()
+    corrected_words = []
+    changed = False
+
+    for w in words:
+        if len(w) < 3 or w in _ACADEMIC_WORDS or w in ALL_STOPWORDS:
+            corrected_words.append(w)
+            continue
+        matches = difflib.get_close_matches(w, _ACADEMIC_WORDS, n=1, cutoff=0.75)
+        if matches and matches[0] != w:
+            corrected_words.append(matches[0])
+            changed = True
+        else:
+            corrected_words.append(w)
+
+    corrected = " ".join(corrected_words)
+    if not changed and len(words) > 1:
+        phrase_matches = difflib.get_close_matches(lower_raw, ACADEMIC_VOCABULARY, n=1, cutoff=0.78)
+        if phrase_matches and phrase_matches[0] != lower_raw:
+            return phrase_matches[0], True
+
+    return (corrected if changed else raw), changed
+
+
+def get_fallback_keywords(keyword: str, max_candidates: int = 4) -> list[str]:
+    """
+    Menghasilkan daftar kata kunci cadangan (koreksi ejaan, pemecahan kata inti,
+    dan sinonim dwibahasa) ketika pencarian awal menghasilkan 0 kandidat (v1.7.1).
+    """
+    raw = (keyword or "").strip()
+    if not raw:
+        return []
+
+    raw_lower = raw.lower()
+    candidates: list[str] = []
+
+    def _add(term: str):
+        t = (term or "").strip()
+        if t and t.lower() != raw_lower and t.lower() not in [c.lower() for c in candidates]:
+            candidates.append(t)
+
+    # 1. Koreksi salah ketik (fuzzy matching)
+    corrected, was_corrected = correct_keyword_typo(raw)
+    if was_corrected:
+        _add(corrected)
+
+    base_for_expansion = corrected if was_corrected else raw_lower
+
+    # 2. Jika kata kunci terlalu panjang/spesifik (> 2 kata), pecah menjadi 1-2 kata inti
+    core_words = [
+        w for w in re.findall(r"[a-zA-Z0-9]+", base_for_expansion.lower())
+        if len(w) >= 4 and w not in ALL_STOPWORDS
+    ]
+    if len(base_for_expansion.split()) >= 2 and core_words:
+        if len(core_words) >= 2:
+            _add(f"{core_words[0]} {core_words[1]}")
+        for cw in core_words[:2]:
+            _add(cw)
+
+    # 3. Perluasan sinonim dwibahasa dari BILINGUAL_ACADEMIC_SYNONYMS
+    syn_seeds = [base_for_expansion] + core_words[:2]
+    for syn in expand_academic_synonyms(syn_seeds):
+        _add(syn)
+        if len(candidates) >= max_candidates:
+            break
+
+    return candidates[:max_candidates]
+
+
 # =============================================================================
 # Aliases untuk kompatibilitas JSFS v1.4.0 & v1.5.0
 # =============================================================================
