@@ -481,6 +481,25 @@ def _ensure_entry_enrichment(journals: list[JournalEntry], keyword: str = "") ->
                 pass
 
 
+def _build_fast_url_status(journals: list[JournalEntry]) -> dict[str, bool]:
+    """Menentukan status tautan OJS secara instan dari hasil deep-crawl tanpa probe HTTP ulang."""
+    status_map: dict[str, bool] = {}
+    for j in journals:
+        url = getattr(j, "link_ojs", "") or ""
+        if url and str(url).startswith("http"):
+            srv_low = str(getattr(j, "status_server", "") or "").lower()
+            status_map[url] = not ("non-aktif" in srv_low or "mati" in srv_low)
+    return status_map
+
+
+def _resolve_export_url_status(journals: list[JournalEntry], skip_url_validation: bool) -> dict[str, bool]:
+    """Gunakan status instan saat skip_url_validation=True, atau validasi jaringan bila diminta."""
+    if skip_url_validation:
+        return _build_fast_url_status(journals)
+    all_urls = [j.link_ojs for j in journals if j.link_ojs and j.link_ojs.startswith("http")]
+    return validate_urls_async(all_urls)
+
+
 def _clean_entry_value(val: Optional[str]) -> str:
     """Helper untuk memastikan semua nilai kosong diubah ke INFO_NOT_FOUND."""
     return sanitize_text(val)
@@ -549,9 +568,10 @@ def export_markdown(
     keyword: str,
     sinta_ranks: Optional[list[int]] = None,
     filename: Optional[str] = None,
+    skip_url_validation: bool = True,
 ) -> str:
     """
-    Ekspor hasil scraping ke file Markdown (.md) v1.4.0 dengan tabel rapi,
+    Ekspor hasil scraping ke file Markdown (.md) v2.2.0 dengan tabel rapi,
     statistik peringkat, biaya submit & publikasi, jadwal bulan terbit, serta audit sumber AI/Regex.
     """
     _ensure_output_dir()
@@ -562,8 +582,7 @@ def export_markdown(
     total = len(journals)
     now = datetime.now().strftime("%d %B %Y, %H:%M:%S")
 
-    all_urls = [j.link_ojs for j in journals if j.link_ojs and j.link_ojs.startswith("http")]
-    url_status = validate_urls_async(all_urls)
+    url_status = _resolve_export_url_status(journals, skip_url_validation)
 
     lines: list[str] = []
 
@@ -826,15 +845,15 @@ def export_csv(
     journals: list[JournalEntry],
     keyword: str = "",
     filename: Optional[str] = None,
+    skip_url_validation: bool = True,
 ) -> str:
-    """Ekspor hasil ke CSV dengan encoding UTF-8 BOM dan header v1.4.0."""
+    """Ekspor hasil ke CSV dengan encoding UTF-8 BOM dan header v2.2.0."""
     _ensure_output_dir()
     _ensure_entry_enrichment(journals, keyword=keyword)
     final_filename = filename or generate_output_filename(keyword, "csv")
     filepath = os.path.join(OUTPUT_DIR, final_filename)
 
-    all_urls = [j.link_ojs for j in journals if j.link_ojs and j.link_ojs.startswith("http")]
-    url_status = validate_urls_async(all_urls)
+    url_status = _resolve_export_url_status(journals, skip_url_validation)
 
     df = _journals_to_dataframe(journals, url_status)
     df.to_csv(filepath, index=False, encoding="utf-8-sig")
@@ -846,10 +865,10 @@ def export_excel(
     journals: list[JournalEntry],
     keyword: str = "",
     filename: Optional[str] = None,
-    skip_url_validation: bool = False,
+    skip_url_validation: bool = True,
 ) -> str:
     """
-    Ekspor hasil ke Excel (.xlsx) dengan visual profesional v1.4.0:
+    Ekspor hasil ke Excel (.xlsx) dengan visual profesional v2.2.0:
     - Header Navy Blue (#1B365D) dengan teks putih bold.
     - Kolom Biaya Submit, Biaya Publikasi, Mata Uang, Bulan Terbit, Sumber Focus & Sumber APC terpisah rapi.
     - URL OJS aktif sebagai Hyperlink interaktif (=HYPERLINK).
@@ -860,11 +879,7 @@ def export_excel(
     final_filename = filename or generate_output_filename(keyword, "xlsx")
     filepath = os.path.join(OUTPUT_DIR, final_filename)
 
-    all_urls = [j.link_ojs for j in journals if j.link_ojs and j.link_ojs.startswith("http")]
-    if skip_url_validation:
-        url_status = {u: True for u in all_urls}
-    else:
-        url_status = validate_urls_async(all_urls)
+    url_status = _resolve_export_url_status(journals, skip_url_validation)
 
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -1188,6 +1203,7 @@ def write_exports(
     keyword: str,
     formats: list[str],
     sinta_ranks: Optional[list[int]] = None,
+    skip_url_validation: bool = True,
 ) -> list[str]:
     """Ekspor hasil ke beberapa format sekaligus (.md, .xlsx, .csv) dan file teks pendamping _LIST.txt."""
     _ensure_entry_enrichment(journals, keyword=keyword)
@@ -1198,11 +1214,11 @@ def write_exports(
     for fmt in formats:
         fmt_clean = fmt.lower().lstrip(".")
         if fmt_clean in ("xlsx", "excel"):
-            exported.append(export_excel(journals, keyword=keyword))
+            exported.append(export_excel(journals, keyword=keyword, skip_url_validation=skip_url_validation))
         elif fmt_clean == "md":
-            exported.append(export_markdown(journals, keyword=keyword, sinta_ranks=sinta_ranks))
+            exported.append(export_markdown(journals, keyword=keyword, sinta_ranks=sinta_ranks, skip_url_validation=skip_url_validation))
         elif fmt_clean == "csv":
-            exported.append(export_csv(journals, keyword=keyword))
+            exported.append(export_csv(journals, keyword=keyword, skip_url_validation=skip_url_validation))
 
     # File teks pendamping otomatis daftar ringkas siap copy-paste (v1.6.0)
     try:

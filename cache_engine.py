@@ -126,11 +126,11 @@ class JSFSCacheEngine:
 
     def __init__(self, db_path: str = DEFAULT_DB_FILE):
         self.db_path = db_path
-        self._lock = threading.Lock()
-        self._ensure_db()
+        self._lock = threading.RLock()
+        self._initialized = False
 
-    def _get_connection(self) -> sqlite3.Connection:
-        """Membuka koneksi SQLite terisolasi per thread."""
+    def _open_raw_connection(self) -> sqlite3.Connection:
+        """Membuka koneksi SQLite terisolasi per thread tanpa memicu inisialisasi berulang."""
         conn = sqlite3.connect(
             self.db_path,
             timeout=10.0,
@@ -138,6 +138,19 @@ class JSFSCacheEngine:
         )
         conn.row_factory = sqlite3.Row
         return conn
+
+    def _ensure_ready(self) -> None:
+        """Inisialisasi direktori & skema SQLite secara malas (lazy) pada akses pertama."""
+        if not self._initialized:
+            with self._lock:
+                if not self._initialized:
+                    self._ensure_db()
+                    self._initialized = True
+
+    def _get_connection(self) -> sqlite3.Connection:
+        """Membuka koneksi SQLite terisolasi per thread."""
+        self._ensure_ready()
+        return self._open_raw_connection()
 
     def _ensure_db(self) -> None:
         """Membuat folder cache dan skema tabel jika belum ada."""
@@ -147,7 +160,7 @@ class JSFSCacheEngine:
 
         with self._lock:
             try:
-                conn = self._get_connection()
+                conn = self._open_raw_connection()
                 try:
                     conn.execute("PRAGMA journal_mode=WAL;")
                     conn.execute("PRAGMA synchronous=NORMAL;")
@@ -367,6 +380,23 @@ class JSFSCacheEngine:
                 log.warning("Gagal menulis SQLite cache (%s): %s", url_key, e)
                 return False
 
+    def cleanup_expired(self, max_age_days: int = DEFAULT_CACHE_TTL_DAYS) -> int:
+        """Menghapus entri cache yang kedaluwarsa (> max_age_days) dan mengembalikan jumlah terhapus."""
+        cutoff = int(time.time()) - max(1, int(max_age_days)) * 24 * 3600
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                try:
+                    cur = conn.execute("DELETE FROM journal_cache WHERE updated_at < ?", (cutoff,))
+                    deleted = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+                    conn.commit()
+                    return deleted
+                finally:
+                    conn.close()
+            except Exception as e:
+                log.warning("Gagal membersihkan entri kedaluwarsa: %s", e)
+                return 0
+
     def get_stats(self) -> dict:
         """Mengembalikan statistik ukuran dan isi database cache."""
         try:
@@ -380,6 +410,7 @@ class JSFSCacheEngine:
                 size_bytes = os.path.getsize(self.db_path) if os.path.exists(self.db_path) else 0
                 return {
                     "total_entries": total,
+                    "valid_entries": total,
                     "ai_enriched_count": ai_count,
                     "db_path": self.db_path,
                     "size_bytes": size_bytes,
@@ -387,7 +418,7 @@ class JSFSCacheEngine:
             finally:
                 conn.close()
         except Exception as e:
-            return {"error": str(e), "total_entries": 0}
+            return {"error": str(e), "total_entries": 0, "valid_entries": 0}
 
     def clear_cache(self) -> bool:
         """Menghapus seluruh entri dalam database cache."""

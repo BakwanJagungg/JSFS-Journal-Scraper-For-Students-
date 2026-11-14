@@ -494,9 +494,10 @@ def _scrape_sinta_single_keyword(
 
             page_results: dict[int, Optional[str]] = {}
             pages_done_in_run = 1
-            with ThreadPoolExecutor(max_workers=min(len(page_numbers), 16)) as executor:
+            with ThreadPoolExecutor(max_workers=min(len(page_numbers), 8)) as executor:
                 future_to_page = {executor.submit(_fetch_page_worker, p): p for p in page_numbers}
                 for fut in as_completed(future_to_page):
+                    time.sleep(0.002)
                     p_num, html_txt, is_cf = fut.result()
                     pages_done_in_run += 1
                     if is_cf:
@@ -560,61 +561,17 @@ def _scrape_sinta_single_keyword(
 
     console.print(f"\n[bold]📊 Hasil SINTA terfilter: {len(filtered)} jurnal[/bold]")
 
-    # Deep Scraping paralel dengan Target Reach Short-Circuiting (v1.3.6)
+    # Deep Scraping paralel terpadu via deep_enrich_entries (v2.2.0 Zero Nested Pool)
     if filtered and deep_detail:
-        console.print(f"[bold cyan]🔍 Menjalankan Quad-Pass Deep Scraping SINTA ({len(filtered)} jurnal) [{active_workers} workers]...[/bold cyan]")
-        stop_event = threading.Event()
-        matched_lock = threading.Lock()
-        matched_count = 0
-        deep_session = get_high_capacity_session(is_deep_scrape=True)
-
-        deep_done = 0
-        deep_total = len(filtered)
-        try:
-            from scraper_garuda import get_thread_local_session
-            with ThreadPoolExecutor(max_workers=active_workers) as executor:
-                def _do_sinta_deep(entry: JournalEntry):
-                    nonlocal matched_count
-                    if stop_event.is_set():
-                        return entry
-                    try:
-                        worker_sess = get_thread_local_session(is_deep_scrape=True)
-                        _process_deep_sinta_entry(worker_sess, entry, stop_event=stop_event)
-                        with matched_lock:
-                            if free_only:
-                                apc_low = entry.apc_status.lower()
-                                is_free = (entry.apc_amount == 0) or ("gratis" in apc_low) or ("rp 0" in apc_low) or ("free" in apc_low)
-                                is_unk = (entry.apc_amount is None) or (entry.apc_status in (INFO_NOT_FOUND, APC_UNKNOWN))
-                                if is_free or (is_unk and include_unknown_apc):
-                                    matched_count += 1
-                            else:
-                                matched_count += 1
-                            if matched_count >= max_results:
-                                stop_event.set()
-                    except Exception:
-                        pass
-                    return entry
-
-                futures = [executor.submit(_do_sinta_deep, entry) for entry in filtered]
-                for f in as_completed(futures):
-                    try:
-                        done_entry = f.result()
-                    except Exception:
-                        done_entry = None
-                    deep_done += 1
-                    if callable(progress_cb):
-                        try:
-                            progress_cb(
-                                phase="fase2_deep",
-                                done=deep_done,
-                                total=deep_total,
-                                current_item=(done_entry.nama_jurnal if done_entry else f"SINTA deep {deep_done}/{deep_total}"),
-                                entry=done_entry,
-                            )
-                        except Exception:
-                            pass
-        except Exception:
-            pass
+        filtered = deep_enrich_entries(
+            filtered,
+            keyword=keyword,
+            max_results=max_results,
+            turbo_mode=turbo_mode,
+            free_only=free_only,
+            include_unknown_apc=include_unknown_apc,
+            progress_cb=progress_cb,
+        )
 
     # Selalu hitung keyword match score untuk setiap jurnal agar kolom Kesesuaian & Skor terisi (v1.6.1)
     try:

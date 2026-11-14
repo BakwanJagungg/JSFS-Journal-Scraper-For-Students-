@@ -405,6 +405,158 @@ class TestJSFSCore(unittest.TestCase):
         titles = {e.nama_jurnal for e in entries}
         self.assertEqual(titles, {"Jurnal Hal 1", "Jurnal Hal 2", "Jurnal Hal 3"})
 
+    def test_20_forensic_watchdog_and_fast_export(self):
+        """Memastikan arsitektur v2.2.0: lazy cache, watchdog forensik, nol nested ThreadPool, dan ekspor cepat."""
+        import tempfile
+        import threading
+        import time
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        import app_webview
+        import cache_engine as cache_mod
+        import config
+        import exporter
+        import scraper_garuda
+
+        # 1. Verifikasi konstanta anti-starvation v2.2.0
+        self.assertEqual(config.APP_VERSION, "2.2.0")
+        self.assertEqual(config.MAX_WEBVIEW_WORKERS, 24)
+        self.assertEqual(config.TURBO_SCRAPE_WORKERS, 24)
+        self.assertEqual(config.MAX_DEEP_SCRAPE_PER_JOURNAL_SEC, 5.5)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # 2. Lazy SQLite initialization + cleanup_expired + valid_entries
+            db_path = os.path.join(tmpdir, "lazy_cache.db")
+            eng = cache_mod.JSFSCacheEngine(db_path=db_path)
+            self.assertFalse(eng._initialized)
+            self.assertFalse(os.path.exists(db_path))
+
+            eng.upsert_journal("https://ojs.kampus.ac.id/index.php/j1", {"journal_name": "J1"})
+            self.assertTrue(eng._initialized)
+            stats = eng.get_stats()
+            self.assertEqual(stats.get("valid_entries"), 1)
+
+            old_ts = int(time.time()) - 40 * 24 * 3600
+            conn = eng._get_connection()
+            try:
+                conn.execute(
+                    "INSERT OR REPLACE INTO journal_cache (ojs_url_key, journal_name, updated_at) VALUES (?, ?, ?)",
+                    ("https://ojs.kampus.ac.id/index.php/expired", "Expired J", old_ts),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            deleted = eng.cleanup_expired(max_age_days=14)
+            self.assertEqual(deleted, 1)
+            self.assertEqual(eng.get_stats().get("valid_entries"), 1)
+            chk_conn = eng._get_connection()
+            try:
+                chk_conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+            finally:
+                chk_conn.close()
+
+            # 3. Forensic Crash Watchdog dump ke logs/debug_trace.log saat stall
+            trace_log = os.path.join(tmpdir, "debug_trace.log")
+            api = app_webview.JSFSApi()
+            wd = app_webview.MainThreadWatchdog(
+                api,
+                stall_threshold_sec=0.08,
+                cooldown_sec=0.2,
+                check_interval_sec=0.03,
+                log_path=trace_log,
+            )
+            with api._lock:
+                api._running = True
+                api._phase = "fase2_deep"
+                api._current_item = "Jurnal Simulasi Stall"
+                api._last_activity_mono = time.monotonic() - 1.0
+            wd.start()
+            try:
+                time.sleep(0.22)
+            finally:
+                wd.stop()
+                wd.join(timeout=2.0)
+                api.shutdown()
+
+            self.assertTrue(os.path.exists(trace_log))
+            with open(trace_log, "r", encoding="utf-8") as fh:
+                dump_text = fh.read()
+            self.assertIn("FORENSIC DUMP", dump_text)
+            self.assertIn("Progress stall", dump_text)
+            self.assertIn("[Thread ", dump_text)
+
+            # 4. Zero Nested ThreadPool di extract_ojs_deep_info + CancelBridge isolation
+            home_html = (
+                "<html><head><title>Jurnal Uji</title></head><body>"
+                "<a href='/about/submissions'>Submissions</a>"
+                "<a href='/about/editorialPolicies'>Editorial Policies</a>"
+                "<p>Publication fee: Rp 500.000.</p></body></html>"
+            )
+            sub_html = "<html><body><p>Email: editor@kampus.ac.id</p></body></html>"
+
+            def _mock_fetch(_sess, url, **kwargs):
+                if "/about/" in url:
+                    return 200, sub_html, {}
+                return 200, home_html, {}
+
+            with patch("scraper_garuda._get_from_cache", return_value=None), \
+                 patch("scraper_garuda._save_to_cache"), \
+                 patch("scraper_garuda.check_ojs_domain_reachable", return_value=(True, "ok")), \
+                 patch("scraper_garuda.safe_fetch_html", side_effect=_mock_fetch), \
+                 patch("scraper_garuda.ThreadPoolExecutor", side_effect=AssertionError("Nested pool dilarang")):
+                sess = scraper_garuda.get_high_capacity_session()
+                info = scraper_garuda.extract_ojs_deep_info(sess, "https://ojs.kampus.ac.id/index.php/uji")
+            self.assertEqual(info["apc_amount"], 500_000)
+
+            self.assertGreaterEqual(scraper_garuda.close_all_http_sessions(), 1)
+
+            user_cancel = threading.Event()
+            sample_list = [
+                scraper_garuda.JournalEntry(
+                    nama_jurnal=f"Jurnal Cepat {i}",
+                    penerbit="Univ Uji",
+                    link_ojs=f"https://ojs.kampus.ac.id/index.php/j{i}",
+                    peringkat_sinta="Sinta 3",
+                )
+                for i in range(3)
+            ]
+            with patch("scraper_garuda.extract_ojs_deep_info", return_value={
+                "ojs_url": "https://ojs.kampus.ac.id/index.php/j0",
+                "apc_status": "Rp 300.000",
+                "apc_amount": 300_000,
+                "focus_scope": "Bidang Ekonomi dan Bisnis Digital.",
+                "status_server": "Aktif (HTTP)",
+                "transparansi_kontak": "Lengkap",
+                "bulan_terbit": [1, 7],
+            }):
+                scraper_garuda.deep_enrich_entries(
+                    sample_list,
+                    keyword="ekonomi",
+                    max_results=1,
+                    turbo_mode=False,
+                    cancel_event=user_cancel,
+                )
+            self.assertFalse(user_cancel.is_set())
+
+            # 5. Fast Export default (skip_url_validation=True) < 0.5 detik tanpa validate_urls_async
+            sample_list[1].status_server = "Non-Aktif"
+            fast_map = exporter._build_fast_url_status(sample_list)
+            self.assertTrue(fast_map["https://ojs.kampus.ac.id/index.php/j0"])
+            self.assertFalse(fast_map["https://ojs.kampus.ac.id/index.php/j1"])
+
+            with patch.object(exporter, "OUTPUT_DIR", tmpdir), \
+                 patch.object(exporter, "validate_urls_async", side_effect=AssertionError("Harus skip HTTP check")):
+                t0 = time.monotonic()
+                exported_files = exporter.write_exports(
+                    sample_list,
+                    keyword="ekonomi",
+                    formats=[".xlsx", ".md", ".csv"],
+                )
+                elapsed_exp = time.monotonic() - t0
+            self.assertGreaterEqual(len(exported_files), 3)
+            self.assertLess(elapsed_exp, 2.0)
+
 
 if __name__ == "__main__":
     unittest.main()

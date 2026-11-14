@@ -1,6 +1,6 @@
 # =============================================================================
 # JSFS - Journal Scraper For Students
-# config.py — Konfigurasi global scraper v2.1.1 (Zero-Freeze Pagination & TLS Timeout Tuning)
+# config.py — Konfigurasi global scraper v2.2.0 (Zero-Crash Engine, Instant Boot & Forensic Watchdog)
 # =============================================================================
 
 import os
@@ -8,7 +8,7 @@ import re
 import sys
 from datetime import datetime
 
-APP_VERSION = "2.1.1"
+APP_VERSION = "2.2.0"
 
 
 def get_app_dir() -> str:
@@ -79,19 +79,25 @@ OJS_CACHE_FILE = os.path.join(CACHE_DIR, "ojs_cache.json")
 CACHE_TTL_DAYS = 7
 CACHE_TTL_SECONDS = CACHE_TTL_DAYS * 24 * 3600
 
-# --- Alokasi Hardware & Thread Pool Konkuren Maksimal (v1.5.1 Concurrency Throttling) ---
-# Disesuaikan agar CPU dan network stack tidak saturasi yang memicu Windows WM_PAINT starvation
-TURBO_SCRAPE_WORKERS = min(64, (os.cpu_count() or 4) * 4)
-NORMAL_SCRAPE_WORKERS = min(32, (os.cpu_count() or 4) * 2)
-DEEP_SCRAPE_WORKERS = TURBO_SCRAPE_WORKERS
+# --- Direktori Log Diagnostik Forensik (v2.2.0 Zero-Crash Architecture) ---
+LOGS_DIR = os.path.join(get_app_dir(), "logs")
+DEBUG_TRACE_LOG = os.path.join(LOGS_DIR, "debug_trace.log")
 
-# --- High-Capacity Connection Pooling & Adaptive Timeout (v2.1.1 TLS Tolerance) ---
+# --- Alokasi Hardware & Thread Pool Konkuren Maksimal (v2.2.0 Anti-Starvation Cap) ---
+# Dibatasi ke 24 worker pada WebView2 agar ThreadPool tunggal tidak menumpuk soket SSL
+# zombie maupun memicu Python GIL / Windows WM_PAINT starvation.
+MAX_WEBVIEW_WORKERS = 24
+TURBO_SCRAPE_WORKERS = MAX_WEBVIEW_WORKERS
+NORMAL_SCRAPE_WORKERS = min(16, (os.cpu_count() or 4) * 2)
+DEEP_SCRAPE_WORKERS = MAX_WEBVIEW_WORKERS
+
+# --- High-Capacity Connection Pooling & Adaptive Timeout (v2.2.0 Balance Cepat & Toleransi TLS) ---
 HTTP_POOL_CONNECTIONS = 128
 HTTP_POOL_MAXSIZE = 128
 HTTP_TIMEOUT = 5  # Toleransi 5 detik untuk penelusuran portal SINTA / Garuda
-DEEP_SCRAPE_TIMEOUT = (3.0, 4.5)  # (connect/TLS: 3.0s, read: 4.5s) toleransi server .ac.id lambat
-FAST_FAIL_TIMEOUT = (3.0, 4.0)    # (connect/TLS: 3.0s, read: 4.0s) cegah false-positive TLS lambat
-MAX_DEEP_SCRAPE_PER_JOURNAL_SEC = 7.0  # Batas waktu keras wall-clock per jurnal OJS
+DEEP_SCRAPE_TIMEOUT = (2.5, 3.5)  # (connect/TLS: 2.5s, read: 3.5s) aman & cepat untuk .ac.id
+FAST_FAIL_TIMEOUT = (2.5, 3.5)    # (connect/TLS: 2.5s, read: 3.5s) fail-fast tanpa false-positive
+MAX_DEEP_SCRAPE_PER_JOURNAL_SEC = 5.5  # Batas waktu keras wall-clock per jurnal OJS
 
 
 def compute_candidate_pool_limit(target_results: int) -> int:

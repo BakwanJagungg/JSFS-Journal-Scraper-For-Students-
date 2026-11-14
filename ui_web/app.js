@@ -1052,6 +1052,15 @@
       if (hasApi()) await window.pywebview.api.open_output_folder();
     });
 
+    const btnOpenLogs = $("btn-open-logs");
+    if (btnOpenLogs) {
+      btnOpenLogs.addEventListener("click", async () => {
+        if (hasApi() && typeof window.pywebview.api.open_logs_folder === "function") {
+          await window.pywebview.api.open_logs_folder();
+        }
+      });
+    }
+
     if ($("btn-close-completion")) {
       $("btn-close-completion").addEventListener("click", () => {
         if ($("completion-banner")) $("completion-banner").classList.add("is-hidden");
@@ -1090,7 +1099,7 @@
     applyPreset("skripsi", true);
     applySoundPreference();
     renderResultsTable([]);
-    appendLog("JSFS v2.1.1 siap digunakan.");
+    appendLog("JSFS v2.2.0 siap digunakan.");
     pollStatusOnce();
     setTimeout(pollStatusOnce, 700);
   }

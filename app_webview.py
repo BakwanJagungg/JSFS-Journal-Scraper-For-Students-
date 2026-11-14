@@ -1,25 +1,151 @@
 """
 app_webview.py
-Desktop UI WebView2 (pywebview + HTML5/CSS3/Vanilla JS) untuk JSFS v2.0.0.
+Desktop UI WebView2 (pywebview + HTML5/CSS3/Vanilla JS) untuk JSFS v2.2.0.
 Menggantikan lapisan CustomTkinter dengan rendering GPU 60 FPS yang bebas Not Responding,
-sambil mempertahankan 100% mesin scraping, presisi APC, cache SQLite, AI Ollama, dan ekspor.
+dilengkapi Forensic Crash Watchdog (<1.5s instant boot) sambil mempertahankan 100%
+mesin scraping, presisi APC, cache SQLite, AI Ollama, dan ekspor cepat.
 """
 
 from __future__ import annotations
 
 import ctypes
+import faulthandler
 import os
 import re
 import sys
 import threading
 import time
+import traceback
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 
 import webview
 
-from config import APP_VERSION, INFO_NOT_FOUND, OUTPUT_DIR
+from config import APP_VERSION, DEBUG_TRACE_LOG, INFO_NOT_FOUND, LOGS_DIR, OUTPUT_DIR
+
+_FORENSIC_LOCK = threading.Lock()
+_FAULT_LOG_HANDLE = None
+
+
+def init_forensic_logger(log_path: str = DEBUG_TRACE_LOG) -> str:
+    """Mengaktifkan faulthandler ke berkas logs/debug_trace.log untuk pelacakan crash/hang."""
+    global _FAULT_LOG_HANDLE
+    try:
+        parent = os.path.dirname(log_path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with _FORENSIC_LOCK:
+            if _FAULT_LOG_HANDLE is not None:
+                try:
+                    faulthandler.disable()
+                except Exception:
+                    pass
+                try:
+                    _FAULT_LOG_HANDLE.close()
+                except Exception:
+                    pass
+                _FAULT_LOG_HANDLE = None
+            _FAULT_LOG_HANDLE = open(log_path, "a", encoding="utf-8", buffering=1)
+            ts = time.strftime("%Y-%m-%d %H:%M:%S")
+            _FAULT_LOG_HANDLE.write(f"\n=== JSFS v{APP_VERSION} Forensic Session Started @ {ts} ===\n")
+            _FAULT_LOG_HANDLE.flush()
+            faulthandler.enable(file=_FAULT_LOG_HANDLE, all_threads=True)
+    except Exception:
+        pass
+    return log_path
+
+
+def close_forensic_logger() -> None:
+    """Menonaktifkan faulthandler dan menutup handle berkas log forensik dengan aman."""
+    global _FAULT_LOG_HANDLE
+    with _FORENSIC_LOCK:
+        try:
+            faulthandler.disable()
+        except Exception:
+            pass
+        if _FAULT_LOG_HANDLE is not None:
+            try:
+                _FAULT_LOG_HANDLE.flush()
+                _FAULT_LOG_HANDLE.close()
+            except Exception:
+                pass
+            _FAULT_LOG_HANDLE = None
+
+
+def write_forensic_dump(
+    reason: str,
+    log_path: str = DEBUG_TRACE_LOG,
+    exc: Optional[BaseException] = None,
+) -> bool:
+    """Menuliskan snapshot stack trace seluruh thread aktif ke logs/debug_trace.log."""
+    try:
+        parent = os.path.dirname(log_path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        ts = time.strftime("%Y-%m-%d %H:%M:%S")
+        thread_names = {t.ident: t.name for t in threading.enumerate()}
+        frames = sys._current_frames()
+        lines = [
+            f"\n--- FORENSIC DUMP @ {ts} | Reason: {reason} | Active Threads: {len(frames)} ---\n"
+        ]
+        if exc is not None:
+            lines.append("".join(traceback.format_exception(type(exc), exc, exc.__traceback__)))
+        for tid, frame in frames.items():
+            tname = thread_names.get(tid, f"Thread-{tid}")
+            lines.append(f"[Thread {tid} ({tname})]\n")
+            lines.extend(traceback.format_stack(frame))
+        lines.append("--- END FORENSIC DUMP ---\n")
+        payload = "".join(lines)
+        with _FORENSIC_LOCK:
+            with open(log_path, "a", encoding="utf-8") as fh:
+                fh.write(payload)
+                fh.flush()
+        return True
+    except Exception:
+        return False
+
+
+class MainThreadWatchdog(threading.Thread):
+    """Daemon pengawas yang merekam stack trace otomatis bila pipeline/thread macet > threshold."""
+
+    def __init__(
+        self,
+        api: "JSFSApi",
+        stall_threshold_sec: float = 8.0,
+        cooldown_sec: float = 15.0,
+        check_interval_sec: float = 1.0,
+        log_path: str = DEBUG_TRACE_LOG,
+    ):
+        super().__init__(daemon=True, name="JSFS-ForensicWatchdog")
+        self._api = api
+        self._stall_threshold = max(0.05, float(stall_threshold_sec))
+        self._cooldown = max(0.1, float(cooldown_sec))
+        self._check_interval = max(0.02, float(check_interval_sec))
+        self._log_path = log_path
+        self._stop_evt = threading.Event()
+        self._last_dump_mono = 0.0
+
+    def stop(self) -> None:
+        self._stop_evt.set()
+
+    def run(self) -> None:
+        while not self._stop_evt.wait(self._check_interval):
+            snapshot = self._api.check_stall_state(self._stall_threshold)
+            if not snapshot:
+                continue
+            now = time.monotonic()
+            if (now - self._last_dump_mono) < self._cooldown:
+                continue
+            self._last_dump_mono = now
+            idle_sec = snapshot.get("idle_sec", 0.0)
+            phase = snapshot.get("phase", "")
+            item = snapshot.get("current_item", "")
+            write_forensic_dump(
+                f"Progress stall {idle_sec:.1f}s > {self._stall_threshold:.1f}s "
+                f"(phase={phase}, item={item})",
+                log_path=self._log_path,
+            )
 
 
 def _get_bundle_dir() -> str:
@@ -216,12 +342,32 @@ class JSFSApi:
         self._ai_task_running = False
         self._ai_task_percent = 0.0
         self._ai_task_message = ""
+        self._last_activity_mono = time.monotonic()
+        self._watchdog: Optional[MainThreadWatchdog] = None
+
+    def check_stall_state(self, threshold_sec: float) -> Optional[dict[str, Any]]:
+        """Mengembalikan konteks kemacetan bila pipeline aktif tetapi idle melampaui batas."""
+        with self._lock:
+            if not self._running:
+                return None
+            idle_sec = time.monotonic() - self._last_activity_mono
+            if idle_sec <= threshold_sec:
+                return None
+            return {
+                "idle_sec": idle_sec,
+                "phase": self._phase,
+                "current_item": self._current_item,
+            }
 
     def attach_window(self, window):
         self._window = window
 
     def startup_background_checks(self):
         """Dipanggil 600ms setelah jendela tampil agar first paint instan (<1.5 detik)."""
+        if self._watchdog is None:
+            self._watchdog = MainThreadWatchdog(self, stall_threshold_sec=8.0, cooldown_sec=15.0)
+            self._watchdog.start()
+
         def _bg():
             try:
                 import cache_engine
@@ -242,9 +388,20 @@ class JSFSApi:
         threading.Timer(0.6, _bg).start()
 
     def shutdown(self):
-        """Bersihkan worker, AI engine, dan koneksi SQLite saat jendela ditutup."""
+        """Bersihkan watchdog, worker, sesi HTTP, AI engine, dan SQLite saat jendela ditutup."""
         self._cancel_evt.set()
         self._ai_cancel_evt.set()
+        if self._watchdog is not None:
+            try:
+                self._watchdog.stop()
+            except Exception:
+                pass
+        try:
+            import scraper_garuda
+            if hasattr(scraper_garuda, "close_all_http_sessions"):
+                scraper_garuda.close_all_http_sessions()
+        except Exception:
+            pass
         try:
             import ai_engine
             ai_engine.shutdown()
@@ -259,10 +416,12 @@ class JSFSApi:
             self._autosave_executor.shutdown(wait=False, cancel_futures=True)
         except Exception:
             pass
+        close_forensic_logger()
 
     def _log(self, msg: str):
         ts = time.strftime("%H:%M:%S")
         with self._lock:
+            self._last_activity_mono = time.monotonic()
             self._logs.append(f"[{ts}] {msg}")
             if len(self._logs) > 600:
                 self._logs = self._logs[-400:]
@@ -401,6 +560,7 @@ class JSFSApi:
             self._active_keyword = str(params.get("keyword", "") or "")
             self._current_item = f"Memulai pencarian '{self._active_keyword}'..."
             self._run_started_at = time.monotonic()
+            self._last_activity_mono = self._run_started_at
             self._elapsed_seconds = 0.0
             self._seen_deep_names = set()
             self._progress = {"scrape_done": 0, "scrape_target": 0, "ai_done": 0, "ai_target": 0}
@@ -505,6 +665,7 @@ class JSFSApi:
 
             # FASE 3: Regex-First, AI-Second
             with self._lock:
+                self._last_activity_mono = time.monotonic()
                 self._phase = "fase3_ai"
                 self._phase_status = "Ekstraksi biaya & jadwal terbit..."
                 self._current_item = f"Memvalidasi {len(survivors)} jurnal kandidat..."
@@ -517,6 +678,7 @@ class JSFSApi:
             def _on_ai_telemetry(done: int, total: int, entry=None):
                 name = getattr(entry, "nama_jurnal", "") or ""
                 with self._lock:
+                    self._last_activity_mono = time.monotonic()
                     self._phase = "fase3_ai"
                     self._phase_status = f"Validasi cerdas AI ({done}/{total} jurnal)..."
                     if name:
@@ -610,8 +772,9 @@ class JSFSApi:
             kpi_paid = sum(1 for r in final_survivors if (r.get("biaya_publikasi") or 0) > 0)
             kpi_fast = sum(1 for r in final_survivors if any(m in r.get("bulan_terbit", []) for m in near_months))
 
-            # FASE 4: Export Output
+            # FASE 4: Export Output (skip_url_validation=True agar ekspor <0.5 detik)
             with self._lock:
+                self._last_activity_mono = time.monotonic()
                 self._phase = "fase4_export"
                 self._phase_status = f"Menyimpan berkas Excel & Markdown ({len(final_survivors)} jurnal)..."
                 self._current_item = "Menulis berkas output (.xlsx / .md)"
@@ -622,6 +785,7 @@ class JSFSApi:
                 keyword=keyword,
                 formats=formats,
                 sinta_ranks=sorted(list(sinta_set)),
+                skip_url_validation=True,
             )
             excel_path = ""
             for ef in exported:
@@ -647,6 +811,7 @@ class JSFSApi:
 
             self._log(f"✅ Selesai! {len(final_survivors)} jurnal siap ditinjau di tabel hasil.")
         except Exception as exc:
+            write_forensic_dump(f"Unhandled _pipeline exception: {exc!r}", exc=exc)
             self._log(f"❌ Error pipeline: {exc!r}")
         finally:
             self._finish_run()
@@ -686,6 +851,7 @@ class JSFSApi:
     def _on_scraper_telemetry(self, phase: str = "fase1_portal", done: int = 0, total: int = 0, current_item: str = "", entry=None):
         """Callback thread-safe per-halaman / per-jurnal untuk telemetry UI real-time."""
         with self._lock:
+            self._last_activity_mono = time.monotonic()
             self._phase = phase
             if phase == "fase1_portal":
                 self._phase_status = "Menjelajahi halaman portal SINTA & Garuda..."
@@ -719,11 +885,13 @@ class JSFSApi:
 
     def _set_scrape_prog(self, done: int, total: int):
         with self._lock:
+            self._last_activity_mono = time.monotonic()
             self._progress["scrape_done"] = int(done)
             self._progress["scrape_target"] = int(total)
 
     def _set_ai_prog(self, done: int, total: int):
         with self._lock:
+            self._last_activity_mono = time.monotonic()
             self._progress["ai_done"] = int(done)
             self._progress["ai_target"] = int(total)
 
@@ -827,6 +995,17 @@ class JSFSApi:
         except Exception as e:
             return {"ok": False, "message": str(e)}
 
+    def open_logs_folder(self) -> dict[str, Any]:
+        os.makedirs(LOGS_DIR, exist_ok=True)
+        try:
+            if sys.platform == "win32":
+                os.startfile(LOGS_DIR)
+            else:
+                webbrowser.open(f"file://{os.path.abspath(LOGS_DIR)}")
+            return {"ok": True}
+        except Exception as e:
+            return {"ok": False, "message": str(e)}
+
     def open_url(self, url: str) -> dict[str, Any]:
         clean = str(url or "").strip()
         if clean.startswith(("http://", "https://")):
@@ -923,6 +1102,7 @@ class JSFSApi:
 
 
 def main():
+    init_forensic_logger()
     ui_path = os.path.join(_get_bundle_dir(), "ui_web", "index.html")
     api = JSFSApi()
     window = webview.create_window(
@@ -937,7 +1117,10 @@ def main():
     api.attach_window(window)
     window.events.closed += api.shutdown
     api.startup_background_checks()
-    webview.start(debug=False)
+    try:
+        webview.start(debug=False)
+    finally:
+        api.shutdown()
 
 
 if __name__ == "__main__":

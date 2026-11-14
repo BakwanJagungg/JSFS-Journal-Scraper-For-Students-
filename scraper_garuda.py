@@ -10,6 +10,7 @@ import random
 import re
 import json
 import threading
+import weakref
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -62,6 +63,7 @@ from config import (
     DEEP_SCRAPE_WORKERS,
     TURBO_SCRAPE_WORKERS,
     NORMAL_SCRAPE_WORKERS,
+    MAX_WEBVIEW_WORKERS,
     HTTP_POOL_CONNECTIONS,
     HTTP_POOL_MAXSIZE,
     HTTP_TIMEOUT,
@@ -404,7 +406,11 @@ class JournalEntry:
 
 
 
-# ── HIGH-CAPACITY CONNECTION POOLING WITH RETRY (v1.3.6) ──────────────────────
+# ── HIGH-CAPACITY CONNECTION POOLING WITH RETRY (v2.2.0 Session Tracking) ─────
+_CREATED_SESSIONS_LOCK = threading.Lock()
+_CREATED_HTTP_SESSIONS: weakref.WeakSet = weakref.WeakSet()
+
+
 def get_high_capacity_session(is_deep_scrape: bool = False) -> requests.Session:
     """
     Membuat session HTTP berperforma tinggi dengan connection pool besar (v1.3.6).
@@ -436,6 +442,8 @@ def get_high_capacity_session(is_deep_scrape: bool = False) -> requests.Session:
     )
     session.mount("http://", adapter)
     session.mount("https://", adapter)
+    with _CREATED_SESSIONS_LOCK:
+        _CREATED_HTTP_SESSIONS.add(session)
     return session
 
 
@@ -450,6 +458,27 @@ def get_thread_local_session(is_deep_scrape: bool = True) -> requests.Session:
         sess = get_high_capacity_session(is_deep_scrape=is_deep_scrape)
         setattr(_thread_local_sessions, attr, sess)
     return sess
+
+
+def close_all_http_sessions() -> int:
+    """Menutup seluruh HTTP Session aktif agar soket bebas dan bersih saat shutdown."""
+    closed = 0
+    with _CREATED_SESSIONS_LOCK:
+        sessions = list(_CREATED_HTTP_SESSIONS)
+        _CREATED_HTTP_SESSIONS.clear()
+    for sess in sessions:
+        try:
+            sess.close()
+            closed += 1
+        except Exception:
+            pass
+    try:
+        for attr in ("deep_session", "portal_session"):
+            if hasattr(_thread_local_sessions, attr):
+                delattr(_thread_local_sessions, attr)
+    except Exception:
+        pass
+    return closed
 
 
 # ── ZERO-CRASH & ANTI-FREEZE HTTP FETCHER (v1.6.0) ───────────────────────────
@@ -2274,38 +2303,10 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
                             raw_frequency = m_f.group(0).strip()
                             break
 
-            # Tahap 2A: Ambil 2 sub-path prioritas (/about/submissions & /about/editorialPolicies atau link biaya) secara paralel
+            # Tahap 2 (v2.2.0 Zero Nested ThreadPool): Kunjungi maks 3 sub-path OJS secara sekuensial
+            # memakai session keep-alive yang sama untuk mencegah zombie SSL threads & UI freeze.
             if ordered_subpaths and not (stop_event and stop_event.is_set()) and not _deadline_exceeded():
-                priority_urls = ordered_subpaths[:2]
-                extra_urls = ordered_subpaths[2:4]  # Batas maksimum 2 sub-path tambahan setelah rute biaya utama
-
-                def _fetch_sub(u: str):
-                    if (stop_event and stop_event.is_set()) or _deadline_exceeded():
-                        return u, 0, ""
-                    w_sess = get_thread_local_session(is_deep_scrape=True)
-                    sc, sh, _ = safe_fetch_html(w_sess, u, timeout=DEEP_SCRAPE_TIMEOUT)
-                    return u, sc, sh
-
-                sub_exec = ThreadPoolExecutor(max_workers=len(priority_urls))
-                try:
-                    sub_futs = [sub_exec.submit(_fetch_sub, u) for u in priority_urls]
-                    rem_timeout = max(0.2, MAX_DEEP_SCRAPE_PER_JOURNAL_SEC - (time.monotonic() - t_start))
-                    for sf in as_completed(sub_futs, timeout=rem_timeout):
-                        if (stop_event and stop_event.is_set()) or _deadline_exceeded():
-                            break
-                        try:
-                            u_done, sc, sh = sf.result()
-                            if sc == 200 and sh:
-                                _ingest_subpath_html(u_done, sh)
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-                finally:
-                    sub_exec.shutdown(wait=False, cancel_futures=True)
-
-                # Tahap 2B: Kunjungi maksimum 2 sub-path tambahan hanya jika data inti belum lengkap & belum deadline
-                for sub_url in extra_urls:
+                for sub_url in ordered_subpaths[:3]:
                     if (stop_event and stop_event.is_set()) or _deadline_exceeded() or _has_complete_core_data():
                         break
                     try:
@@ -2841,7 +2842,7 @@ def _enhance_garuda_entries(entries: list[JournalEntry], session: Optional[reque
     if not entries:
         return
     try:
-        with ThreadPoolExecutor(max_workers=min(len(entries), 32)) as executor:
+        with ThreadPoolExecutor(max_workers=min(len(entries), 16)) as executor:
             def _enhance_garuda_entry(e: JournalEntry):
                 w_sess = get_thread_local_session()
                 target_g_url = e.garuda_profile_url or (e.link_ojs if "garuda.kemdiktisaintek.go.id/journal/view" in (e.link_ojs or "") else "")
@@ -2858,7 +2859,8 @@ def _enhance_garuda_entries(entries: list[JournalEntry], session: Optional[reque
                 cross_reference_garuda_with_sinta(w_sess, e)
 
             futures = [executor.submit(_enhance_garuda_entry, entry) for entry in entries]
-            for f in futures:
+            for f in as_completed(futures):
+                time.sleep(0.002)
                 f.result()
     except Exception:
         pass
@@ -3018,6 +3020,7 @@ def _scrape_garuda_single_keyword(
             with ThreadPoolExecutor(max_workers=8) as page_exec:
                 fut_map = {page_exec.submit(_fetch_garuda_page, p): p for p in page_numbers}
                 for fut in as_completed(fut_map):
+                    time.sleep(0.002)
                     p_num, p_html, is_cf = fut.result()
                     pages_done += 1
                     if is_cf:
@@ -3129,13 +3132,22 @@ def deep_enrich_entries(
     if not entries:
         return []
 
-    active_workers = TURBO_SCRAPE_WORKERS if turbo_mode else NORMAL_SCRAPE_WORKERS
+    active_workers = min(MAX_WEBVIEW_WORKERS, TURBO_SCRAPE_WORKERS if turbo_mode else NORMAL_SCRAPE_WORKERS)
     console.print(
         f"[bold cyan]🔍 Menjalankan Hyper-Speed Deep Scraping ({len(entries)} jurnal unik) "
         f"[{active_workers} workers | Deadline {MAX_DEEP_SCRAPE_PER_JOURNAL_SEC}s/jurnal]...[/bold cyan]"
     )
 
-    stop_event = cancel_event or threading.Event()
+    local_stop = threading.Event()
+
+    class _CancelBridge:
+        def is_set(self) -> bool:
+            return local_stop.is_set() or (cancel_event is not None and cancel_event.is_set())
+
+        def set(self) -> None:
+            local_stop.set()
+
+    stop_event = _CancelBridge()
     matched_lock = threading.Lock()
     matched_count = 0
     deep_done = 0
@@ -3148,8 +3160,8 @@ def deep_enrich_entries(
         resolve_sinta_profile_meta = None
         resolve_garuda_profile_meta = None
 
+    executor = ThreadPoolExecutor(max_workers=active_workers)
     try:
-        with ThreadPoolExecutor(max_workers=active_workers) as executor:
             def _do_unified_deep(entry: JournalEntry) -> JournalEntry:
                 nonlocal matched_count
                 if stop_event.is_set():
@@ -3253,6 +3265,11 @@ def deep_enrich_entries(
 
             futures = [executor.submit(_do_unified_deep, entry) for entry in entries]
             for f in as_completed(futures):
+                time.sleep(0.002)
+                if cancel_event is not None and cancel_event.is_set():
+                    for pending in futures:
+                        pending.cancel()
+                    break
                 try:
                     done_entry = f.result()
                 except Exception:
@@ -3276,8 +3293,14 @@ def deep_enrich_entries(
                         checkpoint_cb(done=deep_done, total=deep_total, entries=list(enriched_buffer))
                     except Exception:
                         pass
+                if local_stop.is_set() and len(enriched_buffer) >= max_results:
+                    for pending in futures:
+                        pending.cancel()
+                    break
     except Exception:
         pass
+    finally:
+        executor.shutdown(wait=not stop_event.is_set(), cancel_futures=True)
 
     try:
         from doc_reader import calculate_keyword_match_score

@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-11-14
+
+### Architecture, Stability & Instant Boot (Zero-Crash Engine & Forensic Accuracy)
+- **Zero-Freeze ThreadPool & Anti-Starvation Cap (`config.py`, `scraper_garuda.py`, `scraper_sinta.py`)**:
+  - Menetapkan `MAX_WEBVIEW_WORKERS = 24`, `TURBO_SCRAPE_WORKERS = MAX_WEBVIEW_WORKERS`, `NORMAL_SCRAPE_WORKERS = min(16, cpu * 2)`, dan `MAX_DEEP_SCRAPE_PER_JOURNAL_SEC = 5.5` dengan timeout `(2.5, 3.5)`.
+  - Menghapus seluruh *nested `ThreadPoolExecutor`* di `extract_ojs_deep_info()` (diganti loop sekuensial aman maks 3 subpath pada session keep-alive), membatasi SINTA page pool ke 8 worker dengan pendelegasian `deep_enrich_entries()`, menyisipkan `time.sleep(0.002)` pada loop `as_completed` agar Python GIL / Windows `WM_PAINT` tidak kelaparan, serta mengisolasi target-reach stop via `_CancelBridge` agar tidak membatalkan pipeline ekspor.
+  - Menambahkan pelacakan `weakref.WeakSet` sesi HTTP dan `close_all_http_sessions()` untuk menutup soket dengan bersih saat shutdown.
+- **Instant Booting (<1.5s) Lazy SQLite & Expired Cleanup (`cache_engine.py`)**:
+  - Menunda inisialisasi SQLite (`_initialized = False` -> `_ensure_ready()`) hingga akses pertama di background thread setelah UI tampil, serta menambahkan `cleanup_expired()` dan kunci statistik `"valid_entries"`.
+- **Forensic Crash & Freeze Watchdog (`app_webview.py`, `ui_web/index.html`, `ui_web/app.js`)**:
+  - Menambahkan `init_forensic_logger()`, `write_forensic_dump()`, dan daemon `MainThreadWatchdog` (>8 detik stall dengan cooldown 15 detik -> `logs/debug_trace.log`), serta tombol akses **Log Diagnostik** (`#btn-open-logs`) pada panel Filter Lanjutan.
+- **Fast Phase 4 Export (`exporter.py`)**:
+  - Menambahkan `_build_fast_url_status()` dan mengubah default `skip_url_validation=True` pada `write_exports()`, `export_excel()`, `export_markdown()`, dan `export_csv()` sehingga penyimpanan laporan berlangsung <0.5 detik tanpa probe HTTP ulang.
+
 ## [2.1.1] - 2026-11-14
 
 ### Fixed & Optimized (Zero-Freeze Paginated Table, Delta-IPC, Concurrent Garuda & TLS Tolerance)
