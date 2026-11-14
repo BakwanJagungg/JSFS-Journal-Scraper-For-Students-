@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 import webbrowser
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 
 import webview
@@ -69,16 +70,20 @@ def _copy_to_clipboard(text: str) -> bool:
         user32.CloseClipboard()
 
 
-def _run_scraper(params: dict, on_progress, cancel: threading.Event, on_log=None, on_telemetry=None) -> list:
-    """Menjalankan Fase 1 Garuda & SINTA dengan Smart Typo Fallback (dipertahankan dari v1.7.1)."""
+def _run_scraper(params: dict, on_progress, cancel: threading.Event, on_log=None, on_telemetry=None, on_checkpoint=None) -> list:
+    """
+    Menjalankan Fase 1 Garuda & SINTA dengan Pre-Deep Deduplication lintas kata kunci & lintas portal (v2.1.0),
+    Smart Typo Fallback, Adaptive Pool Multiplier, serta Deep Enrich terpadu.
+    """
+    from config import compute_candidate_pool_limit
     from doc_reader import get_fallback_keywords
-    from scraper_garuda import merge_cross_source_entries, scrape_garuda
+    from scraper_garuda import deep_enrich_entries, merge_cross_source_entries, scrape_garuda
     from scraper_sinta import scrape_sinta, scrape_sinta_selenium
 
     keyword = params["keyword"]
     sinta_ranks = sorted(list(params["sinta"]))
     target = max(1, min(1000, int(params.get("target", 25))))
-    candidate_target = min(max(target * 2, 60), 1500)
+    candidate_target = compute_candidate_pool_limit(target)
     use_garuda = params["garuda"]
     use_sinta = params["sinta_src"]
     turbo = bool(params.get("turbo", True)) or target >= 100
@@ -90,7 +95,7 @@ def _run_scraper(params: dict, on_progress, cancel: threading.Event, on_log=None
             g_results = scrape_garuda(
                 keyword=kw_query,
                 sinta_ranks=sinta_ranks,
-                deep_detail=True,
+                deep_detail=False,
                 max_results=candidate_target,
                 turbo_mode=turbo,
                 free_only=False,
@@ -105,7 +110,7 @@ def _run_scraper(params: dict, on_progress, cancel: threading.Event, on_log=None
                 s_results = scrape_sinta_selenium(
                     keyword=kw_query,
                     sinta_ranks=sinta_ranks,
-                    deep_detail=True,
+                    deep_detail=False,
                     max_results=candidate_target,
                     turbo_mode=turbo,
                     free_only=False,
@@ -115,7 +120,7 @@ def _run_scraper(params: dict, on_progress, cancel: threading.Event, on_log=None
                 s_results = scrape_sinta(
                     keyword=kw_query,
                     sinta_ranks=sinta_ranks,
-                    deep_detail=True,
+                    deep_detail=False,
                     max_results=candidate_target,
                     turbo_mode=turbo,
                     free_only=False,
@@ -148,8 +153,32 @@ def _run_scraper(params: dict, on_progress, cancel: threading.Event, on_log=None
                     records.extend(fb_records)
                     break
 
+    # Tahap Pre-Deep Deduplication: gabungkan duplikat lintas kata kunci & lintas portal SEBELUM deep OJS crawl
+    raw_count = len(records)
     if records:
         records = merge_cross_source_entries(records)
+    if len(records) > candidate_target:
+        records = records[:candidate_target]
+
+    if on_log and raw_count > 0:
+        dedup_saved = max(0, raw_count - len(records))
+        on_log(
+            f"🔎 Pre-Deep Deduplikasi: {len(records)} jurnal unik kandidat "
+            f"(pangkas {dedup_saved} duplikat lintas portal/kata kunci)."
+        )
+
+    if records and not cancel.is_set():
+        records = deep_enrich_entries(
+            records,
+            keyword=keyword,
+            max_results=target,
+            turbo_mode=turbo,
+            free_only=False,
+            include_unknown_apc=True,
+            progress_cb=on_telemetry,
+            checkpoint_cb=on_checkpoint,
+            cancel_event=cancel,
+        )
 
     on_progress(len(records), target)
     return records
@@ -169,9 +198,11 @@ class JSFSApi:
         self._phase = "idle"
         self._phase_status = "Siap mencari jurnal"
         self._current_item = ""
+        self._active_keyword = ""
         self._run_started_at = 0.0
         self._elapsed_seconds = 0.0
         self._seen_deep_names: set[str] = set()
+        self._autosave_executor = ThreadPoolExecutor(max_workers=1)
         self._logs: list[str] = []
         self._progress = {"scrape_done": 0, "scrape_target": 0, "ai_done": 0, "ai_target": 0}
         self._kpi = {"total": 0, "free": 0, "paid": 0, "fast": 0}
@@ -222,6 +253,10 @@ class JSFSApi:
         try:
             import cache_engine
             cache_engine.close_all_connections()
+        except Exception:
+            pass
+        try:
+            self._autosave_executor.shutdown(wait=False, cancel_futures=True)
         except Exception:
             pass
 
@@ -358,7 +393,8 @@ class JSFSApi:
                 params["turbo"] = True
             self._phase = "fase1_portal"
             self._phase_status = "Menjelajahi halaman portal SINTA & Garuda..."
-            self._current_item = f"Memulai pencarian '{params.get('keyword', '')}'..."
+            self._active_keyword = str(params.get("keyword", "") or "")
+            self._current_item = f"Memulai pencarian '{self._active_keyword}'..."
             self._run_started_at = time.monotonic()
             self._elapsed_seconds = 0.0
             self._seen_deep_names = set()
@@ -413,6 +449,7 @@ class JSFSApi:
                 cancel=self._cancel_evt,
                 on_log=self._log,
                 on_telemetry=self._on_scraper_telemetry,
+                on_checkpoint=self._on_checkpoint,
             )
             if self._cancel_evt.is_set():
                 self._finish_run()
@@ -608,6 +645,38 @@ class JSFSApi:
             self._log(f"❌ Error pipeline: {exc!r}")
         finally:
             self._finish_run()
+
+    def _on_checkpoint(self, done: int = 0, total: int = 0, entries: Optional[list] = None):
+        """Streaming batch ke tabel UI + trigger auto-save latar belakang setiap 50 jurnal selesai."""
+        if not entries or self._cancel_evt.is_set():
+            return
+        snapshot = list(entries)
+        kw = self._active_keyword
+        try:
+            ser_batch = self._serialize_results(snapshot)
+            with self._lock:
+                self._latest_entries = snapshot
+                self._serialized_results = ser_batch
+                self._results_version += 1
+        except Exception:
+            pass
+
+        def _bg_save():
+            try:
+                import exporter
+                xlsx_p, _ = exporter.export_autosave_checkpoint(snapshot, keyword=kw)
+                if xlsx_p:
+                    with self._lock:
+                        if not self._latest_excel_path:
+                            self._latest_excel_path = xlsx_p
+                    self._log(f"💾 Auto-save checkpoint ({done}/{total} jurnal) → {xlsx_p}")
+            except Exception:
+                pass
+
+        try:
+            self._autosave_executor.submit(_bg_save)
+        except Exception:
+            pass
 
     def _on_scraper_telemetry(self, phase: str = "fase1_portal", done: int = 0, total: int = 0, current_item: str = "", entry=None):
         """Callback thread-safe per-halaman / per-jurnal untuk telemetry UI real-time."""

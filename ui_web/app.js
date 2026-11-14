@@ -531,6 +531,50 @@
     return `${mm}:${ss}`;
   }
 
+  function playCompletionChime() {
+    if (localStorage.getItem("jsfs-sound-alert") === "off") return;
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const now = ctx.currentTime;
+      const notes = [523.25, 659.25];
+      notes.forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, now + idx * 0.14);
+        gain.gain.setValueAtTime(0.0001, now + idx * 0.14);
+        gain.gain.exponentialRampToValueAtTime(0.055, now + idx * 0.14 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.14 + 0.24);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + idx * 0.14);
+        osc.stop(now + idx * 0.14 + 0.25);
+      });
+      setTimeout(() => {
+        try { ctx.close(); } catch (e) {}
+      }, 900);
+    } catch (e) {}
+  }
+
+  function applySoundPreference() {
+    const enabled = localStorage.getItem("jsfs-sound-alert") !== "off";
+    const btn = $("btn-sound-toggle");
+    const lbl = $("sound-toggle-label");
+    if (btn) btn.setAttribute("aria-pressed", enabled ? "true" : "false");
+    if (lbl) lbl.textContent = enabled ? "Suara On" : "Suara Off";
+  }
+
+  function showCompletionBanner(durationSec, totalCount) {
+    const banner = $("completion-banner");
+    const textEl = $("completion-banner-text");
+    const msg = `Pencarian selesai dalam ${formatElapsed(durationSec)} — ${totalCount} jurnal valid ditemukan`;
+    if (textEl) textEl.textContent = msg;
+    if (banner) banner.classList.remove("is-hidden");
+    showToast(msg);
+  }
+
   function updateProgressBar(prefix, done, total, isIndeterminate) {
     const bar = $(`${prefix}-prog-bar`);
     const txt = $(`${prefix}-prog-text`);
@@ -650,6 +694,7 @@
       renderResultsTable(state.results);
     }
 
+    const wasRunning = state.running;
     updateRunningUI(!!st.running, st.phase_label || st.phase_status, phase);
     if (!st.running) {
       if (state.pollTimer) {
@@ -659,6 +704,13 @@
       if (state.clockTimer) {
         clearInterval(state.clockTimer);
         state.clockTimer = null;
+      }
+      if (wasRunning && (phase === "done" || state.results.length > 0)) {
+        const durSec = typeof st.elapsed_seconds === "number"
+          ? st.elapsed_seconds
+          : Math.max(0, (Date.now() - (state.runStartedClientMs || Date.now())) / 1000);
+        showCompletionBanner(durSec, state.results.length);
+        playCompletionChime();
       }
     }
   }
@@ -693,6 +745,7 @@
 
     setTargetCount(params.target);
     state.runStartedClientMs = Date.now();
+    if ($("completion-banner")) $("completion-banner").classList.add("is-hidden");
     if ($("elapsed-timer")) $("elapsed-timer").textContent = "00:00";
     if ($("scrape-rate")) $("scrape-rate").textContent = "~0.0/dtk";
     if ($("current-item-ticker")) $("current-item-ticker").textContent = `Menghubungi portal untuk '${params.keyword}'...`;
@@ -906,6 +959,21 @@
       if (hasApi()) await window.pywebview.api.open_output_folder();
     });
 
+    if ($("btn-close-completion")) {
+      $("btn-close-completion").addEventListener("click", () => {
+        if ($("completion-banner")) $("completion-banner").classList.add("is-hidden");
+      });
+    }
+
+    if ($("btn-sound-toggle")) {
+      $("btn-sound-toggle").addEventListener("click", () => {
+        const currentlyOn = localStorage.getItem("jsfs-sound-alert") !== "off";
+        localStorage.setItem("jsfs-sound-alert", currentlyOn ? "off" : "on");
+        applySoundPreference();
+        showToast(currentlyOn ? "Suara notifikasi dimatikan." : "Suara notifikasi diaktifkan.");
+      });
+    }
+
     $("btn-ai-refresh").addEventListener("click", refreshAiSetupDialog);
     $("btn-ai-launch").addEventListener("click", async () => {
       if (!hasApi()) return;
@@ -927,8 +995,9 @@
 
   function onBridgeReady() {
     applyPreset("skripsi", true);
+    applySoundPreference();
     renderResultsTable([]);
-    appendLog("JSFS v2.0.1 siap digunakan.");
+    appendLog("JSFS v2.1.0 siap digunakan.");
     pollStatusOnce();
     setTimeout(pollStatusOnce, 700);
   }

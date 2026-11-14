@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light dark" />
-  <title>JSFS v2.0.2 — Journal Scraper For Students</title>
+  <title>JSFS v2.1.0 — Journal Scraper For Students</title>
   <script>
     (function () {
       try {
@@ -34,7 +34,7 @@
           </svg>
         </div>
         <div class="brand-copy">
-          <h1 class="brand-title">JSFS <span class="brand-version">v2.0.2</span></h1>
+          <h1 class="brand-title">JSFS <span class="brand-version">v2.1.0</span></h1>
           <p class="brand-caption">Asisten Pencari Jurnal SINTA &amp; Garuda untuk Mahasiswa</p>
         </div>
       </div>
@@ -362,6 +362,14 @@
             <span>Buka Excel</span>
           </button>
 
+          <button type="button" id="btn-sound-toggle" class="btn btn-ghost btn-sm" aria-pressed="true" aria-label="Suara notifikasi saat pencarian selesai" title="Aktif atau matikan suara notifikasi selesai">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+              <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+            </svg>
+            <span id="sound-toggle-label">Suara On</span>
+          </button>
+
           <button type="button" id="btn-open-folder" class="btn btn-ghost btn-sm" aria-label="Buka folder output hasil ekspor">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" fill="currentColor" fill-opacity="0.1"/>
@@ -369,6 +377,16 @@
             <span>Folder Output</span>
           </button>
         </div>
+      </div>
+
+      <div id="completion-banner" class="completion-banner is-hidden" role="status" aria-live="polite">
+        <div class="completion-banner-copy">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>
+          </svg>
+          <span id="completion-banner-text">Pencarian selesai.</span>
+        </div>
+        <button type="button" id="btn-close-completion" class="btn btn-ghost btn-xs" aria-label="Tutup ringkasan selesai">Tutup</button>
       </div>
 
       <!-- Visual Empty State: Ilustrasi SVG + Panduan 3 Langkah -->

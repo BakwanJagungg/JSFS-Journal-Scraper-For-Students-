@@ -245,6 +245,95 @@ class TestJSFSCore(unittest.TestCase):
             self.assertEqual(disp, "Rp 1.000.000", f"Gagal format untuk: {text}")
             self.assertEqual(val, 1_000_000, f"Gagal nominal untuk: {text}")
 
+    def test_15_adaptive_pool_multiplier(self):
+        """Memastikan Adaptive Candidate Pool Multiplier v2.1.0 proporsional (25->75, 150->300, 600->960)."""
+        from config import compute_candidate_pool_limit
+
+        self.assertEqual(compute_candidate_pool_limit(25), 75)
+        self.assertEqual(compute_candidate_pool_limit(150), 300)
+        self.assertEqual(compute_candidate_pool_limit(600), 960)
+
+    def test_16_pre_deep_deduplication_multi_keyword(self):
+        """Memastikan entri duplikat lintas kata kunci digabungkan SEBELUM deep OJS scraping dipanggil."""
+        from unittest.mock import patch
+        import scraper_garuda
+
+        j_bisnis = JournalEntry(
+            nama_jurnal="Jurnal Ekonomi & Bisnis Digital",
+            penerbit="Universitas Contoh",
+            link_ojs="https://ejournal.contoh.ac.id/index.php/jeb",
+            peringkat_sinta="Sinta 3",
+            sumber="Garuda",
+        )
+        j_ecom_dup = JournalEntry(
+            nama_jurnal="JURNAL EKONOMI DAN BISNIS DIGITAL",
+            penerbit="Universitas Contoh",
+            link_ojs="https://ejournal.contoh.ac.id/index.php/jeb",
+            peringkat_sinta="Sinta 3",
+            sumber="Garuda",
+        )
+        j_ecom_unique = JournalEntry(
+            nama_jurnal="Jurnal Niaga Elektronik",
+            penerbit="Politeknik Niaga",
+            link_ojs="https://ojs.niaga.ac.id/index.php/jne",
+            peringkat_sinta="Sinta 4",
+            sumber="Garuda",
+        )
+
+        captured_deep_inputs = []
+
+        def fake_single(kw, **kwargs):
+            self.assertFalse(kwargs.get("deep_detail"), "Multi-keyword phase 1 wajib deep_detail=False!")
+            if kw == "bisnis":
+                return [j_bisnis]
+            return [j_ecom_dup, j_ecom_unique]
+
+        def fake_deep(entries, **kwargs):
+            captured_deep_inputs.append(list(entries))
+            return entries
+
+        with patch("scraper_garuda._scrape_garuda_single_keyword", side_effect=fake_single), \
+             patch("scraper_garuda.deep_enrich_entries", side_effect=fake_deep):
+            res = scraper_garuda.scrape_garuda("bisnis, e-commerce", deep_detail=True, max_results=20)
+
+        self.assertEqual(len(captured_deep_inputs), 1, "deep_enrich_entries harus dipanggil 1 kali saja!")
+        self.assertEqual(len(captured_deep_inputs[0]), 2, "Duplikat lintas kata kunci wajib terbuang sebelum deep scrape!")
+        self.assertEqual(len(res), 2)
+
+    def test_17_hard_deadline_guard_extract_ojs(self):
+        """Memastikan Hard Per-Journal Deadline Guard menghentikan slow-drip OJS dengan aman."""
+        import time
+        from unittest.mock import patch
+        import scraper_garuda
+
+        target_url = "https://slowdrip-test-v210.ac.id/index.php/jurnal"
+        homepage_html = (
+            "<html><head><title>Jurnal Slow Drip</title></head>"
+            "<body><nav><a href='/about/submissions'>Submissions</a>"
+            "<a href='/about/editorialPolicies'>Policies</a></nav>"
+            "<p>Published by Universitas Slow Drip</p></body></html>"
+        )
+
+        def fake_safe_fetch(sess, url, **kwargs):
+            if url == target_url:
+                return 200, homepage_html, {"_final_url": target_url}
+            time.sleep(0.18)
+            return 200, "<html><body><p>Article Publication: 400.000 IDR</p></body></html>", {"_final_url": url}
+
+        t0 = time.monotonic()
+        with patch("scraper_garuda._get_from_cache", return_value=None), \
+             patch("scraper_garuda._save_to_cache"), \
+             patch("scraper_garuda.check_ojs_domain_reachable", return_value=True), \
+             patch("scraper_garuda.get_domain_ssl_health", return_value="Aktif (HTTPS)"), \
+             patch("scraper_garuda.safe_fetch_html", side_effect=fake_safe_fetch), \
+             patch("scraper_garuda.MAX_DEEP_SCRAPE_PER_JOURNAL_SEC", 0.08):
+            res = scraper_garuda.extract_ojs_deep_info(scraper_garuda.get_high_capacity_session(), target_url)
+        elapsed = time.monotonic() - t0
+
+        self.assertIsInstance(res, dict)
+        self.assertLess(elapsed, 1.5, "Hard deadline guard harus memutus crawling jauh di bawah timeout soket penuh.")
+        self.assertTrue(res.get("focus_scope") and res.get("focus_scope") != scraper_garuda.INFO_NOT_FOUND)
+
 
 if __name__ == "__main__":
     unittest.main()

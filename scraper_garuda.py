@@ -66,6 +66,8 @@ from config import (
     HTTP_TIMEOUT,
     DEEP_SCRAPE_TIMEOUT,
     FAST_FAIL_TIMEOUT,
+    MAX_DEEP_SCRAPE_PER_JOURNAL_SEC,
+    compute_candidate_pool_limit,
 )
 
 console = Console()
@@ -1943,6 +1945,27 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
             _save_to_cache(target_url, info)
             return info
 
+    t_start = time.monotonic()
+
+    def _deadline_exceeded() -> bool:
+        return (time.monotonic() - t_start) >= MAX_DEEP_SCRAPE_PER_JOURNAL_SEC
+
+    def _finalize_scope_fallback():
+        if not info.get("focus_scope") or info.get("focus_scope") == INFO_NOT_FOUND:
+            try:
+                stub = JournalEntry(
+                    nama_jurnal=info.get("official_title") or effective_ojs_url or target_url,
+                    penerbit=info.get("publisher") or "",
+                    bidang=info.get("bidang") or INFO_NOT_FOUND,
+                    focus_scope=info.get("focus_scope") or INFO_NOT_FOUND,
+                    link_ojs=effective_ojs_url or target_url,
+                )
+                synth_txt, synth_src = synthesize_focus_scope(stub)
+                info["focus_scope"] = synth_txt
+                info["sumber_focus"] = synth_src
+            except Exception:
+                pass
+
     all_emails: list[str] = []
     all_phones: list[str] = []
     raw_frequency: str = ""
@@ -1982,7 +2005,7 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
                         break
 
                 # Jika link OJS asli ditemukan dari Garuda, kunjungi beranda OJS-nya untuk mengikuti redirect & membaca menu Author Fees
-                if effective_ojs_url != target_url and effective_ojs_url.startswith("http"):
+                if effective_ojs_url != target_url and effective_ojs_url.startswith("http") and not _deadline_exceeded():
                     ojs_code, ojs_html, ojs_headers = safe_fetch_html(session, effective_ojs_url, timeout=DEEP_SCRAPE_TIMEOUT)
                     if ojs_code == 200 and ojs_html:
                         ojs_final = ojs_headers.get("_final_url", "")
@@ -1998,7 +2021,8 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
             raw_about_parts.append(sanitize_dom(clean_soup_for_scope(soup)))
 
             # Evaluasi Status Server OJS
-            info["status_server"] = get_domain_ssl_health(session, effective_ojs_url or target_url)
+            if not _deadline_exceeded():
+                info["status_server"] = get_domain_ssl_health(session, effective_ojs_url or target_url)
 
             # Ekstraksi Focus & Scope Primary Pass (Tier 1 & Tier 2)
             info["focus_scope"] = _extract_focus_and_scope_from_soup(soup, is_homepage=True)
@@ -2136,93 +2160,129 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
                 )
                 return bool(quick_sched.get("months_num"))
 
-            if _has_complete_core_data():
+            if _has_complete_core_data() or _deadline_exceeded():
                 ordered_subpaths = []
 
-            for sub_url in ordered_subpaths[:8]:
-                if stop_event and stop_event.is_set():
-                    break
+            # Helper untuk memproses hasil HTML subpath secara seragam
+            def _ingest_subpath_html(sub_url: str, sub_html: str):
+                nonlocal raw_frequency
+                sub_soup = BeautifulSoup(sub_html, "lxml")
+                sub_plain = sanitize_dom(sub_soup)
+                freq_contexts.append(sub_plain[:2000])
+
+                sub_url_low = sub_url.lower()
+                if any(k in sub_url_low for k in ("submission", "author-fee", "author_fee", "/af", "/apc", "fee", "biaya", "charge")):
+                    raw_subs_parts.append(sub_plain)
+                if any(k in sub_url_low for k in ("about", "focus", "scope", "editorialpolicies")):
+                    raw_about_parts.append(sanitize_dom(clean_soup_for_scope(sub_soup)))
+
+                if info["focus_scope"] == INFO_NOT_FOUND:
+                    s_scope = _extract_focus_and_scope_from_soup(sub_soup)
+                    if s_scope != INFO_NOT_FOUND:
+                        info["focus_scope"] = s_scope
+
+                # Link fee khusus di halaman submissions (seperti /af)
+                if (
+                    info["apc_status"] in (APC_UNKNOWN, INFO_NOT_FOUND)
+                    and "submissions" in sub_url
+                    and not _deadline_exceeded()
+                ):
+                    for s_a in sub_soup.find_all("a", href=True):
+                        if _deadline_exceeded() or (stop_event and stop_event.is_set()):
+                            break
+                        s_txt = s_a.get_text(" ", strip=True).lower()
+                        s_h = s_a["href"].strip()
+                        if any(k in s_txt for k in fee_kw) or any(k in s_h.lower() for k in ("/af", "/apc", "author-fee", "author_fee", "authorfees")):
+                            target_fee_url = requests.compat.urljoin(clean_base + "/", s_h)
+                            if target_fee_url != sub_url and target_fee_url.startswith("http"):
+                                try:
+                                    f_code, f_html, _ = safe_fetch_html(session, target_fee_url, timeout=DEEP_SCRAPE_TIMEOUT)
+                                    if f_code == 200 and f_html:
+                                        f_soup = BeautifulSoup(f_html, "lxml")
+                                        raw_subs_parts.append(sanitize_dom(f_soup))
+                                        f_apc, f_num = _extract_apc_contextual(f_soup)
+                                        if f_apc not in (APC_UNKNOWN, INFO_NOT_FOUND):
+                                            info["apc_status"] = f_apc
+                                            info["apc_amount"] = f_num
+                                            break
+                                except Exception:
+                                    pass
+
+                sub_meta = _extract_meta_tags_info(sub_soup)
+                for em in sub_meta["emails"]:
+                    if em not in all_emails:
+                        all_emails.append(em)
+                if sub_meta["issn"] and info["issn"] == INFO_NOT_FOUND:
+                    info["issn"] = sub_meta["issn"]
+                if sub_meta["e_issn"] and info["e_issn"] == INFO_NOT_FOUND:
+                    info["e_issn"] = sub_meta["e_issn"]
+                if sub_meta["subjects"]:
+                    info["bidang"] = clean_and_merge_subjects(info["bidang"], ", ".join(sub_meta["subjects"]))
+
+                sub_contact_soup = BeautifulSoup(sub_html, "lxml")
+                for noise_el in sub_contact_soup.select(".obj_article_summary, .cmp_article_list, meta[name='citation_author_email']"):
+                    noise_el.decompose()
+                sub_e, sub_p = _extract_contacts_from_text(str(sub_contact_soup), sanitize_dom(sub_contact_soup), ojs_url=effective_ojs_url or target_url)
+                for e in sub_e:
+                    if e not in all_emails:
+                        all_emails.append(e)
+                for p in sub_p:
+                    if p not in all_phones:
+                        all_phones.append(p)
+
+                if info["apc_status"] in (APC_UNKNOWN, INFO_NOT_FOUND):
+                    s_apc, s_num = _extract_apc_contextual(sub_soup)
+                    if s_apc not in (APC_UNKNOWN, INFO_NOT_FOUND):
+                        info["apc_status"] = s_apc
+                        info["apc_amount"] = s_num
+
+                if not raw_frequency:
+                    for pat in FREQ_PATTERNS:
+                        m_f = pat.search(sub_plain)
+                        if m_f:
+                            raw_frequency = m_f.group(0).strip()
+                            break
+
+            # Tahap 2A: Ambil 2 sub-path prioritas (/about/submissions & /about/editorialPolicies atau link biaya) secara paralel
+            if ordered_subpaths and not (stop_event and stop_event.is_set()) and not _deadline_exceeded():
+                priority_urls = ordered_subpaths[:2]
+                extra_urls = ordered_subpaths[2:4]  # Batas maksimum 2 sub-path tambahan setelah rute biaya utama
+
+                def _fetch_sub(u: str):
+                    if (stop_event and stop_event.is_set()) or _deadline_exceeded():
+                        return u, 0, ""
+                    w_sess = get_thread_local_session(is_deep_scrape=True)
+                    sc, sh, _ = safe_fetch_html(w_sess, u, timeout=DEEP_SCRAPE_TIMEOUT)
+                    return u, sc, sh
+
+                sub_exec = ThreadPoolExecutor(max_workers=len(priority_urls))
                 try:
-                    s_code, sub_html, _ = safe_fetch_html(session, sub_url, timeout=DEEP_SCRAPE_TIMEOUT)
-                    if s_code == 200 and sub_html:
-                        sub_soup = BeautifulSoup(sub_html, "lxml")
-                        sub_plain = sanitize_dom(sub_soup)
-                        freq_contexts.append(sub_plain[:2000])
-
-                        sub_url_low = sub_url.lower()
-                        if any(k in sub_url_low for k in ("submission", "author-fee", "author_fee", "/af", "/apc", "fee", "biaya", "charge")):
-                            raw_subs_parts.append(sub_plain)
-                        if any(k in sub_url_low for k in ("about", "focus", "scope", "editorialpolicies")):
-                            raw_about_parts.append(sanitize_dom(clean_soup_for_scope(sub_soup)))
-
-                        # Focus & Scope dari subpath
-                        if info["focus_scope"] == INFO_NOT_FOUND:
-                            s_scope = _extract_focus_and_scope_from_soup(sub_soup)
-                            if s_scope != INFO_NOT_FOUND:
-                                info["focus_scope"] = s_scope
-
-                        # Jika di halaman submissions ditemukan link khusus fee (seperti /af), inspeksi langsung
-                        if info["apc_status"] in (APC_UNKNOWN, INFO_NOT_FOUND) and "submissions" in sub_url:
-                            for s_a in sub_soup.find_all("a", href=True):
-                                s_txt = s_a.get_text(" ", strip=True).lower()
-                                s_h = s_a["href"].strip()
-                                if any(k in s_txt for k in fee_kw) or any(k in s_h.lower() for k in ("/af", "/apc", "author-fee", "author_fee", "authorfees")):
-                                    target_fee_url = requests.compat.urljoin(clean_base + "/", s_h)
-                                    if target_fee_url != sub_url and target_fee_url.startswith("http"):
-                                        try:
-                                            f_code, f_html, _ = safe_fetch_html(session, target_fee_url, timeout=DEEP_SCRAPE_TIMEOUT)
-                                            if f_code == 200 and f_html:
-                                                f_soup = BeautifulSoup(f_html, "lxml")
-                                                raw_subs_parts.append(sanitize_dom(f_soup))
-                                                f_apc, f_num = _extract_apc_contextual(f_soup)
-                                                if f_apc not in (APC_UNKNOWN, INFO_NOT_FOUND):
-                                                    info["apc_status"] = f_apc
-                                                    info["apc_amount"] = f_num
-                                        except Exception:
-                                            pass
-
-                        # Ekstraksi meta
-                        sub_meta = _extract_meta_tags_info(sub_soup)
-                        for em in sub_meta["emails"]:
-                            if em not in all_emails:
-                                all_emails.append(em)
-                        if sub_meta["issn"] and info["issn"] == INFO_NOT_FOUND:
-                            info["issn"] = sub_meta["issn"]
-                        if sub_meta["e_issn"] and info["e_issn"] == INFO_NOT_FOUND:
-                            info["e_issn"] = sub_meta["e_issn"]
-                        if sub_meta["subjects"]:
-                            info["bidang"] = clean_and_merge_subjects(info["bidang"], ", ".join(sub_meta["subjects"]))
-
-                        # Kontak subpath
-                        sub_contact_soup = BeautifulSoup(sub_html, "lxml")
-                        for noise_el in sub_contact_soup.select(".obj_article_summary, .cmp_article_list, meta[name='citation_author_email']"):
-                            noise_el.decompose()
-                        sub_e, sub_p = _extract_contacts_from_text(str(sub_contact_soup), sanitize_dom(sub_contact_soup), ojs_url=effective_ojs_url or target_url)
-                        for e in sub_e:
-                            if e not in all_emails:
-                                all_emails.append(e)
-                        for p in sub_p:
-                            if p not in all_phones:
-                                all_phones.append(p)
-
-                        # APC subpath
-                        if info["apc_status"] in (APC_UNKNOWN, INFO_NOT_FOUND):
-                            s_apc, s_num = _extract_apc_contextual(sub_soup)
-                            if s_apc not in (APC_UNKNOWN, INFO_NOT_FOUND):
-                                info["apc_status"] = s_apc
-                                info["apc_amount"] = s_num
-
-                        # Frekuensi subpath
-                        if not raw_frequency:
-                            for pat in FREQ_PATTERNS:
-                                m_f = pat.search(sub_plain)
-                                if m_f:
-                                    raw_frequency = m_f.group(0).strip()
-                                    break
+                    sub_futs = [sub_exec.submit(_fetch_sub, u) for u in priority_urls]
+                    rem_timeout = max(0.2, MAX_DEEP_SCRAPE_PER_JOURNAL_SEC - (time.monotonic() - t_start))
+                    for sf in as_completed(sub_futs, timeout=rem_timeout):
+                        if (stop_event and stop_event.is_set()) or _deadline_exceeded():
+                            break
+                        try:
+                            u_done, sc, sh = sf.result()
+                            if sc == 200 and sh:
+                                _ingest_subpath_html(u_done, sh)
+                        except Exception:
+                            pass
                 except Exception:
                     pass
-                if _has_complete_core_data():
-                    break
+                finally:
+                    sub_exec.shutdown(wait=False, cancel_futures=True)
+
+                # Tahap 2B: Kunjungi maksimum 2 sub-path tambahan hanya jika data inti belum lengkap & belum deadline
+                for sub_url in extra_urls:
+                    if (stop_event and stop_event.is_set()) or _deadline_exceeded() or _has_complete_core_data():
+                        break
+                    try:
+                        s_code, sub_html, _ = safe_fetch_html(session, sub_url, timeout=DEEP_SCRAPE_TIMEOUT)
+                        if s_code == 200 and sub_html:
+                            _ingest_subpath_html(sub_url, sub_html)
+                    except Exception:
+                        pass
         else:
             if "kemdiktisaintek.go.id" not in target_url:
                 info["apc_status"] = DEAD_LINK_TEXT
@@ -2252,7 +2312,7 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
     detected_months = sched_info.get("months_num") or []
 
     # Jika month_parser belum menemukan bulan terbit dari beranda & about, cek arsip edisi
-    if not detected_months and effective_ojs_url.startswith("http") and not (stop_event and stop_event.is_set()):
+    if not detected_months and effective_ojs_url.startswith("http") and not (stop_event and stop_event.is_set()) and not _deadline_exceeded():
         archive_titles = []
         # 1. Coba ekstrak Current Issue di beranda
         if 'soup' in locals() and soup:
@@ -2313,6 +2373,7 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
         info["status_server"] = get_domain_ssl_health(session, effective_ojs_url or target_url)
 
     info["transparansi_kontak"] = compute_contact_transparency(info["email"], info["telepon"])
+    _finalize_scope_fallback()
 
     # Simpan ke cache lokal
     _save_to_cache(target_url, info)
@@ -2824,8 +2885,8 @@ def _scrape_garuda_single_keyword(
         console.print(f"[green]   ✓ Ditemukan {len(page_journals)} jurnal di halaman {page}[/green]")
         all_journals.extend(page_journals)
 
-        # High-Yield Candidate Pool (v1.6.1): Over-fetch minimal 3x atau 60 jurnal
-        pool_target = max(max_results * 3, 60)
+        # Adaptive Candidate Pool Multiplier (v2.1.0)
+        pool_target = compute_candidate_pool_limit(max_results)
         if sinta_ranks:
             rank_labels = [f"S{r}" for r in sinta_ranks] + [f"Sinta {r}" for r in sinta_ranks] + [str(r) for r in sinta_ranks]
             cur_matching = [
@@ -2833,7 +2894,7 @@ def _scrape_garuda_single_keyword(
                 if any(r in j.peringkat_sinta for r in rank_labels)
                 or j.peringkat_sinta == INFO_NOT_FOUND
             ]
-            if len(cur_matching) >= max(max_results * 2, 40) or len(all_journals) >= pool_target:
+            if len(cur_matching) >= max(max_results, 40) or len(all_journals) >= pool_target:
                 console.print(f"[dim]   Pool kandidat Garuda memadai ({len(cur_matching)} lolos SINTA / {len(all_journals)} total).[/dim]")
                 break
         else:
@@ -2847,7 +2908,7 @@ def _scrape_garuda_single_keyword(
                     phase="fase1_portal",
                     done=page,
                     total=0,
-                    current_item=f"Garuda '{keyword}' — Hal. {page} ({len(journals)} jurnal)",
+                    current_item=f"Garuda '{keyword}' — Hal. {page} ({len(all_journals)} jurnal)",
                 )
             except Exception:
                 pass
@@ -2869,126 +2930,209 @@ def _scrape_garuda_single_keyword(
     else:
         filtered = all_journals
 
-    # Pertahankan candidate pool yang melimpah untuk deep scrape & filter biaya hilir
-    pool_limit = max(max_results * 2, 40) if deep_detail else max_results
+    # Adaptive Candidate Pool Multiplier (v2.1.0)
+    pool_limit = compute_candidate_pool_limit(max_results) if deep_detail else max_results
     if len(filtered) > pool_limit:
         filtered = filtered[:pool_limit]
 
     console.print(f"\n[bold]📊 Hasil Garuda: {len(filtered)} jurnal dihimpun[/bold]")
 
-    # Jalankan deep detail pada filtered entries dengan Target Reach Short-Circuiting (v1.3.6)
     if filtered and deep_detail:
-        console.print(f"[bold cyan]🔍 Menjalankan Quad-Pass Deep Scraping Garuda ({len(filtered)} jurnal) [{active_workers} workers]...[/bold cyan]")
-        stop_event = threading.Event()
-        matched_lock = threading.Lock()
-        matched_count = 0
-        deep_session = get_high_capacity_session(is_deep_scrape=True)
-
+        filtered = deep_enrich_entries(
+            filtered,
+            keyword=keyword,
+            max_results=max_results,
+            turbo_mode=turbo_mode,
+            free_only=free_only,
+            include_unknown_apc=include_unknown_apc,
+            progress_cb=progress_cb,
+        )
+    else:
         try:
-            deep_done = 0
-            deep_total = len(filtered)
-            with ThreadPoolExecutor(max_workers=active_workers) as executor:
-                def _do_garuda_deep(entry: JournalEntry):
-                    nonlocal matched_count
-                    if stop_event.is_set():
-                        return entry
-                    try:
-                        worker_sess = get_thread_local_session(is_deep_scrape=True)
-                        res = extract_ojs_deep_info(worker_sess, entry.link_ojs, stop_event=stop_event)
-                        entry.link_ojs = res.get("ojs_url", entry.link_ojs)
-                        if res.get("official_title") and (len(entry.nama_jurnal) > 55 or entry.nama_jurnal.isupper()):
-                            entry.nama_jurnal = res["official_title"]
+            from doc_reader import calculate_keyword_match_score
+            for entry in filtered:
+                if entry.match_score <= 0 or not entry.kesesuaian_naskah:
+                    sc = calculate_keyword_match_score(keyword, entry)
+                    entry.match_score = sc.get("score", 40)
+                    entry.kesesuaian_naskah = sc.get("level", "Cukup Sesuai")
+        except Exception:
+            pass
 
-                        entry.email = res.get("email", INFO_NOT_FOUND)
-                        entry.telepon = res.get("telepon", INFO_NOT_FOUND)
-                        entry.frekuensi = res.get("frekuensi", INFO_NOT_FOUND)
-                        entry.apc_status = res.get("apc_status", APC_UNKNOWN)
-                        entry.apc_amount = res.get("apc_amount", None)
-                        if res.get("biaya_submit"):
-                            entry.biaya_submit = res["biaya_submit"]
+    return filtered
 
-                        # Smart Fallback Biaya Submit -> Biaya Publikasi (v1.6.2)
-                        if (entry.biaya_submit and entry.biaya_submit > 50000) and (entry.biaya_publikasi is None or entry.biaya_publikasi == 0):
-                            entry.biaya_publikasi = entry.biaya_submit
-                            if entry.apc_status in (APC_UNKNOWN, INFO_NOT_FOUND, ""):
-                                entry.apc_status = f"Rp {entry.biaya_publikasi:,}".replace(",", ".")
 
-                        raw_scope = res.get("focus_scope", INFO_NOT_FOUND)
-                        if not raw_scope or raw_scope == INFO_NOT_FOUND or "tidak ditemukan" in str(raw_scope).lower() or is_focus_scope_noise(raw_scope):
+def deep_enrich_entries(
+    entries: list[JournalEntry],
+    keyword: str = "",
+    max_results: int = MAX_RESULTS,
+    turbo_mode: bool = True,
+    free_only: bool = False,
+    include_unknown_apc: bool = True,
+    progress_cb=None,
+    checkpoint_cb=None,
+    cancel_event: Optional[threading.Event] = None,
+) -> list[JournalEntry]:
+    """
+    Deep scraping OJS paralel terpadu (Garuda + SINTA) setelah Pre-Deep Deduplication (v2.1.0).
+    Menjamin setiap jurnal unik hanya di-scrape situs OJS-nya SATU KALI dengan 5.5s hard deadline
+    dan memicu checkpoint_cb setiap 50 jurnal selesai untuk streaming & incremental auto-save.
+    """
+    if not entries:
+        return []
+
+    active_workers = TURBO_SCRAPE_WORKERS if turbo_mode else NORMAL_SCRAPE_WORKERS
+    console.print(
+        f"[bold cyan]🔍 Menjalankan Hyper-Speed Deep Scraping ({len(entries)} jurnal unik) "
+        f"[{active_workers} workers | Deadline {MAX_DEEP_SCRAPE_PER_JOURNAL_SEC}s/jurnal]...[/bold cyan]"
+    )
+
+    stop_event = cancel_event or threading.Event()
+    matched_lock = threading.Lock()
+    matched_count = 0
+    deep_done = 0
+    deep_total = len(entries)
+    enriched_buffer: list[JournalEntry] = []
+
+    try:
+        from scraper_sinta import resolve_sinta_profile_meta, resolve_garuda_profile_meta
+    except Exception:
+        resolve_sinta_profile_meta = None
+        resolve_garuda_profile_meta = None
+
+    try:
+        with ThreadPoolExecutor(max_workers=active_workers) as executor:
+            def _do_unified_deep(entry: JournalEntry) -> JournalEntry:
+                nonlocal matched_count
+                if stop_event.is_set():
+                    return entry
+                try:
+                    worker_sess = get_thread_local_session(is_deep_scrape=True)
+
+                    # Resolusi URL OJS bila entri berasal dari SINTA tanpa link_ojs langsung
+                    if (
+                        resolve_sinta_profile_meta is not None
+                        and (not entry.link_ojs or "kemdiktisaintek.go.id" in entry.link_ojs)
+                        and getattr(entry, "sinta_profile_url", "")
+                    ):
+                        p_meta = resolve_sinta_profile_meta(worker_sess, entry.sinta_profile_url)
+                        if p_meta.get("ojs_url"):
+                            entry.link_ojs = p_meta["ojs_url"]
+                        if entry.issn == INFO_NOT_FOUND and p_meta.get("issn") and p_meta.get("issn") != INFO_NOT_FOUND:
+                            entry.issn = p_meta["issn"]
+                        if entry.e_issn == INFO_NOT_FOUND and p_meta.get("e_issn") and p_meta.get("e_issn") != INFO_NOT_FOUND:
+                            entry.e_issn = p_meta["e_issn"]
+                        if p_meta.get("subject") and p_meta.get("subject") != INFO_NOT_FOUND:
+                            entry.bidang = clean_and_merge_subjects(entry.bidang, p_meta["subject"])
+
+                    res = extract_ojs_deep_info(worker_sess, entry.link_ojs, stop_event=stop_event)
+                    entry.link_ojs = res.get("ojs_url", entry.link_ojs)
+                    if res.get("official_title") and (len(entry.nama_jurnal) > 55 or entry.nama_jurnal.isupper()):
+                        entry.nama_jurnal = res["official_title"]
+
+                    entry.email = res.get("email", INFO_NOT_FOUND)
+                    entry.telepon = res.get("telepon", INFO_NOT_FOUND)
+                    entry.frekuensi = res.get("frekuensi", INFO_NOT_FOUND)
+                    entry.apc_status = res.get("apc_status", APC_UNKNOWN)
+                    entry.apc_amount = res.get("apc_amount", None)
+                    if res.get("biaya_submit"):
+                        entry.biaya_submit = res["biaya_submit"]
+
+                    if (entry.biaya_submit and entry.biaya_submit > 50000) and (entry.biaya_publikasi is None or entry.biaya_publikasi == 0):
+                        entry.biaya_publikasi = entry.biaya_submit
+                        if entry.apc_status in (APC_UNKNOWN, INFO_NOT_FOUND, ""):
+                            entry.apc_status = f"Rp {entry.biaya_publikasi:,}".replace(",", ".")
+
+                    raw_scope = res.get("focus_scope", INFO_NOT_FOUND)
+                    if (
+                        resolve_garuda_profile_meta is not None
+                        and (not raw_scope or raw_scope == INFO_NOT_FOUND)
+                        and getattr(entry, "garuda_profile_url", "")
+                    ):
+                        g_meta = resolve_garuda_profile_meta(worker_sess, entry.garuda_profile_url)
+                        if g_meta.get("focus_scope"):
+                            raw_scope = g_meta["focus_scope"]
+
+                    if not raw_scope or raw_scope == INFO_NOT_FOUND or "tidak ditemukan" in str(raw_scope).lower() or is_focus_scope_noise(raw_scope):
+                        synth_text, synth_src = synthesize_focus_scope(entry)
+                        entry.focus_scope = synth_text
+                        entry.sumber_focus = synth_src
+                    else:
+                        cleaned_scope = strip_ojs_profile_table_noise(raw_scope)
+                        if is_focus_scope_noise(cleaned_scope):
                             synth_text, synth_src = synthesize_focus_scope(entry)
                             entry.focus_scope = synth_text
                             entry.sumber_focus = synth_src
                         else:
-                            cleaned_scope = strip_ojs_profile_table_noise(raw_scope)
-                            if is_focus_scope_noise(cleaned_scope):
-                                synth_text, synth_src = synthesize_focus_scope(entry)
-                                entry.focus_scope = synth_text
-                                entry.sumber_focus = synth_src
-                            else:
-                                entry.focus_scope = cleaned_scope
-                                entry.sumber_focus = res.get("sumber_focus", "Regex") or "Regex"
+                            entry.focus_scope = cleaned_scope
+                            entry.sumber_focus = res.get("sumber_focus", "Regex") or "Regex"
 
-                        entry.status_server = res.get("status_server", "Aktif (HTTP)")
-                        entry.transparansi_kontak = res.get("transparansi_kontak", "Tidak Transparan")
-                        if entry.issn == INFO_NOT_FOUND and res.get("issn") and res.get("issn") != INFO_NOT_FOUND:
-                            entry.issn = res.get("issn")
-                        if entry.e_issn == INFO_NOT_FOUND and res.get("e_issn") and res.get("e_issn") != INFO_NOT_FOUND:
-                            entry.e_issn = res.get("e_issn")
-                        if res.get("bidang") and res.get("bidang") != INFO_NOT_FOUND:
-                            entry.bidang = clean_and_merge_subjects(entry.bidang, res.get("bidang"))
-                        if not entry.penerbit and res.get("publisher"):
-                            entry.penerbit = res.get("publisher")
-                        entry.raw_about = res.get("raw_about", "")
-                        entry.raw_submissions = res.get("raw_submissions", "")
-                        entry.bulan_terbit = res.get("bulan_terbit", [])
+                    entry.status_server = res.get("status_server", "Aktif (HTTP)")
+                    entry.transparansi_kontak = res.get("transparansi_kontak", "Tidak Transparan")
+                    if entry.issn == INFO_NOT_FOUND and res.get("issn") and res.get("issn") != INFO_NOT_FOUND:
+                        entry.issn = res.get("issn")
+                    if entry.e_issn == INFO_NOT_FOUND and res.get("e_issn") and res.get("e_issn") != INFO_NOT_FOUND:
+                        entry.e_issn = res.get("e_issn")
+                    if res.get("bidang") and res.get("bidang") != INFO_NOT_FOUND:
+                        entry.bidang = clean_and_merge_subjects(entry.bidang, res.get("bidang"))
+                    if not entry.penerbit and res.get("publisher"):
+                        entry.penerbit = res.get("publisher")
+                    entry.raw_about = res.get("raw_about", "")
+                    entry.raw_submissions = res.get("raw_submissions", "")
+                    entry.bulan_terbit = res.get("bulan_terbit", [])
 
-                        if entry.apc_status == "Gratis (Rp 0)" or entry.apc_amount == 0:
-                            entry.biaya_publikasi = 0
-                        elif entry.apc_amount is not None and entry.apc_amount > 0:
-                            entry.biaya_publikasi = entry.apc_amount
-                        elif (entry.biaya_submit and entry.biaya_submit > 50000) and (entry.biaya_publikasi is None or entry.biaya_publikasi == 0):
-                            entry.biaya_publikasi = entry.biaya_submit
+                    if entry.apc_status == "Gratis (Rp 0)" or entry.apc_amount == 0:
+                        entry.biaya_publikasi = 0
+                    elif entry.apc_amount is not None and entry.apc_amount > 0:
+                        entry.biaya_publikasi = entry.apc_amount
+                    elif (entry.biaya_submit and entry.biaya_submit > 50000) and (entry.biaya_publikasi is None or entry.biaya_publikasi == 0):
+                        entry.biaya_publikasi = entry.biaya_submit
 
-                        with matched_lock:
-                            if free_only:
-                                apc_low = entry.apc_status.lower()
-                                is_free = (entry.apc_amount == 0) or ("gratis" in apc_low) or ("rp 0" in apc_low) or ("free" in apc_low)
-                                is_unk = (entry.apc_amount is None) or (entry.apc_status in (INFO_NOT_FOUND, APC_UNKNOWN))
-                                if is_free or (is_unk and include_unknown_apc):
-                                    matched_count += 1
-                            else:
+                    with matched_lock:
+                        if free_only:
+                            apc_low = entry.apc_status.lower()
+                            is_free = (entry.apc_amount == 0) or ("gratis" in apc_low) or ("rp 0" in apc_low) or ("free" in apc_low)
+                            is_unk = (entry.apc_amount is None) or (entry.apc_status in (INFO_NOT_FOUND, APC_UNKNOWN))
+                            if is_free or (is_unk and include_unknown_apc):
                                 matched_count += 1
-                            if matched_count >= max_results:
-                                stop_event.set()
+                        else:
+                            matched_count += 1
+                        if matched_count >= max_results:
+                            stop_event.set()
+                except Exception:
+                    pass
+                return entry
+
+            futures = [executor.submit(_do_unified_deep, entry) for entry in entries]
+            for f in as_completed(futures):
+                try:
+                    done_entry = f.result()
+                except Exception:
+                    done_entry = None
+                deep_done += 1
+                if done_entry is not None:
+                    enriched_buffer.append(done_entry)
+                if callable(progress_cb):
+                    try:
+                        progress_cb(
+                            phase="fase2_deep",
+                            done=deep_done,
+                            total=deep_total,
+                            current_item=(done_entry.nama_jurnal if done_entry else f"Deep crawl {deep_done}/{deep_total}"),
+                            entry=done_entry,
+                        )
                     except Exception:
                         pass
-                    return entry
-
-                futures = [executor.submit(_do_garuda_deep, entry) for entry in filtered]
-                for f in as_completed(futures):
+                if callable(checkpoint_cb) and deep_done % 50 == 0 and enriched_buffer:
                     try:
-                        done_entry = f.result()
+                        checkpoint_cb(done=deep_done, total=deep_total, entries=list(enriched_buffer))
                     except Exception:
-                        done_entry = None
-                    deep_done += 1
-                    if callable(progress_cb):
-                        try:
-                            progress_cb(
-                                phase="fase2_deep",
-                                done=deep_done,
-                                total=deep_total,
-                                current_item=(done_entry.nama_jurnal if done_entry else f"Garuda deep {deep_done}/{deep_total}"),
-                                entry=done_entry,
-                            )
-                        except Exception:
-                            pass
-        except Exception:
-            pass
+                        pass
+    except Exception:
+        pass
 
-    # Selalu hitung keyword match score untuk setiap jurnal agar kolom Kesesuaian & Skor terisi (v1.6.1)
     try:
         from doc_reader import calculate_keyword_match_score
-        for entry in filtered:
+        for entry in entries:
             if entry.match_score <= 0 or not entry.kesesuaian_naskah:
                 sc = calculate_keyword_match_score(keyword, entry)
                 entry.match_score = sc.get("score", 40)
@@ -2996,7 +3140,7 @@ def _scrape_garuda_single_keyword(
     except Exception:
         pass
 
-    return filtered
+    return entries
 
 
 def scrape_garuda(
@@ -3010,40 +3154,44 @@ def scrape_garuda(
     progress_cb=None,
 ) -> list[JournalEntry]:
     """
-    Scraping Portal Garuda dengan dukungan multi-keyword adaptif dan short-circuiting (v1.3.6).
+    Scraping Portal Garuda dengan Pre-Deep Deduplication lintas multi-keyword (v2.1.0).
+    Mengumpulkan metadata dasar seluruh kata kunci lalu menggabungkan duplikat SEBELUM deep scrape.
     """
     keywords = parse_search_keywords(keyword)
     session = get_high_capacity_session()
 
     if len(keywords) > 1:
         console.print(f"\n[bold cyan]🔍 Deteksi multi-keyword adaptif ({len(keywords)} topik): {', '.join(keywords)}[/bold cyan]")
-        all_res: list[JournalEntry] = []
-        buffer_ratio = 1.35
-        target_per_kw = max(20, int((max_results * buffer_ratio) / len(keywords)) + 15)
+        all_raw: list[JournalEntry] = []
+        pool_limit = compute_candidate_pool_limit(max_results)
+        per_kw_limit = max(20, int(pool_limit / max(1, len(keywords))) + 20)
         for kw in keywords:
-            current_unique = len(merge_cross_source_entries(all_res))
-            if current_unique >= max_results:
+            if len(merge_cross_source_entries(all_raw)) >= pool_limit:
                 break
-            remaining_needed = max_results - current_unique
-            fetch_limit = min(max_results, max(target_per_kw, remaining_needed + 15))
-
-            kw_journals = _scrape_garuda_single_keyword(
+            kw_raw = _scrape_garuda_single_keyword(
                 kw,
                 sinta_ranks=sinta_ranks,
-                deep_detail=deep_detail,
-                max_results=fetch_limit,
+                deep_detail=False,
+                max_results=per_kw_limit,
                 turbo_mode=turbo_mode,
                 session=session,
                 free_only=free_only,
                 include_unknown_apc=include_unknown_apc,
                 progress_cb=progress_cb,
             )
-            all_res.extend(kw_journals)
-            all_res = merge_cross_source_entries(all_res)
-            if len(all_res) >= max_results:
-                break
-        merged = merge_cross_source_entries(all_res)
-        return merged[:max_results]
+            all_raw.extend(kw_raw)
+        merged_unique = merge_cross_source_entries(all_raw)[:pool_limit]
+        if deep_detail and merged_unique:
+            merged_unique = deep_enrich_entries(
+                merged_unique,
+                keyword=keyword,
+                max_results=max_results,
+                turbo_mode=turbo_mode,
+                free_only=free_only,
+                include_unknown_apc=include_unknown_apc,
+                progress_cb=progress_cb,
+            )
+        return merged_unique[:max_results]
 
     return _scrape_garuda_single_keyword(
         keyword,

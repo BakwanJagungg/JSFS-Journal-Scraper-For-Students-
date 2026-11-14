@@ -1,6 +1,6 @@
 # =============================================================================
 # JSFS - Journal Scraper For Students
-# config.py — Konfigurasi global scraper v2.0.1 (Visual-First WebView2 UI + Selectolax)
+# config.py — Konfigurasi global scraper v2.1.0 (Hyper-Speed Pipeline & Hard Deadline)
 # =============================================================================
 
 import os
@@ -8,7 +8,7 @@ import re
 import sys
 from datetime import datetime
 
-APP_VERSION = "2.0.2"
+APP_VERSION = "2.1.0"
 
 
 def get_app_dir() -> str:
@@ -84,12 +84,23 @@ TURBO_SCRAPE_WORKERS = min(64, (os.cpu_count() or 4) * 4)
 NORMAL_SCRAPE_WORKERS = min(32, (os.cpu_count() or 4) * 2)
 DEEP_SCRAPE_WORKERS = TURBO_SCRAPE_WORKERS
 
-# --- High-Capacity Connection Pooling & Adaptive Timeout (v1.5.1 Speed Acceleration) ---
+# --- High-Capacity Connection Pooling & Adaptive Timeout (v2.1.0 Hyper-Speed) ---
 HTTP_POOL_CONNECTIONS = 128
 HTTP_POOL_MAXSIZE = 128
 HTTP_TIMEOUT = 5  # Toleransi 5 detik untuk penelusuran portal SINTA / Garuda
-DEEP_SCRAPE_TIMEOUT = (2.0, 3.5)  # (connect: 2.0s, read: 3.5s) timeout diperketat untuk OJS
-FAST_FAIL_TIMEOUT = (2.0, 2.5)    # (connect: 2.0s, read: 2.5s) fast-fail circuit breaker OJS domain
+DEEP_SCRAPE_TIMEOUT = (1.5, 2.5)  # (connect: 1.5s, read: 2.5s) cegah slow-drip OJS
+FAST_FAIL_TIMEOUT = (1.5, 2.5)    # (connect: 1.5s, read: 2.5s) fast-fail circuit breaker OJS domain
+MAX_DEEP_SCRAPE_PER_JOURNAL_SEC = 5.5  # Batas waktu keras wall-clock per jurnal OJS
+
+
+def compute_candidate_pool_limit(target_results: int) -> int:
+    """Adaptive Candidate Pool Multiplier agar proporsional pada target kecil hingga 1.000 jurnal."""
+    target_val = max(1, int(target_results))
+    if target_val < 100:
+        return max(target_val * 3, 60)
+    if target_val < 300:
+        return int(target_val * 2.0)
+    return int(target_val * 1.6)
 
 # --- Output Directory & Naming ---
 OUTPUT_DIR = "output"

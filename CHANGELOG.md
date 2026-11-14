@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-11-14
+
+### Added & Enhanced (Hyper-Speed 6x Pipeline, Hard Deadline & Incremental Auto-Save)
+- **Pre-Deep Deduplication & Adaptive Pool Multiplier (`config.py`, `scraper_garuda.py`, `scraper_sinta.py`, `app_webview.py`, `jsfs.py`)**:
+  - Mengumpulkan metadata dasar lintas kata kunci dan lintas portal (`deep_detail=False`) terlebih dahulu lalu menjalankan `merge_cross_source_entries()` sebelum deep crawl OJS melalui `deep_enrich_entries()`, sehingga jurnal duplikat hanya di-scrape situs OJS-nya **satu kali saja**.
+  - Menambahkan `compute_candidate_pool_limit(target)` pada `config.py` (`<100 -> max(t*3, 60)`, `100..299 -> 2.0x`, `>=300 -> 1.6x`) agar pool target besar tetap proporsional.
+- **5.5s Hard Per-Journal Deadline & Concurrent Priority Subpath (`scraper_garuda.py`, `config.py`)**:
+  - Memperketat `DEEP_SCRAPE_TIMEOUT = (1.5, 2.5)` dan menetapkan `MAX_DEEP_SCRAPE_PER_JOURNAL_SEC = 5.5`.
+  - Menjalankan probing subpath biaya prioritas (`/about/submissions` & `/about/editorialPolicies`) secara paralel ringan dengan batas maks 2 subpath tambahan dan `shutdown(wait=False, cancel_futures=True)` ketika *wall-clock deadline* tercapai, serta sintesis otomatis Focus & Scope saat terputus deadline.
+- **Incremental Auto-Save Checkpoint & Completion Alert (`exporter.py`, `app_webview.py`, `ui_web/index.html`, `ui_web/style.css`, `ui_web/app.js`)**:
+  - Menambahkan `export_autosave_checkpoint()` (atomik via `os.replace` & thread-safe `_autosave_lock`) untuk menyimpan `output/_AUTOSAVE_TERAKHIR.xlsx` & `output/_AUTOSAVE_TERAKHIR_LIST.txt` setiap 50 jurnal selesai sambil melakukan streaming baris tabel secara bertahap.
+  - Menambahkan banner ringkasan durasi (`role="status"`), tombol kontrol suara (`#btn-sound-toggle`), serta notifikasi nada lembut 2-tone berbasis Web `AudioContext`.
+
 ## [2.0.2] - 2026-11-13
 
 ### Added & Improved (Real-Time Telemetry & 3x Faster Scraping)

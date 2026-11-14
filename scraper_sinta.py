@@ -43,10 +43,12 @@ from config import (
     HTTP_TIMEOUT,
     DEEP_SCRAPE_TIMEOUT,
     FAST_FAIL_TIMEOUT,
+    compute_candidate_pool_limit,
 )
 from scraper_garuda import (
     JournalEntry,
     extract_ojs_deep_info,
+    deep_enrich_entries,
     check_ojs_domain_reachable,
     clean_contact_list,
     sanitize_text,
@@ -525,11 +527,11 @@ def _scrape_sinta_single_keyword(
                 console.print(f"[green]   ✓ Ditemukan {len(p_journals)} jurnal di halaman {p}[/green]")
                 all_journals.extend(p_journals)
 
-                # High-Yield Candidate Pool (v1.6.1): Over-fetch minimal 3x atau 60 jurnal
-                pool_target = max(max_results * 3, 60)
+                # Adaptive Candidate Pool Multiplier (v2.1.0)
+                pool_target = compute_candidate_pool_limit(max_results)
                 if sinta_ranks:
                     cur_matching = [j for j in all_journals if any(r in j.peringkat_sinta for r in rank_labels)]
-                    if len(cur_matching) >= max(max_results * 2, 40) or len(all_journals) >= pool_target:
+                    if len(cur_matching) >= max(max_results, 40) or len(all_journals) >= pool_target:
                         stop_scraping = True
                         break
                 else:
@@ -543,8 +545,8 @@ def _scrape_sinta_single_keyword(
     else:
         filtered = all_journals
 
-    # Pertahankan candidate pool yang melimpah untuk deep scrape & filter biaya hilir
-    pool_limit = max(max_results * 2, 40) if deep_detail else max_results
+    # Adaptive Candidate Pool Multiplier (v2.1.0)
+    pool_limit = compute_candidate_pool_limit(max_results) if deep_detail else max_results
     if len(filtered) > pool_limit:
         filtered = filtered[:pool_limit]
 
@@ -633,28 +635,24 @@ def scrape_sinta(
     progress_cb=None,
 ) -> list[JournalEntry]:
     """
-    Scraping Direktori SINTA dengan dukungan multi-keyword adaptif dan short-circuiting (v1.3.6).
+    Scraping Direktori SINTA dengan Pre-Deep Deduplication lintas multi-keyword (v2.1.0).
     """
     keywords = parse_search_keywords(keyword)
     session = get_high_capacity_session()
 
     if len(keywords) > 1:
         console.print(f"\n[bold magenta]🔍 Deteksi multi-keyword adaptif SINTA ({len(keywords)} topik): {', '.join(keywords)}[/bold magenta]")
-        all_res: list[JournalEntry] = []
-        buffer_ratio = 1.35
-        target_per_kw = max(20, int((max_results * buffer_ratio) / len(keywords)) + 15)
+        all_raw: list[JournalEntry] = []
+        pool_limit = compute_candidate_pool_limit(max_results)
+        per_kw_limit = max(20, int(pool_limit / max(1, len(keywords))) + 20)
         for kw in keywords:
-            current_unique = len(merge_cross_source_entries(all_res))
-            if current_unique >= max_results:
+            if len(merge_cross_source_entries(all_raw)) >= pool_limit:
                 break
-            remaining_needed = max_results - current_unique
-            fetch_limit = min(max_results, max(target_per_kw, remaining_needed + 15))
-
-            kw_journals = _scrape_sinta_single_keyword(
+            kw_raw = _scrape_sinta_single_keyword(
                 kw,
                 sinta_ranks=sinta_ranks,
-                deep_detail=deep_detail,
-                max_results=fetch_limit,
+                deep_detail=False,
+                max_results=per_kw_limit,
                 turbo_mode=turbo_mode,
                 session=session,
                 free_only=free_only,
@@ -663,12 +661,19 @@ def scrape_sinta(
                 log_cb=log_cb,
                 progress_cb=progress_cb,
             )
-            all_res.extend(kw_journals)
-            all_res = merge_cross_source_entries(all_res)
-            if len(all_res) >= max_results:
-                break
-        merged = merge_cross_source_entries(all_res)
-        return merged[:max_results]
+            all_raw.extend(kw_raw)
+        merged_unique = merge_cross_source_entries(all_raw)[:pool_limit]
+        if deep_detail and merged_unique:
+            merged_unique = deep_enrich_entries(
+                merged_unique,
+                keyword=keyword,
+                max_results=max_results,
+                turbo_mode=turbo_mode,
+                free_only=free_only,
+                include_unknown_apc=include_unknown_apc,
+                progress_cb=progress_cb,
+            )
+        return merged_unique[:max_results]
 
     return _scrape_sinta_single_keyword(
         keyword,

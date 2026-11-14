@@ -16,8 +16,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
-from config import DEFAULT_SINTA_RANKS
-from scraper_garuda import scrape_garuda, JournalEntry, merge_cross_source_entries
+from config import DEFAULT_SINTA_RANKS, compute_candidate_pool_limit
+from scraper_garuda import scrape_garuda, deep_enrich_entries, JournalEntry, merge_cross_source_entries
 from scraper_sinta import scrape_sinta, scrape_sinta_selenium
 from exporter import export_markdown, export_csv, export_excel, print_summary_table
 
@@ -203,19 +203,19 @@ def run(args):
     deep_mode = getattr(args, "deep", False)
     limit_val = getattr(args, "limit", 50)
     turbo_val = getattr(args, "turbo", True)
-    candidate_limit = max(limit_val * 3, 60)
+    candidate_limit = compute_candidate_pool_limit(limit_val)
 
     def _scrape_pass(kw_query: str) -> list[JournalEntry]:
         pass_results: list[JournalEntry] = []
         if args.source in ("garuda", "both"):
-            garuda_results = scrape_garuda(kw_query, sinta_ranks, deep_detail=deep_mode, max_results=candidate_limit, turbo_mode=turbo_val)
+            garuda_results = scrape_garuda(kw_query, sinta_ranks, deep_detail=False, max_results=candidate_limit, turbo_mode=turbo_val)
             pass_results.extend(garuda_results)
 
         if args.source in ("sinta", "both"):
             if args.selenium:
-                sinta_results = scrape_sinta_selenium(kw_query, sinta_ranks, deep_detail=deep_mode, max_results=candidate_limit, turbo_mode=turbo_val)
+                sinta_results = scrape_sinta_selenium(kw_query, sinta_ranks, deep_detail=False, max_results=candidate_limit, turbo_mode=turbo_val)
             else:
-                sinta_results = scrape_sinta(kw_query, sinta_ranks, deep_detail=deep_mode, max_results=candidate_limit, turbo_mode=turbo_val, allow_selenium_fallback=False)
+                sinta_results = scrape_sinta(kw_query, sinta_ranks, deep_detail=False, max_results=candidate_limit, turbo_mode=turbo_val, allow_selenium_fallback=False)
             pass_results.extend(sinta_results)
         return pass_results
 
@@ -233,8 +233,15 @@ def run(args):
                     all_results.extend(fb_results)
                     break
 
-    # Deduplikasi & Penggabungan Data Lintas Sumber (Cross-Source Fallback Merging)
-    unique_results = merge_cross_source_entries(all_results)
+    # Pre-Deep Deduplikasi & Penggabungan Data Lintas Sumber sebelum Deep OJS Scraping (v2.1.0)
+    unique_results = merge_cross_source_entries(all_results)[:candidate_limit]
+    if deep_mode and unique_results:
+        unique_results = deep_enrich_entries(
+            unique_results,
+            keyword=keyword,
+            max_results=limit_val,
+            turbo_mode=turbo_val,
+        )
     if len(unique_results) > limit_val:
         unique_results = unique_results[:limit_val]
     console.print(f"\n[bold]📦 Total unik: {len(unique_results)} jurnal[/bold]")

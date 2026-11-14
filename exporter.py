@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import re
+import threading
 from datetime import datetime
 from typing import Optional, Union, List
 from concurrent.futures import ThreadPoolExecutor
@@ -845,6 +846,7 @@ def export_excel(
     journals: list[JournalEntry],
     keyword: str = "",
     filename: Optional[str] = None,
+    skip_url_validation: bool = False,
 ) -> str:
     """
     Ekspor hasil ke Excel (.xlsx) dengan visual profesional v1.4.0:
@@ -859,7 +861,10 @@ def export_excel(
     filepath = os.path.join(OUTPUT_DIR, final_filename)
 
     all_urls = [j.link_ojs for j in journals if j.link_ojs and j.link_ojs.startswith("http")]
-    url_status = validate_urls_async(all_urls)
+    if skip_url_validation:
+        url_status = {u: True for u in all_urls}
+    else:
+        url_status = validate_urls_async(all_urls)
 
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -1127,6 +1132,55 @@ def export_excel(
     wb.save(filepath)
     console.print(f"[bold green]✅ Excel tersimpan → {filepath}[/bold green]")
     return filepath
+
+
+_autosave_lock = threading.Lock()
+
+
+def export_autosave_checkpoint(
+    journals: list,
+    keyword: str = "",
+) -> tuple[str, str]:
+    """
+    Menyimpan checkpoint sementara secara thread-safe & atomik ke:
+    - output/_AUTOSAVE_TERAKHIR.xlsx
+    - output/_AUTOSAVE_TERAKHIR_LIST.txt
+    """
+    if not journals:
+        return "", ""
+
+    snapshot = list(journals)
+    xlsx_path = os.path.join(OUTPUT_DIR, "_AUTOSAVE_TERAKHIR.xlsx")
+    list_path = os.path.join(OUTPUT_DIR, "_AUTOSAVE_TERAKHIR_LIST.txt")
+    tmp_xlsx = "_AUTOSAVE_TERAKHIR.tmp.xlsx"
+    tmp_list = list_path + ".tmp"
+
+    with _autosave_lock:
+        _ensure_output_dir()
+        try:
+            written_tmp = export_excel(
+                snapshot,
+                keyword=keyword,
+                filename=tmp_xlsx,
+                skip_url_validation=True,
+            )
+            if os.path.exists(written_tmp):
+                os.replace(written_tmp, xlsx_path)
+        except Exception as e:
+            console.print(f"[yellow]⚠ Auto-save Excel checkpoint gagal: {e}[/yellow]")
+            xlsx_path = ""
+
+        try:
+            copypaste_text = generate_copypaste_list(snapshot)
+            if copypaste_text:
+                with open(tmp_list, "w", encoding="utf-8") as f:
+                    f.write(copypaste_text)
+                os.replace(tmp_list, list_path)
+        except Exception as e:
+            console.print(f"[yellow]⚠ Auto-save LIST checkpoint gagal: {e}[/yellow]")
+            list_path = ""
+
+    return xlsx_path, list_path
 
 
 def write_exports(
