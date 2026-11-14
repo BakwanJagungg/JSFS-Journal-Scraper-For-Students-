@@ -31,12 +31,14 @@ jobs:
       - name: Install frontend CLI dependencies
         run: npm install
 
-      - name: Build Tauri release binary (jsfs.exe)
-        run: npx tauri build --no-bundle
+      - name: Build Tauri Setup Installer & Release Binary
+        run: npx tauri build
 
-      - name: Upload jsfs.exe to GitHub Release
+      - name: Upload Setup Installer & Portable EXE to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
+            src-tauri/target/release/bundle/nsis/*-setup.exe
+            src-tauri/target/release/bundle/msi/*.msi
             src-tauri/target/release/jsfs.exe
           generate_release_notes: true

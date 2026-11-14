@@ -69,7 +69,17 @@ Setiap hasil pencarian otomatis diekspor ke folder `output/` dalam 4 format:
 
 ---
 
-## Cara Menjalankan & Build
+## Unduh & Jalankan Langsung (Tanpa Build)
+Bagi pengguna umum (mahasiswa/peneliti) yang ingin langsung menggunakan JSFS tanpa perlu menginstal Rust atau Node.js:
+1. Buka halaman **[GitHub Releases JSFS](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases)**.
+2. Pada rilis terbaru (**v3.0.0**), unduh salah satu dari:
+   - **Setup Installer Windows** (`JSFS_3.0.0_x64-setup.exe` atau `.msi`) untuk instalasi standar dengan pintasan Start Menu/Desktop.
+   - **Portable Executable** (`jsfs.exe`) untuk langsung dijalankan tanpa instalasi.
+3. *(Opsional)* Pasang [Ollama](https://ollama.com/) jika ingin mengaktifkan fitur **AI Semantic Match Score** secara lokal.
+
+---
+
+## Cara Menjalankan & Build dari Source Code
 
 ### Prasyarat
 1. **Rust Toolchain** (`rustc` & `cargo` versi terbaru) — [rustup.rs](https://rustup.rs/)
