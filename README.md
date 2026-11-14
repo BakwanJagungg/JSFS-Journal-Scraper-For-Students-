@@ -40,7 +40,7 @@ Hasil pencarian otomatis tersimpan di folder `output/` dalam 4 format:
 Bagi pengguna yang ingin langsung menggunakan aplikasi tanpa menginstal Rust atau Node.js:
 
 1. Buka halaman **[Releases](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases)**.
-2. Pada rilis terbaru (**v3.0.0**), unduh salah satu paket berikut:
+2. Pada rilis terbaru (**v3.0.1**), unduh salah satu paket berikut:
    - **Setup Installer Windows** (`*_x64-setup.exe` atau `*.msi`) — disarankan untuk instalasi standar.
    - **Portable Executable** (`jsfs.exe`) — dapat langsung dijalankan tanpa instalasi.
 3. *(Opsional)* Jika ingin memakai validasi LLM tambahan, Anda dapat memilih mode **Cloud AI (Groq / Gemini API Key gratis)** atau **Ollama Lokal** langsung dari tombol status **Match Engine** di header aplikasi.
@@ -73,7 +73,7 @@ Bagi pengguna yang ingin langsung menggunakan aplikasi tanpa menginstal Rust ata
 │   ├── capabilities/           # Konfigurasi izin Tauri v2
 │   ├── icons/                  # Ikon aplikasi
 │   ├── src/
-│   │   ├── ai/                 # Integrasi Ollama lokal & circuit breaker AI
+│   │   ├── ai/                 # Multi-Provider Smart Matcher (Cloud AI API & Ollama)
 │   │   ├── commands/           # Tauri IPC command handlers
 │   │   ├── exporter/           # Generator ekspor .xlsx, .md, .csv, .txt
 │   │   ├── parser/             # Ekstraktor APC, kontak, bulan terbit, fokus, doc matcher

@@ -1,6 +1,6 @@
 [package]
 name = "jsfs"
-version = "3.0.0"
+version = "3.0.1"
 description = "JSFS — Journal Scraper For Students"
 authors = ["JSFS Contributors"]
 edition = "2021"

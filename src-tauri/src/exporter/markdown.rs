@@ -17,7 +17,7 @@ pub fn write_markdown(path: &Path, records: &[JournalRecord], keyword: &str) -> 
         String::new(),
         format!("- **Tanggal:** {now}"),
         format!("- **Total Jurnal Valid:** {}", records.len()),
-        "- **Dihasilkan oleh:** JSFS v3.0.0 (Journal Scraper For Students)".to_string(),
+        "- **Dihasilkan oleh:** JSFS v3.0.1 (Journal Scraper For Students)".to_string(),
         String::new(),
         "## Ringkasan Tabel".to_string(),
         String::new(),

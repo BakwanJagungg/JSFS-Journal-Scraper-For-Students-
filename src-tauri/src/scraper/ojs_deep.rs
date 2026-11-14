@@ -121,9 +121,22 @@ fn discover_ojs_links(html: &str, clean_base: &str) -> (Vec<String>, Vec<String>
         }
         let txt = a.text().collect::<Vec<_>>().join(" ").to_ascii_lowercase();
 
-        if (["fee", "apc", "biaya", "charge", "payment", "tarif"]
-            .iter()
-            .any(|k| txt.contains(k) || h_low.contains(k))
+        if ([
+            "fee",
+            "apc",
+            "biaya",
+            "charge",
+            "payment",
+            "tarif",
+            "author-fees",
+            "biaya-publikasi",
+            "publication-fee",
+            "editorialpolicies",
+            "editorial-policies",
+            "custom-",
+        ]
+        .iter()
+        .any(|k| txt.contains(k) || h_low.contains(k))
             || h_low.contains("/af"))
             && !fee_links.contains(&full)
         {
@@ -156,21 +169,51 @@ fn discover_ojs_links(html: &str, clean_base: &str) -> (Vec<String>, Vec<String>
 }
 
 fn has_complete_core_data(rec: &JournalRecord) -> bool {
-    let has_apc = !rec.apc_status.is_empty()
-        && rec.apc_status != APC_UNKNOWN
-        && rec.apc_status != INFO_NOT_FOUND
-        && rec.apc_status != DEAD_LINK_TEXT
-        && rec.apc_status != TIMEOUT_APC_LABEL;
+    let has_paid_apc = rec.apc_category() == "paid";
     let has_contact = !rec.email.trim().is_empty() || !rec.phone.trim().is_empty();
     let has_months = !rec.publish_month_nums.is_empty();
-    has_apc && has_contact && has_months
+    has_paid_apc && has_contact && has_months
+}
+
+/// Apply parsed APC enforcing **Paid Always Beats Free** across multiple OJS pages.
+fn apply_apc_with_paid_priority(rec: &mut JournalRecord, parsed_apc: apc::ApcParsed) {
+    match parsed_apc {
+        apc::ApcParsed::Paid {
+            currency,
+            display,
+            amount_idr,
+            raw_amount,
+        } => {
+            rec.apc_status = display.clone();
+            rec.publication_fee = display;
+            rec.fee_currency = currency;
+            rec.fee_amount = raw_amount;
+            rec.publication_fee_idr = Some(amount_idr);
+        }
+        apc::ApcParsed::Free => {
+            // Never overwrite an already-detected Paid APC with Free
+            if rec.apc_category() != "paid"
+                && (rec.apc_status.is_empty()
+                    || rec.apc_status == APC_UNKNOWN
+                    || rec.apc_status == INFO_NOT_FOUND
+                    || rec.apc_status == TIMEOUT_APC_LABEL)
+            {
+                rec.apc_status = "Gratis (Rp 0)".to_string();
+                rec.publication_fee = "Rp 0".to_string();
+                rec.fee_currency = "IDR".to_string();
+                rec.fee_amount = "0".to_string();
+                rec.publication_fee_idr = Some(0);
+            }
+        }
+        apc::ApcParsed::Unknown => {}
+    }
 }
 
 fn absorb_page(rec: &mut JournalRecord, page_url: &str, html: &str, is_homepage: bool, agg_text: &mut String, archive_hints: &mut Vec<String>) {
     let plain = focus::sanitize_html_text(html);
-    if agg_text.len() < 8000 {
-        agg_text.push(' ');
-        agg_text.push_str(&plain.chars().take(2000).collect::<String>());
+    if agg_text.len() < 12000 {
+        agg_text.push('\n');
+        agg_text.push_str(&plain.chars().take(3500).collect::<String>());
     }
 
     let meta = extract_html_meta(html);
@@ -233,43 +276,28 @@ fn absorb_page(rec: &mut JournalRecord, page_url: &str, html: &str, is_homepage:
         rec.phone = combined.join(", ");
     }
 
-    // Extract APC contextually (only overwrite if unknown)
-    if rec.apc_status.is_empty() || rec.apc_status == APC_UNKNOWN || rec.apc_status == INFO_NOT_FOUND {
+    // Always scan fee/editorial pages until a concrete Paid APC is confirmed (Paid Always Beats Free)
+    if rec.apc_category() != "paid" {
         let (parsed_apc, sub_fee) = apc::extract_apc_contextual_html(html);
         if sub_fee.is_some() && rec.submission_fee_idr.is_none() {
             rec.submission_fee_idr = sub_fee;
         }
-        match parsed_apc {
-            apc::ApcParsed::Free => {
-                rec.apc_status = "Gratis (Rp 0)".to_string();
-                rec.publication_fee = "Rp 0".to_string();
-                rec.fee_currency = "IDR".to_string();
-                rec.fee_amount = "0".to_string();
-                rec.publication_fee_idr = Some(0);
-            }
-            apc::ApcParsed::Paid {
-                currency,
-                display,
-                amount_idr,
-                raw_amount,
-            } => {
-                rec.apc_status = display.clone();
-                rec.publication_fee = display;
-                rec.fee_currency = currency;
-                rec.fee_amount = raw_amount;
-                rec.publication_fee_idr = Some(amount_idr);
-            }
-            apc::ApcParsed::Unknown => {}
-        }
-        if rec.apc_raw_text.len() < 1500
-            && (page_url.to_ascii_lowercase().contains("submission")
-                || page_url.to_ascii_lowercase().contains("fee")
-                || page_url.to_ascii_lowercase().contains("apc")
-                || is_homepage)
-        {
-            rec.apc_raw_text.push(' ');
-            rec.apc_raw_text.push_str(&plain.chars().take(1200).collect::<String>());
-        }
+        apply_apc_with_paid_priority(rec, parsed_apc);
+    }
+
+    let url_low = page_url.to_ascii_lowercase();
+    if rec.apc_raw_text.len() < 2800
+        && (url_low.contains("submission")
+            || url_low.contains("fee")
+            || url_low.contains("apc")
+            || url_low.contains("biaya")
+            || url_low.contains("editorial")
+            || url_low.contains("policy")
+            || url_low.contains("custom")
+            || is_homepage)
+    {
+        rec.apc_raw_text.push('\n');
+        rec.apc_raw_text.push_str(&plain.chars().take(1500).collect::<String>());
     }
 
     // Grab current issue hints on homepage
@@ -384,7 +412,7 @@ pub async fn deep_enrich_record(
 
                     let mut visits = 0usize;
                     for sub in candidates {
-                        if visits >= 3 || has_complete_core_data(&rec) || cancel_flag.load(Ordering::Relaxed) {
+                        if visits >= 4 || has_complete_core_data(&rec) || cancel_flag.load(Ordering::Relaxed) {
                             break;
                         }
                         if !visited.insert(sub.clone()) {
@@ -396,6 +424,11 @@ pub async fn deep_enrich_record(
                                 absorb_page(&mut rec, &sub, &sub_out.html, false, &mut agg_text, &mut archive_hints);
                             }
                         }
+                    }
+
+                    // Global aggregated pass across homepage + subpages (Paid Always Beats Free)
+                    if rec.apc_category() != "paid" && !agg_text.trim().is_empty() {
+                        apply_apc_with_paid_priority(&mut rec, apc::parse_apc_from_context(&agg_text));
                     }
 
                     // Resolve publish months from aggregated text, or /issue/archive if still empty

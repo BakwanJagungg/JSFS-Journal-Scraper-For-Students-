@@ -33,10 +33,13 @@ Balas HANYA JSON: {"focus_scope": "<ringkasan>"}
 </teks>"#;
 
 pub const PROMPT_APC_TPL: &str = r#"Anda adalah asisten ekstraksi biaya jurnal dari teks di tag <teks>.
-Aturan ketat:
-1. Jangan samakan submission fee = 0 dengan biaya publikasi! Jika hanya submission fee gratis, isi biaya_submit=0 dan biaya_publikasi=null.
-2. Hanya isi biaya_publikasi=0 jika teks secara eksplisit menyebut biaya publikasi/APC gratis/free of charge/Rp 0.
-3. mata_uang hanya "IDR", "USD", atau null.
+Aturan ketat (WAJIB DIPATUHI):
+1. Abaikan pernyataan historis tahun lalu (mis. "from 2008 to 2018 was free of charge") dan frasa Open Access untuk pembaca (mis. "readers can read and download articles for free of charge").
+2. Abaikan klaim awal "IDR 0" / "No charge" jika di poin bawahnya (mis. "after accepted", "ready to issue") disebutkan adanya biaya publikasi berbayar.
+3. Jika ada biaya REGULER dan biaya FAST TRACK, WAJIB ekstrak biaya REGULER sebagai biaya_publikasi (jangan ambil Fast Track).
+4. Jangan samakan submission fee = 0 dengan biaya publikasi! Jika hanya submission fee gratis, isi biaya_submit=0 dan biaya_publikasi=null.
+5. Hanya isi biaya_publikasi=0 jika teks secara eksplisit menyebut biaya publikasi/APC saat ini benar-benar gratis dan tidak ada nominal berbayar di bagian lain.
+6. mata_uang hanya "IDR", "USD", atau null.
 Balas HANYA JSON: {"biaya_submit": <int|null>, "biaya_publikasi": <int|null>, "mata_uang": <"IDR"|"USD"|null>}
 
 <teks>

@@ -123,17 +123,33 @@ fn filter_sinta_tier(rec: &JournalRecord, allowed_ranks: &[u8]) -> bool {
 
 fn filter_apc_tier(rec: &JournalRecord, params: &SearchParams) -> bool {
     match rec.apc_category() {
-        "free" => true,
+        "free" => params.min_rp <= 0 && params.max_rp >= 0,
         "unknown" => !params.only_free && params.include_na,
         "paid" => {
             if params.only_free {
                 return false;
             }
-            let idr = rec.publication_fee_idr.unwrap_or(0);
+            let idr = rec.publication_fee_idr.unwrap_or(i64::MAX);
             idr >= params.min_rp && idr <= params.max_rp
         }
-        _ => true,
+        _ => false,
     }
+}
+
+/// Strict post-crawl & post-AI filter gate enforcing `only_free`, `min_rp..=max_rp`,
+/// `include_na`, publish months, and SINTA rank before exporting or emitting to UI.
+pub fn apply_strict_filters(records: &mut Vec<JournalRecord>, params: &SearchParams) {
+    let allowed_ranks = params.normalized_sinta_ranks();
+    let selected_months = params.normalized_months();
+    records.retain(|r| {
+        filter_sinta_tier(r, &allowed_ranks)
+            && month::lolos_filter_bulan(
+                &r.publish_month_nums,
+                &selected_months,
+                params.include_unknown,
+            )
+            && filter_apc_tier(r, params)
+    });
 }
 
 #[tauri::command]
@@ -174,7 +190,6 @@ pub async fn start_search(
         let started_at = Instant::now();
         let target = params.effective_target();
         let sinta_ranks = params.normalized_sinta_ranks();
-        let selected_months = params.normalized_months();
         let breaker = Arc::new(DomainBreaker::new());
         let kw_label = keywords.join(", ");
 
@@ -412,20 +427,17 @@ pub async fn start_search(
             return;
         }
 
-        // Apply month & APC filters cleanly after deep crawl
-        let mut survivors: Vec<JournalRecord> = enriched_list
-            .into_iter()
-            .filter(|r| month::lolos_filter_bulan(&r.publish_month_nums, &selected_months, params.include_unknown))
-            .filter(|r| filter_apc_tier(r, &params))
-            .collect();
+        // Apply strict filters cleanly after deep crawl (keep small buffer above target before Phase 3 AI)
+        let mut survivors = enriched_list;
+        apply_strict_filters(&mut survivors, &params);
 
-        // Sort highest relevance + SINTA + affordability first, then cap to target
+        // Sort highest relevance + affordability first, reserving buffer for post-AI re-filtering
         survivors.sort_by(|a, b| {
             b.match_score
                 .total_cmp(&a.match_score)
                 .then_with(|| a.biaya_sort_idr().cmp(&b.biaya_sort_idr()))
         });
-        survivors.truncate(target);
+        survivors.truncate(target.saturating_add(16));
 
         // ── PHASE 3: Multi-Provider Match & Selective AI Enrichment ───────────────
         let active_matcher = matcher_cfg_guard.read().await.clone();
@@ -521,6 +533,23 @@ pub async fn start_search(
             }
         }
 
+        // Post-enrichment strict Budget Gate: ensure Phase 3 AI updates obey only_free / min_rp..=max_rp
+        let pre_strict_len = survivors.len();
+        apply_strict_filters(&mut survivors, &params);
+        if survivors.len() < pre_strict_len {
+            let dropped = pre_strict_len - survivors.len();
+            emit_log(
+                &app,
+                format!("🛡️ Budget Gate pasca-AI: {dropped} jurnal disaring karena di luar batas biaya/filter."),
+            );
+        }
+        survivors.sort_by(|a, b| {
+            b.match_score
+                .total_cmp(&a.match_score)
+                .then_with(|| a.biaya_sort_idr().cmp(&b.biaya_sort_idr()))
+        });
+        survivors.truncate(target);
+
         // ── PHASE 4: Sync-Offloaded Exports (.xlsx, .md, .csv, _LIST.txt) ──────────
         let kpi_final = compute_kpi(&survivors);
         emit_progress(
@@ -599,4 +628,83 @@ pub async fn start_search(
 pub async fn stop_search(state: State<'_, AppState>) -> Result<OkResp, JsfsError> {
     state.cancel_flag.store(true, Ordering::SeqCst);
     Ok(OkResp { ok: true })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_rec(title: &str, apc_status: &str, fee_idr: Option<i64>, sinta: &str, months: Vec<u8>) -> JournalRecord {
+        JournalRecord {
+            title: title.to_string(),
+            apc_status: apc_status.to_string(),
+            publication_fee_idr: fee_idr,
+            sinta_score: sinta.to_string(),
+            publish_month_nums: months,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_strict_budget_and_only_free_post_filter() {
+        let free_rec = make_rec("Jurnal Gratis", "Gratis (Rp 0)", Some(0), "Sinta 2", vec![3, 9]);
+        let paid_400k = make_rec("Jurbisman", "Rp 400.000", Some(400_000), "Sinta 2", vec![6, 12]);
+        let paid_3m = make_rec("JSINBIS", "Rp 3.000.000", Some(3_000_000), "Sinta 2", vec![6, 12]);
+        let unknown_rec = make_rec(
+            "Jurnal NA",
+            crate::config::APC_UNKNOWN,
+            None,
+            "Sinta 2",
+            vec![3, 9],
+        );
+
+        // 1) only_free == true MUST allow ONLY Gratis (Rp 0), rejecting paid AND unknown even when include_na == true
+        let params_only_free: SearchParams = serde_json::from_value(serde_json::json!({
+            "only_free": true,
+            "include_na": true,
+            "min_rp": 0,
+            "max_rp": 1000000
+        }))
+        .unwrap();
+        let mut list1 = vec![
+            free_rec.clone(),
+            paid_400k.clone(),
+            paid_3m.clone(),
+            unknown_rec.clone(),
+        ];
+        apply_strict_filters(&mut list1, &params_only_free);
+        assert_eq!(list1.len(), 1);
+        assert_eq!(list1[0].title, "Jurnal Gratis");
+
+        // 2) Budget range 0..=1_000_000 with include_na == false keeps Gratis + 400k, rejects 3M & NA
+        let params_budget: SearchParams = serde_json::from_value(serde_json::json!({
+            "only_free": false,
+            "include_na": false,
+            "min_rp": 0,
+            "max_rp": 1000000
+        }))
+        .unwrap();
+        let mut list2 = vec![
+            free_rec.clone(),
+            paid_400k.clone(),
+            paid_3m.clone(),
+            unknown_rec.clone(),
+        ];
+        apply_strict_filters(&mut list2, &params_budget);
+        let titles2: Vec<&str> = list2.iter().map(|r| r.title.as_str()).collect();
+        assert_eq!(titles2, vec!["Jurnal Gratis", "Jurbisman"]);
+
+        // 3) Budget min_rp = 200_000..=1_000_000 rejects Gratis (0) and 3M, keeps only 400k
+        let params_min_200k: SearchParams = serde_json::from_value(serde_json::json!({
+            "only_free": false,
+            "include_na": false,
+            "min_rp": 200000,
+            "max_rp": 1000000
+        }))
+        .unwrap();
+        let mut list3 = vec![free_rec, paid_400k, paid_3m, unknown_rec];
+        apply_strict_filters(&mut list3, &params_min_200k);
+        assert_eq!(list3.len(), 1);
+        assert_eq!(list3[0].title, "Jurbisman");
+    }
 }

@@ -1409,7 +1409,7 @@
     applyPreset("skripsi", true);
     applySoundPreference();
     renderResultsTable([]);
-    appendLog("JSFS v3.0.0 siap digunakan (Tauri Native Engine).");
+    appendLog("JSFS v3.0.1 siap digunakan (Tauri Native Engine).");
     await bindTauriEvents();
     await pollStatusOnce();
     setTimeout(pollStatusOnce, 600);

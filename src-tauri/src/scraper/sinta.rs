@@ -23,6 +23,30 @@ static RE_EISSN: Lazy<Regex> = Lazy::new(|| {
 static RE_SUBJ: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?i)Subject\s*Area\s*:\s*([^|\n]+)").expect("valid regex")
 });
+static RE_PUB_NOISE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"(?i)\b(?:google\s+scholar|editor\s+url|published\s+by|publisher\s*:?|website|garuda|sinta|orcid|scopus)\b|https?://\S+",
+    )
+    .expect("valid regex")
+});
+
+/// Strip SINTA link-bar noise (`Google Scholar`, `Website`, `Editor URL`, etc.) from publisher strings.
+pub fn sanitize_sinta_publisher(raw: &str) -> String {
+    let without_noise = RE_PUB_NOISE.replace_all(raw, " ");
+    let cleaned = without_noise
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let trimmed = cleaned
+        .trim_matches(|c: char| matches!(c, '|' | '-' | ':' | '/' | ',' | '•' | ';' | ' '))
+        .trim()
+        .to_string();
+    if trimmed.len() < 3 {
+        String::new()
+    } else {
+        trimmed
+    }
+}
 
 fn format_issn(raw: &str) -> String {
     let d: String = raw.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
@@ -39,7 +63,7 @@ pub fn parse_sinta_listing(html: &str) -> Vec<JournalRecord> {
         return Vec::new();
     };
     let sel_title = Selector::parse("div.affil-name a, .affil-name").unwrap();
-    let sel_affil = Selector::parse("div.affil-loc a, .affil-abbrev").unwrap();
+    let sel_affil = Selector::parse("div.affil-loc a[href*='affiliations'], div.affil-loc a, div.affil-loc, .affil-abbrev").unwrap();
     let sel_prof = Selector::parse("div.profile-id").unwrap();
     let sel_rank = Selector::parse("span.num-stat.accredited, .accredited").unwrap();
     let sel_anchor = Selector::parse("a[href]").unwrap();
@@ -70,8 +94,16 @@ pub fn parse_sinta_listing(html: &str) -> Vec<JournalRecord> {
 
         let publisher = item
             .select(&sel_affil)
+            .filter_map(|el| {
+                let raw = el.text().collect::<Vec<_>>().join(" ");
+                let cleaned = sanitize_sinta_publisher(&raw);
+                if cleaned.is_empty() {
+                    None
+                } else {
+                    Some(cleaned)
+                }
+            })
             .next()
-            .map(|el| el.text().collect::<Vec<_>>().join(" ").trim().to_string())
             .unwrap_or_default();
 
         let prof_text = item
@@ -260,5 +292,27 @@ mod tests {
         assert_eq!(parsed[0].issn, "1234-5678");
         assert_eq!(parsed[0].eissn, "8765-4321");
         assert!(parsed[0].website_url.contains("ejournal.tes.ac.id"));
+    }
+
+    #[test]
+    fn test_sinta_publisher_noise_sanitizer() {
+        let noisy_html = r##"
+        <div class="list-item">
+          <div class="affil-name"><a href="/journals/profile/101">Jurnal Bisnis &amp; Manajemen</a></div>
+          <div class="affil-abbrev">Google Scholar   Website   Editor URL</div>
+          <div class="affil-loc">Published by Universitas Diponegoro | Google Scholar | Website</div>
+          <div class="profile-id">P-ISSN : 11112222 | E-ISSN : 33334444 | Subject Area : Business</div>
+          <span class="num-stat accredited">S2 Accredited</span>
+        </div>
+        <div class="list-item">
+          <div class="affil-name"><a href="/journals/profile/102">Jurnal Ekonomi Tanpa Penerbit</a></div>
+          <div class="affil-loc"><a href="https://scholar.google.com">Google Scholar</a> <a href="https://ejournal.example.ac.id">Website</a> <a href="#">Editor URL</a></div>
+          <span class="num-stat accredited">S4 Accredited</span>
+        </div>"##;
+        let parsed = parse_sinta_listing(noisy_html);
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].publisher, "Universitas Diponegoro");
+        assert_eq!(parsed[1].publisher, "");
+        assert_eq!(sanitize_sinta_publisher("Google Scholar Website Editor URL"), "");
     }
 }

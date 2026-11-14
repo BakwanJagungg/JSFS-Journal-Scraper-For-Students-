@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.0.1] - 2026-11-15
+
+### Fixed
+- **Zero-Trap Global APC Scanner (`parser/apc.rs`, `scraper/ojs_deep.rs`)**:
+  - Added sanitizers to strip historical fee ranges (e.g., `from 2008 to 2018 was free of charge`) and Open-Access reader phrases (`readers can read and download any full-text articles for free of charge`) before checking free publication cues.
+  - Enforced **Paid Always Beats Free** globally across all crawled OJS pages and DOM fee blocks (`#custom-0`, `#custom-1`, `/about/editorialPolicies`, `/about/submissions`), preventing early `"IDR 0"` / `"No charge"` clauses from masking downstream publication charges.
+  - Normalized mixed Indonesian/US currency formats (`3.000.000,00 (IDR)`, `Rp. 400.000,-`, `1.000,000`) and separated **Regular Fees** from optional **Fast-Track Fees** so regular fees take precedence.
+- **Post-Enrichment Strict Budget & Filter Gate (`commands/search.rs`)**:
+  - Added `apply_strict_filters` and re-ran strict `only_free`, `min_rp..=max_rp`, `include_na`, publish-month, and SINTA filters *after* Phase 3 AI/BM25 enrichment so no over-budget or paid journal escapes when `only_free` or budget caps are active.
+- **SINTA Publisher Hygiene (`scraper/sinta.rs`)**:
+  - Filtered SINTA navigation link-bar text (`Google Scholar`, `Website`, `Editor URL`, `Published by`) via `sanitize_sinta_publisher` so publisher columns remain clean or fall back to OJS `citation_publisher` metadata.
+- **AI APC Prompt Sync (`ai/mod.rs`)**:
+  - Updated `PROMPT_APC_TPL` (shared by Cloud AI and Ollama) to ignore historical years and prioritize downstream Regular fees over earlier `"IDR 0"` or Fast-Track numbers.
+- **Cache Version Invalidation (`config.rs`)**:
+  - Bumped `CACHE_VERSION` to `"3.0.1"` to purge stale `"3.0.0"` cached APC entries automatically.
+
+---
+
 ## [3.0.0] - 2026-11-14
 
 ### Added
