@@ -1,6 +1,6 @@
 # =============================================================================
 # JSFS - Journal Scraper For Students
-# config.py — Konfigurasi global scraper v2.2.0 (Zero-Crash Engine, Instant Boot & Forensic Watchdog)
+# config.py — Konfigurasi global scraper v2.3.0 (Process-Isolated App-Mode, Zero Not Responding & Fast Match Scoring)
 # =============================================================================
 
 import os
@@ -8,7 +8,7 @@ import re
 import sys
 from datetime import datetime
 
-APP_VERSION = "2.2.0"
+APP_VERSION = "2.3.0"
 
 
 def get_app_dir() -> str:

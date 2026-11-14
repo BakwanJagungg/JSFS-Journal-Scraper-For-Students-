@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-11-14
+
+### Architecture, Immunity & Batch Match Scoring Optimization
+- **Process-Isolated App-Mode (`app_desktop.py`, `JSFS.spec`)**:
+  - Memisahkan proses UI Chromium (`msedge.exe --app=` / `chrome.exe --app=`, ukuran native `1160x780`, ikon JSFS) dari proses Python melalui `ThreadingHTTPServer(("127.0.0.1", 0))`, sehingga Python GIL saat komputasi berat (scraping paralel, Match Scoring, SQLite WAL, ekspor Excel) tidak pernah menahan UI Windows dan **100% kebal terhadap `(Not Responding)`**.
+  - Menambahkan endpoint REST lokal (`/api/init`, `/api/status`, `/api/ai-status`, `/api/search`, `/api/stop`, `/api/upload-manuscript`, `/api/copy-share`, `/api/copy-draft`, `/api/open-excel`, `/api/open-output`, `/api/open-logs`, `/api/open-url`, `/api/clear-cache`, `/api/launch-ollama`, `/api/install-ollama`, `/api/pull-ai-model`, `/api/ping`, `/api/shutdown`).
+  - Sinkronisasi lifecycle via detak jantung `POST /api/ping`, sinyal penutupan `pagehide` -> `navigator.sendBeacon('/api/shutdown')`, serta pengawas proses jendela browser agar server berhenti bersih dalam `<= 0.5` detik.
+- **Unified HTTP + WebView2 Frontend Bridge (`ui_web/index.html`, `ui_web/app.js`)**:
+  - Menambahkan `callBackendApi()` yang mendukung fetch REST di App-Mode (`priority: 'low'` untuk background telemetry & heartbeat) dengan fallback penuh ke `window.pywebview.api`, serta `<input type="file" id="input-manuscript-file" accept=".docx,.pdf">` dengan unggah multipart non-blocking.
+- **Pre-Computed Batch Match Scoring & Live Fase 1 Telemetry (`doc_reader.py`, `scraper_garuda.py`, `app_webview.py`)**:
+  - Menambahkan caching metadata naskah berbasis `(path, mtime, size)`, fungsi `prepare_manuscript_profile()`, dan caching sinonim kata kunci sehingga batch Match Scoring 500 jurnal selesai dalam **< 0.5 detik**.
+  - Menambahkan pemancaran `progress_cb` berkala di `_enhance_garuda_entries()` untuk menghilangkan jeda telemetri 25–39 detik selama pengayaan metadata Garuda Fase 1.
+
 ## [2.2.0] - 2026-11-14
 
 ### Architecture, Stability & Instant Boot (Zero-Crash Engine & Forensic Accuracy)

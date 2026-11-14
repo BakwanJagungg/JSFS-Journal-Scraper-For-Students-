@@ -419,8 +419,8 @@ class TestJSFSCore(unittest.TestCase):
         import exporter
         import scraper_garuda
 
-        # 1. Verifikasi konstanta anti-starvation v2.2.0
-        self.assertEqual(config.APP_VERSION, "2.2.0")
+        # 1. Verifikasi konstanta anti-starvation v2.3.0
+        self.assertEqual(config.APP_VERSION, "2.3.0")
         self.assertEqual(config.MAX_WEBVIEW_WORKERS, 24)
         self.assertEqual(config.TURBO_SCRAPE_WORKERS, 24)
         self.assertEqual(config.MAX_DEEP_SCRAPE_PER_JOURNAL_SEC, 5.5)
@@ -556,6 +556,158 @@ class TestJSFSCore(unittest.TestCase):
                 elapsed_exp = time.monotonic() - t0
             self.assertGreaterEqual(len(exported_files), 3)
             self.assertLess(elapsed_exp, 2.0)
+
+    def test_21_process_isolated_desktop_api_and_fast_manuscript_scoring(self):
+        import io
+        import json
+        import tempfile
+        import time
+        import urllib.request
+        import zipfile
+        from unittest.mock import patch
+
+        import app_desktop
+        import app_webview
+        import doc_reader
+        import scraper_garuda
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Bangun berkas .docx minimal yang valid untuk pengujian unggah & match scoring
+            docx_buf = io.BytesIO()
+            with zipfile.ZipFile(docx_buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr(
+                    "[Content_Types].xml",
+                    '<?xml version="1.0" encoding="UTF-8"?>'
+                    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+                    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+                    '<Default Extension="xml" ContentType="application/xml"/>'
+                    '<Override PartName="/word/document.xml" '
+                    'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+                    "</Types>",
+                )
+                zf.writestr(
+                    "_rels/.rels",
+                    '<?xml version="1.0" encoding="UTF-8"?>'
+                    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                    '<Relationship Id="rId1" '
+                    'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+                    'Target="word/document.xml"/>'
+                    "</Relationships>",
+                )
+                zf.writestr(
+                    "word/document.xml",
+                    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                    '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+                    "<w:body>"
+                    "<w:p><w:r><w:t>Strategi Manajemen Pemasaran Bisnis Digital Pada Era Commerce</w:t></w:r></w:p>"
+                    "<w:p><w:r><w:t>Abstrak: Kajian manajemen pemasaran dan transformasi bisnis digital.</w:t></w:r></w:p>"
+                    "<w:p><w:r><w:t>Kata Kunci: manajemen pemasaran, bisnis digital, e-commerce</w:t></w:r></w:p>"
+                    "</w:body></w:document>",
+                )
+            docx_bytes = docx_buf.getvalue()
+
+            with patch.object(app_webview, "get_app_dir", return_value=tmpdir):
+                server = app_desktop.JSFSDesktopServer()
+                port = server.start()
+                self.assertGreater(port, 0)
+                base_url = server.url
+                try:
+                    # 1. GET / (UI statis)
+                    with urllib.request.urlopen(f"{base_url}/", timeout=3.0) as resp:
+                        self.assertEqual(resp.status, 200)
+                        html = resp.read().decode("utf-8")
+                    self.assertIn("JSFS v2.3.0", html)
+                    self.assertIn("input-manuscript-file", html)
+
+                    # 2. GET /api/init
+                    with urllib.request.urlopen(f"{base_url}/api/init", timeout=3.0) as resp:
+                        init_data = json.loads(resp.read().decode("utf-8"))
+                    self.assertTrue(init_data["ok"])
+                    self.assertEqual(init_data["version"], "2.3.0")
+                    self.assertEqual(init_data["mode"], "app_desktop")
+
+                    # 3. GET /api/status
+                    with urllib.request.urlopen(
+                        f"{base_url}/api/status?log_offset=0&last_result_version=-1",
+                        timeout=3.0,
+                    ) as resp:
+                        st = json.loads(resp.read().decode("utf-8"))
+                    self.assertFalse(st["running"])
+                    self.assertIn("kpi", st)
+
+                    # 4. POST /api/ping
+                    ping_req = urllib.request.Request(
+                        f"{base_url}/api/ping",
+                        data=b"{}",
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(ping_req, timeout=3.0) as resp:
+                        ping_res = json.loads(resp.read().decode("utf-8"))
+                    self.assertTrue(ping_res["ok"])
+
+                    # 5. POST /api/upload-manuscript (multipart/form-data)
+                    boundary = "----JSFSTestBoundary7MA4YWxkTrZu0gW"
+                    multipart_body = (
+                        f"--{boundary}\r\n"
+                        'Content-Disposition: form-data; name="file"; filename="artikel_uji.docx"\r\n'
+                        "Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document\r\n\r\n"
+                    ).encode("utf-8") + docx_bytes + f"\r\n--{boundary}--\r\n".encode("utf-8")
+                    up_req = urllib.request.Request(
+                        f"{base_url}/api/upload-manuscript",
+                        data=multipart_body,
+                        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(up_req, timeout=5.0) as resp:
+                        up_res = json.loads(resp.read().decode("utf-8"))
+                    self.assertTrue(up_res["ok"])
+                    self.assertTrue(os.path.exists(up_res["path"]))
+                    self.assertIn("manajemen", up_res["suggested_keyword"].lower())
+
+                    # 6. Batch Match Scoring 500 jurnal terhadap naskah < 0.5 detik
+                    ms_meta = doc_reader.extract_manuscript_metadata(up_res["path"])
+                    sample_500 = [
+                        scraper_garuda.JournalEntry(
+                            nama_jurnal=(
+                                f"Jurnal Manajemen Pemasaran & Bisnis Digital {i}"
+                                if i % 2 == 0
+                                else f"Jurnal Kedokteran Gigi Klinis {i}"
+                            ),
+                            penerbit="Penerbit Akademik",
+                            bidang="Ekonomi dan Bisnis" if i % 2 == 0 else "Kedokteran Gigi",
+                            focus_scope=(
+                                "Topik pemasaran strategis, perdagangan digital, dan ekonomi."
+                                if i % 2 == 0
+                                else "Kesehatan mulut, ortodonti, dan bedah mulut."
+                            ),
+                        )
+                        for i in range(500)
+                    ]
+                    t_start = time.monotonic()
+                    for j in sample_500:
+                        res = doc_reader.calculate_match_score(ms_meta, j)
+                        j.match_score = res["score"]
+                    elapsed_score = time.monotonic() - t_start
+                    self.assertLess(elapsed_score, 0.5)
+                    self.assertGreaterEqual(sample_500[0].match_score, 70)
+                    self.assertLess(sample_500[1].match_score, 40)
+
+                    # 7. POST /api/shutdown & hentikan server <= 0.5 detik
+                    sd_req = urllib.request.Request(
+                        f"{base_url}/api/shutdown",
+                        data=b"{}",
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(sd_req, timeout=3.0) as resp:
+                        sd_res = json.loads(resp.read().decode("utf-8"))
+                    self.assertTrue(sd_res["ok"])
+                    self.assertTrue(server.shutdown_event.is_set())
+                finally:
+                    t_stop0 = time.monotonic()
+                    server.stop()
+                    self.assertLess(time.monotonic() - t_stop0, 0.5)
 
 
 if __name__ == "__main__":

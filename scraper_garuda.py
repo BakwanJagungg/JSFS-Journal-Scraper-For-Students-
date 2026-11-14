@@ -2837,12 +2837,20 @@ def _parse_garuda_soup_entries(soup: BeautifulSoup) -> list[JournalEntry]:
     return journals
 
 
-def _enhance_garuda_entries(entries: list[JournalEntry], session: Optional[requests.Session] = None) -> None:
+def _enhance_garuda_entries(
+    entries: list[JournalEntry],
+    session: Optional[requests.Session] = None,
+    progress_cb=None,
+    keyword: str = "",
+) -> None:
     """Resolusi link OJS resmi dan pencocokan peringkat SINTA secara paralel untuk sekumpulan entri Garuda."""
     if not entries:
         return
+    total_cnt = len(entries)
+    done_cnt = 0
+    kw_hint = f" '{keyword}'" if keyword else ""
     try:
-        with ThreadPoolExecutor(max_workers=min(len(entries), 16)) as executor:
+        with ThreadPoolExecutor(max_workers=min(total_cnt, 24)) as executor:
             def _enhance_garuda_entry(e: JournalEntry):
                 w_sess = get_thread_local_session()
                 target_g_url = e.garuda_profile_url or (e.link_ojs if "garuda.kemdiktisaintek.go.id/journal/view" in (e.link_ojs or "") else "")
@@ -2862,6 +2870,15 @@ def _enhance_garuda_entries(entries: list[JournalEntry], session: Optional[reque
             for f in as_completed(futures):
                 time.sleep(0.002)
                 f.result()
+                done_cnt += 1
+                if progress_cb is not None and (done_cnt == 1 or done_cnt % 5 == 0 or done_cnt == total_cnt):
+                    try:
+                        progress_cb(
+                            phase="fase1_portal",
+                            current_item=f"Garuda{kw_hint} — Pengayaan metadata {done_cnt}/{total_cnt}...",
+                        )
+                    except Exception:
+                        pass
     except Exception:
         pass
 
@@ -3058,7 +3075,7 @@ def _scrape_garuda_single_keyword(
                 stop_scraping = True
 
             if batch_entries:
-                _enhance_garuda_entries(batch_entries, session)
+                _enhance_garuda_entries(batch_entries, session, progress_cb=progress_cb, keyword=keyword)
                 all_journals.extend(batch_entries)
                 console.print(f"[green]   ✓ Batch Hal. {batch_start}..{batch_end - 1}: +{len(batch_entries)} jurnal (Total {len(all_journals)})[/green]")
 

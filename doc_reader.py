@@ -1,14 +1,19 @@
 # =============================================================================
 # JSFS - Journal Scraper For Students
-# doc_reader.py — Modul Pembaca & Analisis Naskah Artikel Ilmiah (.docx / .pdf) v1.8.0 (Lazy Imports)
+# doc_reader.py — Modul Pembaca & Analisis Naskah Artikel Ilmiah (.docx / .pdf) v2.3.0 (Pre-Computed Batch Match Scoring)
 # =============================================================================
 
 import os
 import re
+import threading
 import zipfile
 import xml.etree.ElementTree as ET
 from collections import Counter
 from typing import Optional, Union
+
+_MANUSCRIPT_META_LOCK = threading.Lock()
+_MANUSCRIPT_META_CACHE: dict[tuple[str, float], dict] = {}
+_KEYWORD_PROFILE_CACHE: dict[str, tuple[str, list[str], list[tuple[str, str]]]] = {}
 
 
 # Daftar Stopwords Indonesia & Inggris Akademis (Dieliminasi untuk Istilah Dominan)
@@ -114,7 +119,7 @@ def extract_text_from_pdf(file_path: str) -> str:
 
 def extract_manuscript_metadata(file_path: str) -> dict:
     """
-    EKSTRAKSI METADATA NASKAH ILMIAH (v1.3.5):
+    EKSTRAKSI METADATA NASKAH ILMIAH (v1.3.5 / Cached v2.3.0):
     Membaca berkas draf (.docx atau .pdf) lalu mengekstrak:
     - Judul naskah (Title)
     - Abstrak (Abstract)
@@ -123,14 +128,26 @@ def extract_manuscript_metadata(file_path: str) -> dict:
     - Cuplikan teks (Text Sample)
     """
     ext = os.path.splitext(file_path)[1].lower()
-    raw_text = ""
+    if ext not in (".docx", ".pdf"):
+        raise ValueError(f"Format berkas tidak didukung: {ext}. Harap unggah berkas .docx atau .pdf.")
 
+    abs_path = os.path.abspath(file_path)
+    cache_key = None
+    try:
+        st = os.stat(abs_path)
+        cache_key = (abs_path, float(st.st_mtime), int(st.st_size))
+        with _MANUSCRIPT_META_LOCK:
+            cached = _MANUSCRIPT_META_CACHE.get(cache_key)
+            if cached is not None:
+                return cached
+    except OSError:
+        cache_key = None
+
+    raw_text = ""
     if ext == ".docx":
         raw_text = extract_text_from_docx(file_path)
-    elif ext == ".pdf":
-        raw_text = extract_text_from_pdf(file_path)
     else:
-        raise ValueError(f"Format berkas tidak didukung: {ext}. Harap unggah berkas .docx atau .pdf.")
+        raw_text = extract_text_from_pdf(file_path)
 
     lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
     if not lines:
@@ -216,7 +233,7 @@ def extract_manuscript_metadata(file_path: str) -> dict:
     word_counts = Counter(filtered_words)
     dominant_terms = [word.title() for word, count in word_counts.most_common(12)]
 
-    return {
+    meta = {
         "file_name": os.path.basename(file_path),
         "file_path": file_path,
         "title": title,
@@ -226,6 +243,13 @@ def extract_manuscript_metadata(file_path: str) -> dict:
         "full_text_sample": raw_text[:2000],
         "status": "success",
     }
+    prepare_manuscript_profile(meta)
+    if cache_key is not None:
+        with _MANUSCRIPT_META_LOCK:
+            if len(_MANUSCRIPT_META_CACHE) >= 16:
+                _MANUSCRIPT_META_CACHE.clear()
+            _MANUSCRIPT_META_CACHE[cache_key] = meta
+    return meta
 
 
 # =============================================================================
@@ -353,57 +377,68 @@ def calculate_keyword_match_score(keyword: str, journal_obj: any, focus_scope_ar
     focus_low = focus_scope.lower()
 
     kw_clean = keyword.strip().lower()
-    tokens = [w for w in re.findall(r"\b[a-zA-Z]{3,}\b", kw_clean) if w not in ALL_STOPWORDS]
-    if not tokens:
-        tokens = [kw_clean]
+    with _MANUSCRIPT_META_LOCK:
+        kw_profile = _KEYWORD_PROFILE_CACHE.get(kw_clean)
+    if kw_profile is None:
+        kw_title = keyword.strip().title()
+        tokens = [w for w in re.findall(r"\b[a-zA-Z]{3,}\b", kw_clean) if w not in ALL_STOPWORDS]
+        if not tokens:
+            tokens = [kw_clean]
+        tok_entries = [(tok, tok.title()) for tok in tokens]
+        tok_set = set(tokens)
+        expanded_synonyms = expand_academic_synonyms(tokens + [kw_clean])
+        syn_entries = [
+            (syn, syn.title())
+            for syn in expanded_synonyms
+            if syn != kw_clean and syn not in tok_set
+        ]
+        kw_profile = (kw_title, tok_entries, syn_entries)
+        with _MANUSCRIPT_META_LOCK:
+            if len(_KEYWORD_PROFILE_CACHE) >= 128:
+                _KEYWORD_PROFILE_CACHE.clear()
+            _KEYWORD_PROFILE_CACHE[kw_clean] = kw_profile
 
-    expanded_synonyms = expand_academic_synonyms(tokens + [kw_clean])
-
+    kw_title, tok_entries, syn_entries = kw_profile
     matched_terms = []
     raw_score = 0
 
     # 1. Exact Keyword Match
     if kw_clean in nama_jurnal_low:
         raw_score += 45
-        matched_terms.append(keyword.strip().title())
+        matched_terms.append(kw_title)
     elif kw_clean in bidang_low:
         raw_score += 40
-        matched_terms.append(keyword.strip().title())
+        matched_terms.append(kw_title)
     elif kw_clean in focus_low:
         raw_score += 35
-        matched_terms.append(keyword.strip().title())
+        matched_terms.append(kw_title)
 
     # 2. Individual Tokens Match
-    for tok in tokens:
+    for tok, tok_title in tok_entries:
         if tok in nama_jurnal_low:
             raw_score += 25
-            matched_terms.append(tok.title())
+            matched_terms.append(tok_title)
         elif tok in bidang_low:
             raw_score += 20
-            matched_terms.append(tok.title())
+            matched_terms.append(tok_title)
         elif tok in focus_low:
             raw_score += 15
-            matched_terms.append(tok.title())
+            matched_terms.append(tok_title)
 
     # 3. Bilingual Synonyms Match
-    for syn in expanded_synonyms:
-        if syn == kw_clean or syn in tokens:
-            continue
+    for syn, syn_title in syn_entries:
         if syn in nama_jurnal_low:
             raw_score += 20
-            matched_terms.append(syn.title())
+            matched_terms.append(syn_title)
         elif syn in bidang_low:
             raw_score += 15
-            matched_terms.append(syn.title())
+            matched_terms.append(syn_title)
         elif syn in focus_low:
             raw_score += 10
-            matched_terms.append(syn.title())
+            matched_terms.append(syn_title)
 
     # Deduplikasi matched terms
-    unique_matched = []
-    for m in matched_terms:
-        if m not in unique_matched:
-            unique_matched.append(m)
+    unique_matched = list(dict.fromkeys(matched_terms))
 
     # Kurva Normalisasi (v1.6.1): selalu memberikan skor kecocokan aktif
     if raw_score == 0:
@@ -432,9 +467,65 @@ def calculate_keyword_match_score(keyword: str, journal_obj: any, focus_scope_ar
     }
 
 
+def prepare_manuscript_profile(manuscript_meta: dict) -> dict:
+    """Pre-compute profil kata kunci, sinonim, istilah dominan, dan judul naskah untuk batch scoring cepat (<0.5 detik)."""
+    if not isinstance(manuscript_meta, dict):
+        return {}
+    raw_kws = tuple(manuscript_meta.get("keywords") or [])
+    raw_dom = tuple(manuscript_meta.get("dominant_terms") or [])
+    raw_title = str(manuscript_meta.get("title") or "")
+    sig = (raw_kws, raw_dom, raw_title)
+
+    cached = manuscript_meta.get("_compiled_profile")
+    if isinstance(cached, dict) and cached.get("sig") == sig:
+        return cached
+
+    raw_keywords = [str(k).lower() for k in raw_kws if k]
+    kw_entries: list[tuple[str, str, list[tuple[str, str]]]] = []
+    raw_kw_set: set[str] = set()
+    for kw in raw_keywords:
+        kw_clean = kw.strip()
+        if not kw_clean:
+            continue
+        raw_kw_set.add(kw_clean)
+        sub_words = [
+            (sw, sw.title())
+            for sw in kw_clean.split()
+            if sw not in ALL_STOPWORDS and len(sw) >= 4
+        ]
+        kw_entries.append((kw_clean, kw.title(), sub_words))
+
+    expanded_kw = expand_academic_synonyms(raw_keywords)
+    syn_entries = [
+        (syn, syn.title())
+        for syn in expanded_kw
+        if syn not in raw_kw_set
+    ]
+    dom_entries = [
+        (str(d).lower().strip(), str(d).lower().title())
+        for d in raw_dom
+        if d and str(d).lower().strip()
+    ]
+    title_entries = [
+        (w.lower(), w.lower().title())
+        for w in re.findall(r"\b[a-zA-Z]{4,}\b", raw_title)
+        if w.lower() not in ALL_STOPWORDS
+    ]
+
+    profile = {
+        "sig": sig,
+        "kw_entries": kw_entries,
+        "syn_entries": syn_entries,
+        "dom_entries": dom_entries,
+        "title_entries": title_entries,
+    }
+    manuscript_meta["_compiled_profile"] = profile
+    return profile
+
+
 def calculate_match_score(manuscript_meta: dict, journal_obj: any) -> dict:
     """
-    HITUNG SKOR KESESUAIAN NASKAH (MATCH SCORE 0–100%) (v1.5.0):
+    HITUNG SKOR KESESUAIAN NASKAH (MATCH SCORE 0–100%) (v1.5.0 / Pre-computed v2.3.0):
     Mencocokkan kata kunci, istilah dominan, dan judul naskah yang diperkaya
     sinonim dwibahasa terhadap:
     - Bidang Keilmuan jurnal (Subject Area / Kategori)
@@ -458,82 +549,86 @@ def calculate_match_score(manuscript_meta: dict, journal_obj: any) -> dict:
             "explanation": "Naskah belum dianalisis",
         }
 
-    # Ambil atribut jurnal lengkap dengan Focus & Scope
-    nama_jurnal = getattr(journal_obj, "nama_jurnal", "") or getattr(journal_obj, "judul", "") or ""
-    bidang = getattr(journal_obj, "bidang", "") or ""
-    focus_scope = getattr(journal_obj, "focus_scope", "") or ""
-    penerbit = getattr(journal_obj, "penerbit", "") or ""
+    # Ambil atribut jurnal lengkap dengan Focus & Scope (dukung dict atau objek)
+    if isinstance(journal_obj, dict):
+        nama_jurnal = journal_obj.get("nama_jurnal") or journal_obj.get("judul") or journal_obj.get("title") or ""
+        bidang = journal_obj.get("bidang") or journal_obj.get("subject_area") or ""
+        focus_scope = journal_obj.get("focus_scope") or ""
+        penerbit = journal_obj.get("penerbit") or ""
+    else:
+        nama_jurnal = getattr(journal_obj, "nama_jurnal", "") or getattr(journal_obj, "judul", "") or ""
+        bidang = getattr(journal_obj, "bidang", "") or ""
+        focus_scope = getattr(journal_obj, "focus_scope", "") or ""
+        penerbit = getattr(journal_obj, "penerbit", "") or ""
 
-    journal_context = f"{nama_jurnal} {nama_jurnal} {bidang} {focus_scope} {penerbit}".lower()
+    nama_low = str(nama_jurnal).lower()
+    bidang_low = str(bidang).lower()
+    focus_low = str(focus_scope).lower()
+    penerbit_low = str(penerbit).lower()
+    journal_context = f"{nama_low} {nama_low} {bidang_low} {focus_low} {penerbit_low}"
 
-    raw_keywords = [k.lower() for k in manuscript_meta.get("keywords", []) if k]
-    expanded_kw = expand_academic_synonyms(raw_keywords)
-    dominant_terms = [d.lower() for d in manuscript_meta.get("dominant_terms", []) if d]
-    title_words = [w.lower() for w in re.findall(r"\b[a-zA-Z]{4,}\b", manuscript_meta.get("title", "")) if w.lower() not in ALL_STOPWORDS]
-
-    matched_terms = []
+    profile = prepare_manuscript_profile(manuscript_meta)
+    matched_terms: list[str] = []
+    matched_low: set[str] = set()
     score = 0
 
     # 1. Pencocokan Kata Kunci Naskah (Bobot Utama)
-    for kw in raw_keywords:
-        kw_clean = kw.strip()
-        if not kw_clean:
-            continue
+    for kw_clean, kw_title, sub_words in profile["kw_entries"]:
         if kw_clean in journal_context:
-            in_bidang = kw_clean in bidang.lower()
-            in_title = kw_clean in nama_jurnal.lower()
-            in_focus = kw_clean in focus_scope.lower()
+            in_bidang = kw_clean in bidang_low
+            in_title = kw_clean in nama_low
             if in_bidang and in_title:
                 score += 40
-            elif in_bidang or in_title or in_focus:
+            elif in_bidang or in_title or (kw_clean in focus_low):
                 score += 30
             else:
                 score += 20
-            matched_terms.append(kw.title())
-        else:
-            sub_words = [sw for sw in kw_clean.split() if sw not in ALL_STOPWORDS and len(sw) >= 4]
-            sub_matches = [sw for sw in sub_words if sw in journal_context]
+            matched_terms.append(kw_title)
+            matched_low.add(kw_title.lower())
+        elif sub_words:
+            sub_matches = [(sw, sw_t) for sw, sw_t in sub_words if sw in journal_context]
             if sub_matches:
                 score += 15 * len(sub_matches)
-                matched_terms.extend([sm.title() for sm in sub_matches])
+                for sw, sw_t in sub_matches:
+                    matched_terms.append(sw_t)
+                    matched_low.add(sw)
 
     # 2. Pencocokan Sinonim Dwibahasa
-    for syn in expanded_kw:
-        if syn in [k.lower() for k in raw_keywords] or syn in [m.lower() for m in matched_terms]:
+    for syn, syn_title in profile["syn_entries"]:
+        if syn in matched_low:
             continue
         if syn in journal_context:
-            in_b = syn in bidang.lower()
-            in_t = syn in nama_jurnal.lower()
+            in_b = syn in bidang_low
+            in_t = syn in nama_low
             if in_b and in_t:
                 score += 25
             elif in_b or in_t:
                 score += 18
             else:
                 score += 12
-            matched_terms.append(syn.title())
+            matched_terms.append(syn_title)
+            matched_low.add(syn)
 
     # 3. Pencocokan Istilah Dominan Naskah
-    for term in dominant_terms:
-        term_clean = term.strip()
-        if not term_clean or term_clean in [m.lower() for m in matched_terms]:
+    for term_clean, term_title in profile["dom_entries"]:
+        if term_clean in matched_low:
             continue
         if term_clean in journal_context:
             score += 15
-            matched_terms.append(term.title())
+            matched_terms.append(term_title)
+            matched_low.add(term_clean)
 
     # 4. Pencocokan Kata dari Judul Naskah
-    for tw in title_words:
-        if tw in [m.lower() for m in matched_terms]:
+    for tw, tw_title in profile["title_entries"]:
+        if tw in matched_low:
             continue
         if tw in journal_context:
             score += 10
-            matched_terms.append(tw.title())
+            matched_terms.append(tw_title)
+            matched_low.add(tw)
 
     # Hapus duplikasi istilah yang cocok
-    unique_matched = []
-    for mt in matched_terms:
-        if mt not in unique_matched:
-            unique_matched.append(mt)
+    unique_matched = list(dict.fromkeys(matched_terms))
 
     # Normalisasi Skor ke rentang 0 - 100
     final_score = min(100, max(0, score))

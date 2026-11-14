@@ -22,6 +22,8 @@
     activePreset: "skripsi",
     pollTimer: null,
     clockTimer: null,
+    heartbeatTimer: null,
+    lifecycleBound: false,
     runStartedClientMs: 0,
     aiPollTimer: null,
     logOffset: 0,
@@ -32,8 +34,96 @@
     return document.getElementById(id);
   }
 
+  function isHttpAppMode() {
+    return window.location.protocol === "http:" || window.location.protocol === "https:";
+  }
+
   function hasApi() {
-    return !!(window.pywebview && window.pywebview.api);
+    return isHttpAppMode() || !!(window.pywebview && window.pywebview.api);
+  }
+
+  const HTTP_API_ROUTES = {
+    init: { method: "GET", url: () => "/api/init" },
+    status: {
+      method: "GET",
+      lowPriority: true,
+      url: (p) => `/api/status?log_offset=${encodeURIComponent(p?.logOffset ?? 0)}&last_result_version=${encodeURIComponent(p?.resultsVersion ?? -1)}`,
+    },
+    aiStatus: { method: "GET", url: () => "/api/ai-status" },
+    search: { method: "POST", url: () => "/api/search" },
+    stop: { method: "POST", url: () => "/api/stop" },
+    copyShare: { method: "POST", url: () => "/api/copy-share", mapBody: (indices) => ({ indices }) },
+    copyDraft: { method: "POST", url: () => "/api/copy-draft" },
+    openExcel: { method: "POST", url: () => "/api/open-excel" },
+    openOutput: { method: "POST", url: () => "/api/open-output" },
+    openLogs: { method: "POST", url: () => "/api/open-logs" },
+    openUrl: { method: "POST", url: () => "/api/open-url", mapBody: (url) => ({ url }) },
+    clearCache: { method: "POST", url: () => "/api/clear-cache" },
+    launchOllama: { method: "POST", url: () => "/api/launch-ollama" },
+    installOllama: { method: "POST", url: () => "/api/install-ollama" },
+    pullAiModel: { method: "POST", url: () => "/api/pull-ai-model" },
+  };
+
+  async function callBackendApi(action, payload) {
+    if (isHttpAppMode()) {
+      if (action === "uploadManuscript") {
+        const opts = payload instanceof FormData
+          ? { method: "POST", body: payload }
+          : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload || {}) };
+        const resp = await fetch("/api/upload-manuscript", opts);
+        return await resp.json();
+      }
+      const route = HTTP_API_ROUTES[action];
+      if (!route) throw new Error(`Aksi API tidak dikenal: ${action}`);
+      const opts = { method: route.method };
+      if (route.lowPriority) opts.priority = "low";
+      if (route.method !== "GET") {
+        const bodyObj = route.mapBody ? route.mapBody(payload) : (payload || {});
+        opts.headers = { "Content-Type": "application/json" };
+        opts.body = JSON.stringify(bodyObj);
+      }
+      const resp = await fetch(route.url(payload), opts);
+      return await resp.json();
+    }
+
+    const api = window.pywebview && window.pywebview.api;
+    if (!api) return null;
+    switch (action) {
+      case "init":
+        return api.get_init_info ? await api.get_init_info() : await api.get_status(0, -1);
+      case "status":
+        return await api.get_status(payload?.logOffset ?? 0, payload?.resultsVersion ?? -1);
+      case "aiStatus":
+        return await api.get_ai_setup_status();
+      case "search":
+        return await (api.start_search || api.start_scrape)(payload);
+      case "stop":
+        return await api.stop_scrape();
+      case "uploadManuscript":
+        return await (api.upload_manuscript || api.pick_manuscript)();
+      case "copyShare":
+        return await api.copy_share_list(payload);
+      case "copyDraft":
+        return await (api.copy_editor_draft || api.copy_editor_chat)(payload.index, payload.keyword);
+      case "openExcel":
+        return await api.open_excel();
+      case "openOutput":
+        return await api.open_output_folder();
+      case "openLogs":
+        return typeof api.open_logs_folder === "function" ? await api.open_logs_folder() : { ok: false };
+      case "openUrl":
+        return await api.open_url(payload);
+      case "clearCache":
+        return await api.clear_cache();
+      case "launchOllama":
+        return await api.launch_ollama();
+      case "installOllama":
+        return await api.install_ollama();
+      case "pullAiModel":
+        return await api.pull_ai_model();
+      default:
+        return null;
+    }
   }
 
   function clampTarget(val) {
@@ -488,7 +578,7 @@
         btnWeb.textContent = "Buka Web";
         btnWeb.addEventListener("click", (ev) => {
           ev.stopPropagation();
-          if (hasApi()) window.pywebview.api.open_url(item.url);
+          if (hasApi()) callBackendApi("openUrl", item.url);
         });
         actWrap.appendChild(btnWeb);
       }
@@ -786,7 +876,10 @@
   async function pollStatusOnce() {
     if (!hasApi()) return;
     try {
-      const st = await window.pywebview.api.get_status(state.logOffset, state.resultsVersion);
+      const st = await callBackendApi("status", {
+        logOffset: state.logOffset,
+        resultsVersion: state.resultsVersion,
+      });
       if (st && typeof st.next_log_offset === "number") {
         state.logOffset = st.next_log_offset;
       }
@@ -824,8 +917,7 @@
     updateProgressBar("scrape", 0, 0, true);
     updateProgressBar("ai", 0, 0, false);
 
-    const apiMethod = window.pywebview.api.start_search || window.pywebview.api.start_scrape;
-    const res = await apiMethod(params);
+    const res = await callBackendApi("search", params);
     if (res && res.ok === false) {
       updateRunningUI(false);
       showToast(res.message || "Gagal memulai pencarian.");
@@ -843,10 +935,7 @@
     }
   }
 
-  async function uploadManuscript() {
-    if (!hasApi()) return;
-    const apiMethod = window.pywebview.api.upload_manuscript || window.pywebview.api.pick_manuscript;
-    const res = await apiMethod();
+  function applyManuscriptResult(res) {
     if (res && res.path) {
       state.manuscriptPath = res.path;
       $("manuscript-name").textContent = res.name || res.path;
@@ -856,12 +945,25 @@
         $("input-keyword").value = res.suggested_keyword;
       }
       appendLog(`Naskah dilampirkan: ${res.name || res.path}`);
+      showToast(`Naskah '${res.name || "artikel"}' siap dianalisis!`);
+    } else if (res && res.message) {
+      showToast(res.message);
     }
+  }
+
+  async function uploadManuscript() {
+    if (!hasApi()) return;
+    if (isHttpAppMode() && $("input-manuscript-file")) {
+      $("input-manuscript-file").click();
+      return;
+    }
+    const res = await callBackendApi("uploadManuscript");
+    applyManuscriptResult(res);
   }
 
   async function refreshAiSetupDialog() {
     if (!hasApi()) return;
-    const info = await window.pywebview.api.get_ai_setup_status();
+    const info = await callBackendApi("aiStatus");
     if (!info) return;
     $("ai-dlg-model").textContent = info.model || "-";
     $("ai-dlg-running").textContent = info.running ? "Aktif (localhost:11434)" : "Belum menyala";
@@ -960,12 +1062,29 @@
     $("search-form").addEventListener("submit", startSearch);
     $("btn-stop").addEventListener("click", async () => {
       if (hasApi()) {
-        await window.pywebview.api.stop_scrape();
+        await callBackendApi("stop");
         showToast("Menghentikan pencarian...");
       }
     });
 
     $("btn-pick-manuscript").addEventListener("click", uploadManuscript);
+    if ($("input-manuscript-file")) {
+      $("input-manuscript-file").addEventListener("change", async (ev) => {
+        const inputEl = ev.target;
+        const file = inputEl.files && inputEl.files[0];
+        if (!file) return;
+        try {
+          const form = new FormData();
+          form.append("file", file, file.name);
+          const res = await callBackendApi("uploadManuscript", form);
+          applyManuscriptResult(res);
+        } catch (err) {
+          showToast("Gagal mengunggah naskah. Pastikan format .docx atau .pdf.");
+        } finally {
+          inputEl.value = "";
+        }
+      });
+    }
     $("btn-clear-manuscript").addEventListener("click", () => {
       state.manuscriptPath = "";
       $("manuscript-banner").classList.add("is-hidden");
@@ -980,7 +1099,7 @@
 
     $("btn-clear-cache").addEventListener("click", async () => {
       if (!hasApi()) return;
-      const res = await window.pywebview.api.clear_cache();
+      const res = await callBackendApi("clearCache");
       showToast(res && res.message ? res.message : "Cache dibersihkan.");
       pollStatusOnce();
     });
@@ -999,7 +1118,7 @@
     $("btn-copy-wa").addEventListener("click", async () => {
       if (!hasApi()) return;
       const visibleIndices = Array.isArray(state.filteredIndices) ? state.filteredIndices : [];
-      const res = await window.pywebview.api.copy_share_list(visibleIndices);
+      const res = await callBackendApi("copyShare", visibleIndices);
       showToast(res && res.ok ? "Daftar format Share WA disalin ke clipboard!" : "Belum ada data untuk disalin.");
     });
 
@@ -1028,8 +1147,10 @@
 
     const copyEditorHandler = async (idx) => {
       if (!hasApi() || idx < 0) return;
-      const fn = window.pywebview.api.copy_editor_draft || window.pywebview.api.copy_editor_chat;
-      const res = await fn(idx, $("input-keyword").value.trim());
+      const res = await callBackendApi("copyDraft", {
+        index: idx,
+        keyword: $("input-keyword").value.trim(),
+      });
       showToast(res && res.ok ? "Draf pesan editor disalin ke clipboard!" : "Gagal menyalin draf pesan.");
     };
 
@@ -1038,25 +1159,25 @@
 
     $("btn-detail-open-url").addEventListener("click", () => {
       const item = state.results[state.detailIndex];
-      if (hasApi() && item && item.url) window.pywebview.api.open_url(item.url);
+      if (hasApi() && item && item.url) callBackendApi("openUrl", item.url);
     });
 
     $("btn-open-excel").addEventListener("click", async () => {
       if (hasApi()) {
-        const res = await window.pywebview.api.open_excel();
+        const res = await callBackendApi("openExcel");
         if (res && res.ok === false) showToast(res.message || "File Excel belum tersedia.");
       }
     });
 
     $("btn-open-folder").addEventListener("click", async () => {
-      if (hasApi()) await window.pywebview.api.open_output_folder();
+      if (hasApi()) await callBackendApi("openOutput");
     });
 
     const btnOpenLogs = $("btn-open-logs");
     if (btnOpenLogs) {
       btnOpenLogs.addEventListener("click", async () => {
-        if (hasApi() && typeof window.pywebview.api.open_logs_folder === "function") {
-          await window.pywebview.api.open_logs_folder();
+        if (hasApi()) {
+          await callBackendApi("openLogs");
         }
       });
     }
@@ -1079,28 +1200,61 @@
     $("btn-ai-refresh").addEventListener("click", refreshAiSetupDialog);
     $("btn-ai-launch").addEventListener("click", async () => {
       if (!hasApi()) return;
-      const res = await window.pywebview.api.launch_ollama();
+      const res = await callBackendApi("launchOllama");
       showToast(res && res.message ? res.message : "Memeriksa layanan Ollama...");
       refreshAiSetupDialog();
     });
     $("btn-ai-install").addEventListener("click", async () => {
       if (!hasApi()) return;
-      await window.pywebview.api.install_ollama();
+      await callBackendApi("installOllama");
       if (!state.aiPollTimer) state.aiPollTimer = setInterval(refreshAiSetupDialog, 350);
     });
     $("btn-ai-pull").addEventListener("click", async () => {
       if (!hasApi()) return;
-      await window.pywebview.api.pull_ai_model();
+      await callBackendApi("pullAiModel");
       if (!state.aiPollTimer) state.aiPollTimer = setInterval(refreshAiSetupDialog, 350);
     });
   }
 
-  function onBridgeReady() {
+  function startHttpLifecycle() {
+    if (!isHttpAppMode() || state.lifecycleBound) return;
+    state.lifecycleBound = true;
+    state.heartbeatTimer = setInterval(() => {
+      fetch("/api/ping", {
+        method: "POST",
+        body: "{}",
+        keepalive: true,
+        priority: "low",
+      }).catch(() => {});
+    }, 3000);
+
+    window.addEventListener("pagehide", () => {
+      try {
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon("/api/shutdown", "{}");
+        } else {
+          fetch("/api/shutdown", { method: "POST", body: "{}", keepalive: true }).catch(() => {});
+        }
+      } catch (e) {}
+    });
+  }
+
+  async function onBridgeReady() {
     applyPreset("skripsi", true);
     applySoundPreference();
     renderResultsTable([]);
-    appendLog("JSFS v2.2.0 siap digunakan.");
-    pollStatusOnce();
+    appendLog("JSFS v2.3.0 siap digunakan.");
+    startHttpLifecycle();
+    if (isHttpAppMode()) {
+      try {
+        const initData = await callBackendApi("init");
+        if (initData && initData.status) {
+          applyStatusSnapshot(initData.status);
+        }
+      } catch (e) {}
+    } else {
+      pollStatusOnce();
+    }
     setTimeout(pollStatusOnce, 700);
   }
 

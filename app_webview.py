@@ -1,9 +1,8 @@
 """
 app_webview.py
-Desktop UI WebView2 (pywebview + HTML5/CSS3/Vanilla JS) untuk JSFS v2.2.0.
-Menggantikan lapisan CustomTkinter dengan rendering GPU 60 FPS yang bebas Not Responding,
-dilengkapi Forensic Crash Watchdog (<1.5s instant boot) sambil mempertahankan 100%
-mesin scraping, presisi APC, cache SQLite, AI Ollama, dan ekspor cepat.
+Desktop Backend Engine & WebView2 Bridge (pywebview + HTTP App-Mode) untuk JSFS v2.3.0.
+Menyediakan JSFSApi dengan mesin scraping hiper-cepat, presisi APC, cache SQLite,
+AI Ollama selektif, serta Forensic Crash Watchdog (<1.5s instant boot).
 """
 
 from __future__ import annotations
@@ -20,9 +19,18 @@ import webbrowser
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 
-import webview
+webview = None
 
-from config import APP_VERSION, DEBUG_TRACE_LOG, INFO_NOT_FOUND, LOGS_DIR, OUTPUT_DIR
+
+def _get_webview():
+    global webview
+    if webview is None:
+        import webview as _wv
+        webview = _wv
+    return webview
+
+
+from config import APP_VERSION, DEBUG_TRACE_LOG, INFO_NOT_FOUND, LOGS_DIR, OUTPUT_DIR, get_app_dir
 
 _FORENSIC_LOCK = threading.Lock()
 _FAULT_LOG_HANDLE = None
@@ -706,19 +714,34 @@ class JSFSApi:
 
                 ms_path = str(p.get("manuscript", "") or "")
                 if ms_path and os.path.exists(ms_path):
+                    with self._lock:
+                        self._last_activity_mono = time.monotonic()
+                        self._phase_status = "Menghitung skor kesesuaian naskah..."
+                        self._current_item = os.path.basename(ms_path)
                     self._log(f"Menganalisis kesesuaian naskah: {os.path.basename(ms_path)}...")
                     ms_data = extract_manuscript_metadata(ms_path)
                     if ms_data:
-                        for s in survivors:
+                        for idx, s in enumerate(survivors):
                             match_res = calculate_match_score(ms_data, s)
                             s.match_score = match_res.get("score", 40)
                             s.kesesuaian_naskah = match_res.get("level", "Cukup Sesuai")
+                            if idx % 50 == 49:
+                                with self._lock:
+                                    self._last_activity_mono = time.monotonic()
+                                time.sleep(0)
                 else:
+                    with self._lock:
+                        self._last_activity_mono = time.monotonic()
+                        self._phase_status = "Menghitung skor kesesuaian topik..."
                     self._log(f"Menghitung skor kesesuaian berbasis kata kunci '{keyword}'...")
-                    for s in survivors:
+                    for idx, s in enumerate(survivors):
                         kw_res = calculate_keyword_match_score(keyword, s)
                         s.match_score = kw_res.get("score", 40)
                         s.kesesuaian_naskah = kw_res.get("level", "Cukup Sesuai")
+                        if idx % 50 == 49:
+                            with self._lock:
+                                self._last_activity_mono = time.monotonic()
+                            time.sleep(0)
 
             # Filter Biaya & High-Yield Recall (v1.6.1)
             min_rp = int(p.get("min_rp", 0))
@@ -904,15 +927,85 @@ class JSFSApi:
             self._phase_status = "Pencarian selesai" if self._serialized_results else "Siap mencari jurnal"
             self._current_item = ""
 
+    def get_init_info(self) -> dict[str, Any]:
+        """Informasi inisialisasi untuk Process-Isolated App-Mode (/api/init) maupun WebView2."""
+        st = self.get_status(log_offset=0, last_result_version=-1)
+        return {
+            "ok": True,
+            "version": APP_VERSION,
+            "ollama_active": st.get("ollama_active", False),
+            "cache_count": st.get("cache_count", 0),
+            "status": st,
+        }
+
+    def upload_manuscript_bytes(self, filename: str, raw_bytes: bytes) -> dict[str, Any]:
+        """Menyimpan naskah yang diunggah dari UI HTTP ke .cache/uploads/ lalu mengekstrak metadatanya."""
+        raw_name = os.path.basename(str(filename or "").strip())
+        if not raw_name:
+            return {"ok": False, "path": "", "message": "Nama berkas kosong."}
+        stem, ext = os.path.splitext(raw_name)
+        ext_low = ext.lower()
+        if ext_low not in (".docx", ".pdf"):
+            return {"ok": False, "path": "", "message": "Hanya berkas .docx atau .pdf yang didukung."}
+        if not raw_bytes:
+            return {"ok": False, "path": "", "message": "Berkas naskah kosong."}
+
+        safe_stem = re.sub(r"[^A-Za-z0-9._-]+", "_", stem).strip("._-") or "naskah"
+        uploads_dir = os.path.join(get_app_dir(), ".cache", "uploads")
+        os.makedirs(uploads_dir, exist_ok=True)
+        # Bersihkan unggahan lama yang berumur > 1 hari agar direktori tetap ringkas
+        try:
+            cutoff = time.time() - 86400
+            for old_f in os.listdir(uploads_dir):
+                old_p = os.path.join(uploads_dir, old_f)
+                if os.path.isfile(old_p) and os.path.getmtime(old_p) < cutoff:
+                    try:
+                        os.remove(old_p)
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+
+        saved_name = f"{safe_stem}_{int(time.time() * 1000)}{ext_low}"
+        saved_path = os.path.join(uploads_dir, saved_name)
+        with open(saved_path, "wb") as fh:
+            fh.write(raw_bytes)
+
+        suggested = ""
+        title = ""
+        try:
+            from doc_reader import extract_manuscript_metadata
+            meta = extract_manuscript_metadata(saved_path)
+            kws = meta.get("keywords") or []
+            if kws:
+                suggested = ", ".join(kws[:3])
+            title = str(meta.get("title") or "")
+        except Exception as exc:
+            return {
+                "ok": False,
+                "path": "",
+                "message": f"Gagal membaca metadata naskah: {exc}",
+            }
+
+        self._log(f"Naskah diunggah & diindeks: {raw_name}")
+        return {
+            "ok": True,
+            "path": saved_path,
+            "name": raw_name,
+            "suggested_keyword": suggested,
+            "title": title,
+        }
+
     def upload_manuscript(self) -> dict[str, Any]:
         return self.pick_manuscript()
 
     def pick_manuscript(self) -> dict[str, Any]:
         if not self._window:
             return {"path": ""}
-        dialog_type = getattr(getattr(webview, "FileDialog", None), "OPEN", None)
+        wv = _get_webview()
+        dialog_type = getattr(getattr(wv, "FileDialog", None), "OPEN", None)
         if dialog_type is None:
-            dialog_type = getattr(webview, "OPEN_DIALOG", 10)
+            dialog_type = getattr(wv, "OPEN_DIALOG", 10)
 
         picked = self._window.create_file_dialog(
             dialog_type,
@@ -1103,14 +1196,15 @@ class JSFSApi:
 
 def main():
     init_forensic_logger()
+    wv = _get_webview()
     ui_path = os.path.join(_get_bundle_dir(), "ui_web", "index.html")
     api = JSFSApi()
-    window = webview.create_window(
+    window = wv.create_window(
         f"JSFS v{APP_VERSION} — Journal Scraper For Students",
         url=ui_path,
         js_api=api,
-        width=1120,
-        height=760,
+        width=1160,
+        height=780,
         min_size=(960, 680),
         text_select=True,
     )
@@ -1118,7 +1212,7 @@ def main():
     window.events.closed += api.shutdown
     api.startup_background_checks()
     try:
-        webview.start(debug=False)
+        wv.start(debug=False)
     finally:
         api.shutdown()
 
