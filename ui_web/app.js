@@ -9,6 +9,14 @@
     running: false,
     results: [],
     resultsVersion: -1,
+    filteredIndices: [],
+    currentPage: 1,
+    pageSize: 50,
+    sortKey: "",
+    sortType: "text",
+    sortDir: "",
+    lastTableRenderMs: 0,
+    pendingTableRefresh: false,
     selectedIndex: -1,
     excelPath: "",
     activePreset: "skripsi",
@@ -274,49 +282,129 @@
     return "unknown";
   }
 
+  function _itemSearchHaystack(item) {
+    if (typeof item._searchHaystack === "string") return item._searchHaystack;
+    item._searchHaystack = [
+      item.nama,
+      item.penerbit,
+      item.focus_scope,
+      item.email,
+      item.telepon,
+      item.apc_label,
+      item.jadwal_terbit,
+    ].join(" ").toLowerCase();
+    return item._searchHaystack;
+  }
+
+  function _getSortValue(item, key) {
+    if (key === "nama") return String(item.nama || "");
+    if (key === "sinta") return Number(item.sinta) || 99;
+    if (key === "match_score") return Number(item.match_score ?? 0);
+    if (key === "biaya_sort") return Number(item.biaya_sort ?? 999999999);
+    if (key === "jadwal_sort") return String(item.terbit_terdekat || "zzz");
+    return "";
+  }
+
+  function computeFilteredSortedIndices() {
+    const qEl = $("filter-search");
+    const apcEl = $("filter-apc");
+    const q = (qEl ? qEl.value : "").trim().toLowerCase();
+    const apc = apcEl ? apcEl.value : "all";
+
+    const indices = [];
+    for (let i = 0; i < state.results.length; i += 1) {
+      const item = state.results[i];
+      if (!item) continue;
+      if (apc !== "all" && classifyApc(item) !== apc) continue;
+      if (q && !_itemSearchHaystack(item).includes(q)) continue;
+      indices.push(i);
+    }
+
+    if (state.sortKey && state.sortDir) {
+      const key = state.sortKey;
+      const isNum = state.sortType === "number";
+      const dirMult = state.sortDir === "ascending" ? 1 : -1;
+      indices.sort((ia, ib) => {
+        const va = _getSortValue(state.results[ia], key);
+        const vb = _getSortValue(state.results[ib], key);
+        const cmp = isNum ? (Number(va) - Number(vb)) : collator.compare(String(va), String(vb));
+        return cmp * dirMult;
+      });
+    }
+
+    state.filteredIndices = indices;
+    return indices;
+  }
+
   function renderResultsTable(items) {
+    if (Array.isArray(items) && items !== state.results) {
+      state.results = items;
+    }
+
     const tbody = $("results-tbody");
     const emptyPanel = $("empty-state-panel");
     const tableWrap = $("results-table-wrap");
+    const pagBar = $("pagination-bar");
     if (!tbody || !emptyPanel || !tableWrap) return;
 
-    tbody.innerHTML = "";
-    state.selectedIndex = -1;
-    $("btn-copy-editor").disabled = true;
+    const totalAll = state.results.length;
+    const hasAnyResults = totalAll > 0;
+    emptyPanel.classList.toggle("is-hidden", hasAnyResults);
+    tableWrap.classList.toggle("is-hidden", !hasAnyResults);
+    if (pagBar) pagBar.classList.toggle("is-hidden", !hasAnyResults);
 
-    const hasItems = Array.isArray(items) && items.length > 0;
-    emptyPanel.classList.toggle("is-hidden", hasItems);
-    tableWrap.classList.toggle("is-hidden", !hasItems);
-    $("btn-copy-wa").disabled = !hasItems;
-
-    if (!hasItems) {
-      updateVisibleRowNumbers();
+    if (!hasAnyResults) {
+      tbody.textContent = "";
+      state.filteredIndices = [];
+      state.selectedIndex = -1;
+      $("btn-copy-editor").disabled = true;
+      $("btn-copy-wa").disabled = true;
+      const pill = $("results-count-pill");
+      if (pill) pill.textContent = "0 jurnal";
+      if ($("pagination-info")) $("pagination-info").textContent = "Halaman 1 dari 1 (0 jurnal)";
       return;
     }
 
-    items.forEach((item, idx) => {
+    const filtered = computeFilteredSortedIndices();
+    const totalFiltered = filtered.length;
+    $("btn-copy-wa").disabled = totalFiltered === 0;
+
+    const pill = $("results-count-pill");
+    if (pill) {
+      pill.textContent = totalFiltered === totalAll ? `${totalAll} jurnal` : `${totalFiltered} dari ${totalAll} jurnal`;
+    }
+
+    const perPage = state.pageSize === "all" ? Math.max(1, totalFiltered) : Math.max(1, Number(state.pageSize) || 50);
+    const totalPages = Math.max(1, Math.ceil(totalFiltered / perPage));
+    if (state.currentPage > totalPages) state.currentPage = totalPages;
+    if (state.currentPage < 1) state.currentPage = 1;
+
+    const startOffset = (state.currentPage - 1) * perPage;
+    const pageSlice = filtered.slice(startOffset, startOffset + perPage);
+
+    if (state.selectedIndex >= 0 && !pageSlice.includes(state.selectedIndex)) {
+      state.selectedIndex = -1;
+      $("btn-copy-editor").disabled = true;
+    }
+
+    if ($("pagination-info")) {
+      $("pagination-info").textContent = `Halaman ${state.currentPage} dari ${totalPages} (${totalFiltered} jurnal)`;
+    }
+    if ($("btn-page-prev")) $("btn-page-prev").disabled = state.currentPage <= 1;
+    if ($("btn-page-next")) $("btn-page-next").disabled = state.currentPage >= totalPages;
+
+    const frag = document.createDocumentFragment();
+    pageSlice.forEach((origIdx, slicePos) => {
+      const item = state.results[origIdx];
       const tr = document.createElement("tr");
       const apcCat = classifyApc(item);
-      tr.dataset.idx = String(idx);
+      tr.dataset.idx = String(origIdx);
       tr.dataset.apc = apcCat;
-      tr.dataset.search = [
-        item.nama,
-        item.penerbit,
-        item.focus_scope,
-        item.email,
-        item.telepon,
-        item.apc_label,
-        item.jadwal_terbit,
-      ].join(" ").toLowerCase();
-      tr.dataset.sortNama = String(item.nama || "");
-      tr.dataset.sortSinta = String(item.sinta || 99);
-      tr.dataset.sortMatch_score = String(item.match_score ?? 0);
-      tr.dataset.sortBiaya_sort = String(item.biaya_sort ?? 999999999);
-      tr.dataset.sortJadwal_sort = String(item.terbit_terdekat || "zzz");
+      if (origIdx === state.selectedIndex) tr.classList.add("is-selected");
 
       const tdNum = document.createElement("td");
       tdNum.className = "col-num";
-      tdNum.textContent = String(idx + 1);
+      tdNum.textContent = String(startOffset + slicePos + 1);
 
       const tdName = document.createElement("td");
       const nm = document.createElement("span");
@@ -388,8 +476,8 @@
       btnDetail.textContent = "Detail";
       btnDetail.addEventListener("click", (ev) => {
         ev.stopPropagation();
-        selectRow(idx);
-        openJournalDetail(idx);
+        selectRow(origIdx);
+        openJournalDetail(origIdx);
       });
       actWrap.appendChild(btnDetail);
 
@@ -407,11 +495,14 @@
       tdAct.appendChild(actWrap);
 
       tr.append(tdNum, tdName, tdSinta, tdMatch, tdApc, tdJadwal, tdAct);
-      tr.addEventListener("click", () => selectRow(idx));
-      tbody.appendChild(tr);
+      tr.addEventListener("click", () => selectRow(origIdx));
+      frag.appendChild(tr);
     });
 
-    applyTableFilters();
+    tbody.textContent = "";
+    tbody.appendChild(frag);
+    state.lastTableRenderMs = Date.now();
+    state.pendingTableRefresh = false;
   }
 
   function selectRow(idx) {
@@ -422,37 +513,13 @@
     $("btn-copy-editor").disabled = idx < 0;
   }
 
-  function updateVisibleRowNumbers() {
-    let visible = 0;
-    document.querySelectorAll("#results-tbody tr").forEach((tr) => {
-      if (!tr.classList.contains("is-hidden")) {
-        visible += 1;
-        const numCell = tr.querySelector("td.col-num");
-        if (numCell) numCell.textContent = String(visible);
-      }
-    });
-    const total = state.results.length;
-    const pill = $("results-count-pill");
-    if (pill) {
-      pill.textContent = visible === total ? `${total} jurnal` : `${visible} dari ${total} jurnal`;
-    }
-  }
-
   function applyTableFilters() {
-    const q = ($("filter-search").value || "").trim().toLowerCase();
-    const apc = $("filter-apc").value || "all";
-
-    document.querySelectorAll("#results-tbody tr").forEach((tr) => {
-      const matchText = !q || (tr.dataset.search || "").includes(q);
-      const matchApc = apc === "all" || tr.dataset.apc === apc;
-      tr.classList.toggle("is-hidden", !(matchText && matchApc));
-    });
-    updateVisibleRowNumbers();
+    state.currentPage = 1;
+    renderResultsTable();
   }
 
   function sortTableBy(colKey, sortType, thEl, labelText) {
-    const tbody = $("results-tbody");
-    if (!tbody || !state.results.length) return;
+    if (!state.results.length) return;
 
     const nextDir = thEl.getAttribute("aria-sort") === "ascending" ? "descending" : "ascending";
     document.querySelectorAll("#results-table thead th").forEach((th) => {
@@ -460,27 +527,15 @@
       else th.removeAttribute("aria-sort");
     });
 
-    const dataKey = "sort" + colKey.charAt(0).toUpperCase() + colKey.slice(1);
-    const rows = Array.from(tbody.querySelectorAll("tr"));
-    rows.sort((a, b) => {
-      const va = a.dataset[dataKey] ?? "";
-      const vb = b.dataset[dataKey] ?? "";
-      const cmp =
-        sortType === "number"
-          ? (Number(va) || 0) - (Number(vb) || 0)
-          : collator.compare(va, vb);
-      return nextDir === "ascending" ? cmp : -cmp;
-    });
+    state.sortKey = colKey;
+    state.sortType = sortType || "text";
+    state.sortDir = nextDir;
+    state.currentPage = 1;
+    renderResultsTable();
 
-    rows.forEach((row) => {
-      if (typeof tbody.moveBefore === "function") tbody.moveBefore(row, null);
-      else tbody.appendChild(row);
-    });
-
-    updateVisibleRowNumbers();
     const status = $("sort-status");
     if (status) {
-      status.textContent = `Diurutkan berdasarkan ${labelText}, ${nextDir === "ascending" ? "menaik" : "menurun"}, ${rows.length} baris`;
+      status.textContent = `Diurutkan berdasarkan ${labelText}, ${nextDir === "ascending" ? "menaik" : "menurun"}, ${state.filteredIndices.length} baris`;
     }
   }
 
@@ -688,10 +743,23 @@
       $("btn-open-excel").disabled = !state.excelPath;
     }
 
+    let hasNewResults = false;
     if (typeof st.results_version === "number" && st.results_version !== state.resultsVersion) {
       state.resultsVersion = st.results_version;
-      state.results = Array.isArray(st.results) ? st.results : [];
-      renderResultsTable(state.results);
+      if (Array.isArray(st.results)) {
+        state.results = st.results;
+        hasNewResults = true;
+      }
+    }
+
+    if (st.running) {
+      if (hasNewResults) state.pendingTableRefresh = true;
+      if (state.pendingTableRefresh && Date.now() - state.lastTableRenderMs >= 1500) {
+        renderResultsTable();
+      }
+    } else if (hasNewResults || state.pendingTableRefresh) {
+      state.currentPage = 1;
+      renderResultsTable();
     }
 
     const wasRunning = state.running;
@@ -718,7 +786,7 @@
   async function pollStatusOnce() {
     if (!hasApi()) return;
     try {
-      const st = await window.pywebview.api.get_status(state.logOffset);
+      const st = await window.pywebview.api.get_status(state.logOffset, state.resultsVersion);
       if (st && typeof st.next_log_offset === "number") {
         state.logOffset = st.next_log_offset;
       }
@@ -744,6 +812,9 @@
     }
 
     setTargetCount(params.target);
+    state.currentPage = 1;
+    state.pendingTableRefresh = false;
+    state.lastTableRenderMs = 0;
     state.runStartedClientMs = Date.now();
     if ($("completion-banner")) $("completion-banner").classList.add("is-hidden");
     if ($("elapsed-timer")) $("elapsed-timer").textContent = "00:00";
@@ -927,11 +998,33 @@
 
     $("btn-copy-wa").addEventListener("click", async () => {
       if (!hasApi()) return;
-      const visibleIndices = Array.from(document.querySelectorAll("#results-tbody tr:not(.is-hidden)"))
-        .map((tr) => Number(tr.dataset.idx));
+      const visibleIndices = Array.isArray(state.filteredIndices) ? state.filteredIndices : [];
       const res = await window.pywebview.api.copy_share_list(visibleIndices);
       showToast(res && res.ok ? "Daftar format Share WA disalin ke clipboard!" : "Belum ada data untuk disalin.");
     });
+
+    if ($("btn-page-prev")) {
+      $("btn-page-prev").addEventListener("click", () => {
+        if (state.currentPage > 1) {
+          state.currentPage -= 1;
+          renderResultsTable();
+        }
+      });
+    }
+    if ($("btn-page-next")) {
+      $("btn-page-next").addEventListener("click", () => {
+        state.currentPage += 1;
+        renderResultsTable();
+      });
+    }
+    if ($("select-page-size")) {
+      $("select-page-size").addEventListener("change", (e) => {
+        const val = e.target.value;
+        state.pageSize = val === "all" ? "all" : Math.max(10, Number(val) || 50);
+        state.currentPage = 1;
+        renderResultsTable();
+      });
+    }
 
     const copyEditorHandler = async (idx) => {
       if (!hasApi() || idx < 0) return;
@@ -997,7 +1090,7 @@
     applyPreset("skripsi", true);
     applySoundPreference();
     renderResultsTable([]);
-    appendLog("JSFS v2.1.0 siap digunakan.");
+    appendLog("JSFS v2.1.1 siap digunakan.");
     pollStatusOnce();
     setTimeout(pollStatusOnce, 700);
   }

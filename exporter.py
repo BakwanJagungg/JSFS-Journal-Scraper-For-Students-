@@ -284,7 +284,7 @@ def validate_urls_async(urls: list[str]) -> dict[str, bool]:
             if resp.status_code in (404, 500, 502, 503):
                 return u, False
             return u, True
-        except (requests.exceptions.SSLError, requests.exceptions.ReadTimeout):
+        except (requests.exceptions.SSLError, requests.exceptions.Timeout):
             return u, True
         except Exception:
             return u, False

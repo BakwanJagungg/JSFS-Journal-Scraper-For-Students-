@@ -1,7 +1,7 @@
 # 📜 VISION.md — Sumber Kebenaran Mutlak Proyek JSFS
 
 > **JSFS (Journal Scraper For Students) — Hybrid AI Desktop Research Assistant**
-> Versi Dokumen: **2.1.0** | Terakhir Diperbarui: 2026-11-14
+> Versi Dokumen: **2.1.1** | Terakhir Diperbarui: 2026-11-14
 
 ---
 
@@ -37,7 +37,7 @@ tersebut.** Jika tidak yakin, tanyakan kepada pemilik proyek sebelum melanjutkan
 |---------|-------|
 | **Nama Resmi** | JSFS — Journal Scraper For Students |
 | **Subtitle** | Hybrid AI Desktop Research Assistant |
-| **Versi Terkini** | 2.1.0 (Hyper-Speed Pipeline: Pre-Deep Deduplication, 5.5s Hard Deadline & Incremental Auto-Save) |
+| **Versi Terkini** | 2.1.1 (Zero-Freeze Paginated Table, Delta-IPC Status, Concurrent Garuda Pages & TLS Timeout Tuning) |
 | **Target Versi Berikutnya** | 2.2.0 (Multi-User Web Dashboard Companion) |
 | **Platform** | Windows 10/11 64-bit (portable `.exe`, WebView2 native runtime, tidak perlu Python) |
 | **Bahasa UI** | Bahasa Indonesia (teks, label, log, laporan output) |

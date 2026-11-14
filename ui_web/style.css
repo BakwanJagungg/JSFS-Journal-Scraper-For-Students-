@@ -1009,6 +1009,40 @@ progress.progress-bar:indeterminate::-moz-progress-bar {
   border-radius: 10px;
   background: var(--bg-surface);
   container-type: inline-size;
+  contain: layout style;
+}
+
+.pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 6px 4px 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.pagination-nav,
+.pagination-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pagination-info,
+.page-size-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.select-input.xs {
+  padding: 4px 8px;
+  font-size: 12px;
+  min-height: 28px;
+  width: auto;
 }
 
 .results-table {

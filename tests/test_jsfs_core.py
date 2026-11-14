@@ -334,6 +334,77 @@ class TestJSFSCore(unittest.TestCase):
         self.assertLess(elapsed, 1.5, "Hard deadline guard harus memutus crawling jauh di bawah timeout soket penuh.")
         self.assertTrue(res.get("focus_scope") and res.get("focus_scope") != scraper_garuda.INFO_NOT_FOUND)
 
+    def test_18_delta_ipc_get_status(self):
+        """Memastikan get_status mengembalikan results=None saat last_result_version == current_version (Delta-IPC)."""
+        import app_webview
+
+        api = app_webview.JSFSApi()
+        try:
+            with api._lock:
+                api._serialized_results = [{"nama": "Jurnal Uji Delta", "sinta": 4}]
+                api._results_version = 7
+
+            snap_initial = api.get_status(log_offset=0, last_result_version=-1)
+            self.assertEqual(snap_initial["results_version"], 7)
+            self.assertEqual(len(snap_initial["results"]), 1)
+
+            snap_delta = api.get_status(log_offset=0, last_result_version=7)
+            self.assertEqual(snap_delta["results_version"], 7)
+            self.assertIsNone(snap_delta["results"])
+        finally:
+            api.shutdown()
+
+    def test_19_concurrent_garuda_pages_and_tls_timeout_classification(self):
+        """Memastikan paginasi Garuda paralel dan timeout ringan tidak dilabeli Situs tidak dapat diakses."""
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        import requests
+        import scraper_garuda
+        from config import TIMEOUT_APC_LABEL, DEAD_LINK_TEXT
+
+        # 1. Timeout ringan domain reachability menghasilkan 'Cek Web / Timeout', BUKAN DEAD_LINK_TEXT
+        slow_url = "https://slow-tls-kampus.ac.id/index.php/jurnal"
+        with patch("scraper_garuda._get_from_cache", return_value=None), \
+             patch("scraper_garuda._save_to_cache"), \
+             patch.object(scraper_garuda, "_domain_reachability_cache", {}), \
+             patch.object(scraper_garuda, "_domain_reachability_status_cache", {}):
+            sess = scraper_garuda.get_high_capacity_session()
+            with patch.object(sess, "head", side_effect=requests.exceptions.ConnectTimeout("TLS handshake slow")), \
+                 patch.object(sess, "get", side_effect=requests.exceptions.ReadTimeout("Slow read")):
+                res = scraper_garuda.extract_ojs_deep_info(sess, slow_url)
+
+        self.assertEqual(res["apc_status"], TIMEOUT_APC_LABEL)
+        self.assertNotEqual(res["apc_status"], DEAD_LINK_TEXT)
+        self.assertEqual(res["status_server"], "Timeout / Cek Manual")
+
+        # 2. Concurrent multi-page fetching Garuda (Hal 1 + Hal 2..N paralel)
+        def make_garuda_page_html(page_num: int) -> str:
+            if page_num > 3:
+                return "<html><body><table class='ui table'></table></body></html>"
+            return (
+                "<html><body><table class='ui table'>"
+                f"<tr><td><a class='title-journal' href='/journal/view/{100 + page_num}'>Jurnal Hal {page_num}</a>"
+                f"<a class='subtitle-journal'>Penerbit {page_num}</a></td></tr>"
+                "</table></body></html>"
+            )
+
+        def fake_session_get(url, params=None, **kwargs):
+            p = int((params or {}).get("page", 1))
+            return SimpleNamespace(status_code=200, text=make_garuda_page_html(p), raise_for_status=lambda: None)
+
+        mock_sess = SimpleNamespace(get=fake_session_get)
+        with patch("scraper_garuda.get_thread_local_session", return_value=mock_sess), \
+             patch("scraper_garuda._enhance_garuda_entries"):
+            entries = scraper_garuda._scrape_garuda_single_keyword(
+                "manajemen",
+                max_results=20,
+                turbo_mode=True,
+                session=mock_sess,
+            )
+
+        titles = {e.nama_jurnal for e in entries}
+        self.assertEqual(titles, {"Jurnal Hal 1", "Jurnal Hal 2", "Jurnal Hal 3"})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.1] - 2026-11-14
+
+### Fixed & Optimized (Zero-Freeze Paginated Table, Delta-IPC, Concurrent Garuda & TLS Tolerance)
+- **Delta-IPC Payload (`app_webview.py`, `ui_web/app.js`)**:
+  - Memperbarui `JSFSApi.get_status(log_offset, last_result_version)` agar mengembalikan `results: None` bila `last_result_version == current_version`, sehingga WebView2 tidak melakukan serialisasi & transfer ulang ratusan objek jurnal setiap 150ms.
+- **Paginated DOM Rendering 50 Baris/Halaman & Throttled Live Refresh (`ui_web/index.html`, `ui_web/style.css`, `ui_web/app.js`)**:
+  - Mengganti rendering massal 400+ `<tr>` menjadi **Paginasi Instan (50 / 100 / Semua)** menggunakan `DocumentFragment`, in-memory filtering & sorting lintas dataset penuh, CSS `contain: layout style` pada `.table-wrap`, serta pembatasan refresh tabel saat scraping aktif maksimal tiap `1.5 detik`.
+- **Concurrent Garuda Multi-Page Fetching (`scraper_garuda.py`)**:
+  - Mengambil Halaman 1 Portal Garuda lalu menelusuri Halaman `2..N` secara paralel menggunakan `ThreadPoolExecutor(max_workers=8)` dan pengayaan SINTA per-batch untuk memangkas durasi Fase 1 secara drastis.
+- **TLS Timeout Tuning & Penghilangan False-Positive `"Situs tidak dapat diakses"` (`config.py`, `scraper_garuda.py`, `scraper_sinta.py`, `exporter.py`)**:
+  - Menyesuaikan `FAST_FAIL_TIMEOUT = (3.0, 4.0)`, `DEEP_SCRAPE_TIMEOUT = (3.0, 4.5)`, dan `MAX_DEEP_SCRAPE_PER_JOURNAL_SEC = 7.0`.
+  - Memisahkan status `timeout` dari domain `dead` sehingga server kampus `.ac.id` yang sekadar lambat berjabat tangan SSL ditandai jujur sebagai `"Cek Web / Timeout"` dengan tautan `Buka Web` tetap aktif.
+
 ## [2.1.0] - 2026-11-14
 
 ### Added & Enhanced (Hyper-Speed 6x Pipeline, Hard Deadline & Incremental Auto-Save)

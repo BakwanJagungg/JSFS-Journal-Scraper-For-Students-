@@ -334,9 +334,13 @@ class JSFSApi:
             })
         return out
 
-    def get_status(self, log_offset: int = 0) -> dict[str, Any]:
+    def get_status(self, log_offset: int = 0, last_result_version: int = -1) -> dict[str, Any]:
         with self._lock:
             safe_off = max(0, min(int(log_offset), len(self._logs)))
+            try:
+                last_ver = int(last_result_version)
+            except (TypeError, ValueError):
+                last_ver = -1
             elapsed = (
                 round(max(0.0, time.monotonic() - self._run_started_at), 1)
                 if self._running and self._run_started_at > 0
@@ -349,6 +353,7 @@ class JSFSApi:
             rate = round(items_prog / elapsed, 1) if elapsed >= 0.5 else 0.0
             kpi_snap = dict(self._kpi)
             prog_snap = dict(self._progress)
+            results_payload = None if last_ver == self._results_version else list(self._serialized_results)
             return {
                 "logs": self._logs[safe_off:],
                 "next_log_offset": len(self._logs),
@@ -359,7 +364,7 @@ class JSFSApi:
                 "ai_total": prog_snap.get("ai_target", 0),
                 "kpi": kpi_snap,
                 "live_counts": kpi_snap,
-                "results": list(self._serialized_results),
+                "results": results_payload,
                 "results_version": self._results_version,
                 "excel_path": self._latest_excel_path,
                 "running": self._running,

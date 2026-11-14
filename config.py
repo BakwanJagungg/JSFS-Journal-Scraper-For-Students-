@@ -1,6 +1,6 @@
 # =============================================================================
 # JSFS - Journal Scraper For Students
-# config.py — Konfigurasi global scraper v2.1.0 (Hyper-Speed Pipeline & Hard Deadline)
+# config.py — Konfigurasi global scraper v2.1.1 (Zero-Freeze Pagination & TLS Timeout Tuning)
 # =============================================================================
 
 import os
@@ -8,7 +8,7 @@ import re
 import sys
 from datetime import datetime
 
-APP_VERSION = "2.1.0"
+APP_VERSION = "2.1.1"
 
 
 def get_app_dir() -> str:
@@ -65,6 +65,7 @@ DEFAULT_SINTA_RANKS = [3, 4, 5, 6]
 # --- Standarisasi Nilai Fallback & URL ---
 INFO_NOT_FOUND = "Informasi tidak ditemukan dalam situs jurnal"
 DEAD_LINK_TEXT = "Situs tidak dapat diakses"
+TIMEOUT_APC_LABEL = "Cek Web / Timeout"
 
 # --- Parameter Konversi Mata Uang & Batas Kewajaran APC ---
 # Kurs acuan tetap: 1 USD = Rp 17.500
@@ -84,13 +85,13 @@ TURBO_SCRAPE_WORKERS = min(64, (os.cpu_count() or 4) * 4)
 NORMAL_SCRAPE_WORKERS = min(32, (os.cpu_count() or 4) * 2)
 DEEP_SCRAPE_WORKERS = TURBO_SCRAPE_WORKERS
 
-# --- High-Capacity Connection Pooling & Adaptive Timeout (v2.1.0 Hyper-Speed) ---
+# --- High-Capacity Connection Pooling & Adaptive Timeout (v2.1.1 TLS Tolerance) ---
 HTTP_POOL_CONNECTIONS = 128
 HTTP_POOL_MAXSIZE = 128
 HTTP_TIMEOUT = 5  # Toleransi 5 detik untuk penelusuran portal SINTA / Garuda
-DEEP_SCRAPE_TIMEOUT = (1.5, 2.5)  # (connect: 1.5s, read: 2.5s) cegah slow-drip OJS
-FAST_FAIL_TIMEOUT = (1.5, 2.5)    # (connect: 1.5s, read: 2.5s) fast-fail circuit breaker OJS domain
-MAX_DEEP_SCRAPE_PER_JOURNAL_SEC = 5.5  # Batas waktu keras wall-clock per jurnal OJS
+DEEP_SCRAPE_TIMEOUT = (3.0, 4.5)  # (connect/TLS: 3.0s, read: 4.5s) toleransi server .ac.id lambat
+FAST_FAIL_TIMEOUT = (3.0, 4.0)    # (connect/TLS: 3.0s, read: 4.0s) cegah false-positive TLS lambat
+MAX_DEEP_SCRAPE_PER_JOURNAL_SEC = 7.0  # Batas waktu keras wall-clock per jurnal OJS
 
 
 def compute_candidate_pool_limit(target_results: int) -> int:

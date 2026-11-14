@@ -37,6 +37,7 @@ from config import (
     MAX_RESULTS,
     INFO_NOT_FOUND,
     DEAD_LINK_TEXT,
+    TIMEOUT_APC_LABEL,
     DEEP_SCRAPE_WORKERS,
     TURBO_SCRAPE_WORKERS,
     NORMAL_SCRAPE_WORKERS,
@@ -50,6 +51,7 @@ from scraper_garuda import (
     extract_ojs_deep_info,
     deep_enrich_entries,
     check_ojs_domain_reachable,
+    get_cached_domain_status,
     clean_contact_list,
     sanitize_text,
     get_high_capacity_session,
@@ -194,11 +196,17 @@ def _process_deep_sinta_entry(session: requests.Session, entry: JournalEntry, st
         if entry.link_ojs and "kemdiktisaintek.go.id" not in entry.link_ojs and entry.link_ojs.startswith("http"):
             # Fast-Fail Circuit Breaker: Uji ketersediaan domain induk sebelum crawling sub-jalur
             if not check_ojs_domain_reachable(session, entry.link_ojs):
-                entry.apc_status = DEAD_LINK_TEXT
-                entry.frekuensi = DEAD_LINK_TEXT
+                dom_status = get_cached_domain_status(entry.link_ojs)
+                if dom_status == "timeout":
+                    entry.apc_status = TIMEOUT_APC_LABEL
+                    entry.frekuensi = INFO_NOT_FOUND
+                    entry.status_server = "Timeout / Cek Manual"
+                else:
+                    entry.apc_status = DEAD_LINK_TEXT
+                    entry.frekuensi = DEAD_LINK_TEXT
+                    entry.status_server = "Non-Aktif"
                 entry.email = INFO_NOT_FOUND
                 entry.telepon = INFO_NOT_FOUND
-                entry.status_server = "Non-Aktif"
                 entry.transparansi_kontak = "Tidak Transparan"
                 if entry.garuda_profile_url:
                     g_meta = resolve_garuda_profile_meta(session, entry.garuda_profile_url)

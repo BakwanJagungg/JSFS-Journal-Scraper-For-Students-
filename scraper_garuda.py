@@ -52,6 +52,7 @@ from config import (
     MAX_RESULTS,
     INFO_NOT_FOUND,
     DEAD_LINK_TEXT,
+    TIMEOUT_APC_LABEL,
     USD_TO_IDR_RATE,
     APC_SANITY_MIN_IDR,
     APC_SANITY_MAX_IDR,
@@ -504,9 +505,11 @@ def safe_fetch_html(
 
         return status_code, html_text, headers
     except requests.exceptions.TooManyRedirects:
-        return 310, "", {}
+        return 310, "", {"_error_kind": "redirects"}
+    except requests.exceptions.Timeout:
+        return 0, "", {"_error_kind": "timeout"}
     except (requests.exceptions.RequestException, UnicodeDecodeError, Exception):
-        return 0, "", {}
+        return 0, "", {"_error_kind": "conn_error"}
 
 
 # ── CLOUDFLARE EMAIL & OBFUSCATION DECODER (v1.6.0) ───────────────────────────
@@ -849,18 +852,35 @@ def synthesize_focus_scope(entry_or_dict: any) -> tuple[str, str]:
     return text, "SINTA/Garuda"
 
 
-# ── OJS ROOT DOMAIN REACHABILITY CIRCUIT BREAKER (v1.3.6) ─────────────────────
+# ── OJS ROOT DOMAIN REACHABILITY CIRCUIT BREAKER (v2.1.1 TLS Tolerance) ─────────
 _domain_reachability_cache: dict[str, bool] = {}
+_domain_reachability_status_cache: dict[str, str] = {}
 _domain_reachability_lock = threading.Lock()
+
+
+def get_cached_domain_status(url: str) -> str:
+    """Mengembalikan status domain yang tersimpan ('alive', 'timeout', atau 'dead')."""
+    try:
+        netloc = (requests.compat.urlparse(url).netloc or "").lower()
+        with _domain_reachability_lock:
+            return _domain_reachability_status_cache.get(netloc, "dead")
+    except Exception:
+        return "dead"
+
+
+def _is_timeout_exc(exc: BaseException) -> bool:
+    if isinstance(exc, requests.exceptions.Timeout):
+        return True
+    msg = str(exc).lower()
+    return any(tok in msg for tok in ("timed out", "timeout", "handshake operation timed out"))
 
 
 def check_ojs_domain_reachable(session: requests.Session, url: str) -> bool:
     """
-    OJS Root Domain Reachability Check (2.5s Fast-Fail Circuit Breaker - v1.3.6):
-    Memeriksa ketersediaan domain induk OJS menggunakan HEAD/GET cepat dengan timeout ketat
-    (connect: 2.0s, read: 2.5s). Jika server domain offline / timeout / refused,
-    seluruh request ke sub-halaman OJS tersebut langsung dilewati (skip).
-    Hasil disimpan di cache thread-safe untuk mengeliminasi latensi domain yang sama.
+    OJS Root Domain Reachability Check (v2.1.1 TLS Timeout Tolerance):
+    Memeriksa ketersediaan domain induk OJS menggunakan HEAD/GET dengan toleransi handshake
+    (connect: 3.0s, read: 4.0s). Membedakan domain mati (DNS/refused -> 'dead') vs
+    timeout ringan ('timeout') agar situs kampus aktif tidak salah dicap mati.
     """
     if not url or not url.startswith("http"):
         return False
@@ -880,22 +900,27 @@ def check_ojs_domain_reachable(session: requests.Session, url: str) -> bool:
 
         root_url = f"{parsed.scheme}://{netloc}"
         is_alive = False
+        dom_status = "dead"
         try:
-            # Uji coba cepat HEAD request
-            r = session.head(root_url, timeout=FAST_FAIL_TIMEOUT, verify=False, allow_redirects=True)
-            # Respon apapun (200, 301, 302, 403, 404, 405) menandakan server fisik hidup & merespon
+            # Uji coba HEAD request dengan toleransi TLS 3.0s/4.0s
+            session.head(root_url, timeout=FAST_FAIL_TIMEOUT, verify=False, allow_redirects=True)
             is_alive = True
-        except requests.exceptions.RequestException:
-            # Fallback stream GET jika server menolak method HEAD
+            dom_status = "alive"
+        except requests.exceptions.RequestException as head_exc:
+            head_timed_out = _is_timeout_exc(head_exc)
+            # Fallback stream GET jika server menolak/lambat pada method HEAD
             try:
                 r = session.get(root_url, timeout=FAST_FAIL_TIMEOUT, verify=False, stream=True, allow_redirects=True)
                 is_alive = True
+                dom_status = "alive"
                 r.close()
-            except Exception:
+            except Exception as get_exc:
                 is_alive = False
+                dom_status = "timeout" if (head_timed_out or _is_timeout_exc(get_exc)) else "dead"
 
         with _domain_reachability_lock:
             _domain_reachability_cache[netloc] = is_alive
+            _domain_reachability_status_cache[netloc] = dom_status
 
         return is_alive
     except Exception:
@@ -1932,16 +1957,22 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
     if cached:
         return cached
 
-    # OJS Root Domain Reachability Check (2.5s Fast-Fail - v1.3.6)
+    # OJS Root Domain Reachability Check (v2.1.1 TLS Timeout Tolerance)
     if "kemdiktisaintek.go.id" not in target_url:
         if not check_ojs_domain_reachable(session, target_url):
+            dom_status = get_cached_domain_status(target_url)
             info["ojs_url"] = target_url
-            info["apc_status"] = DEAD_LINK_TEXT
-            info["frekuensi"] = DEAD_LINK_TEXT
             info["email"] = INFO_NOT_FOUND
             info["telepon"] = INFO_NOT_FOUND
-            info["status_server"] = "Non-Aktif"
             info["transparansi_kontak"] = "Tidak Transparan"
+            if dom_status == "timeout":
+                info["apc_status"] = TIMEOUT_APC_LABEL
+                info["frekuensi"] = INFO_NOT_FOUND
+                info["status_server"] = "Timeout / Cek Manual"
+            else:
+                info["apc_status"] = DEAD_LINK_TEXT
+                info["frekuensi"] = DEAD_LINK_TEXT
+                info["status_server"] = "Non-Aktif"
             _save_to_cache(target_url, info)
             return info
 
@@ -2285,17 +2316,27 @@ def extract_ojs_deep_info(session: requests.Session, target_url: str, stop_event
                         pass
         else:
             if "kemdiktisaintek.go.id" not in target_url:
+                err_kind = pass1_headers.get("_error_kind", "") if isinstance(pass1_headers, dict) else ""
+                if err_kind == "timeout" or status_code in (403, 429, 503):
+                    info["apc_status"] = TIMEOUT_APC_LABEL
+                    info["status_server"] = "Timeout / Cek Manual" if err_kind == "timeout" else f"Terbatas (HTTP {status_code})"
+                else:
+                    info["apc_status"] = DEAD_LINK_TEXT
+                    info["status_server"] = "Non-Aktif"
+    except Exception as exc:
+        if "kemdiktisaintek.go.id" not in target_url:
+            if _is_timeout_exc(exc):
+                info["apc_status"] = TIMEOUT_APC_LABEL
+                info["status_server"] = "Timeout / Cek Manual"
+            else:
                 info["apc_status"] = DEAD_LINK_TEXT
                 info["status_server"] = "Non-Aktif"
-    except Exception:
-        if "kemdiktisaintek.go.id" not in target_url:
-            info["apc_status"] = DEAD_LINK_TEXT
-            info["status_server"] = "Non-Aktif"
-            parsed = requests.compat.urlparse(target_url)
-            netloc = (parsed.netloc or "").lower()
-            if netloc:
-                with _domain_reachability_lock:
-                    _domain_reachability_cache[netloc] = False
+                parsed = requests.compat.urlparse(target_url)
+                netloc = (parsed.netloc or "").lower()
+                if netloc:
+                    with _domain_reachability_lock:
+                        _domain_reachability_cache[netloc] = False
+                        _domain_reachability_status_cache[netloc] = "dead"
 
     info["email"] = clean_contact_list(all_emails, contact_type="email", ojs_url=effective_ojs_url or target_url)
     info["telepon"] = clean_contact_list(all_phones, contact_type="phone")
@@ -2735,8 +2776,8 @@ def cross_reference_garuda_with_sinta(session: requests.Session, entry: JournalE
             pass
 
 
-def _parse_garuda_rows(soup: BeautifulSoup, session: requests.Session, deep_detail: bool = False) -> list[JournalEntry]:
-    """Parse tabel baris jurnal dari halaman pencarian Garuda dengan penyetaraan SINTA."""
+def _parse_garuda_soup_entries(soup: BeautifulSoup) -> list[JournalEntry]:
+    """Parse mentah baris jurnal dari halaman HTML pencarian Garuda (tanpa network call)."""
     journals: list[JournalEntry] = []
     rows = soup.select("table.ui.table tr") or soup.select("table tr")
 
@@ -2757,11 +2798,9 @@ def _parse_garuda_rows(soup: BeautifulSoup, session: requests.Session, deep_deta
         else:
             detail_url = f"https://garuda.kemdiktisaintek.go.id/{rel_href}"
 
-        # Penerbit / Institusi
         sub_el = row.select_one("a.subtitle-journal")
         penerbit = sub_el.get_text(" ", strip=True) if sub_el else ""
 
-        # ISSN & E-ISSN
         issn, e_issn = INFO_NOT_FOUND, INFO_NOT_FOUND
         for a_sub in row.select("a.subtitle-journal"):
             txt = a_sub.get_text(" ", strip=True)
@@ -2772,54 +2811,85 @@ def _parse_garuda_rows(soup: BeautifulSoup, session: requests.Session, deep_deta
             if m_eissn and m_eissn.group(1).strip() not in ("-", ""):
                 e_issn = m_eissn.group(1).strip()
 
-        # Bidang Keilmuan
         areas = [a.get_text(" ", strip=True) for a in row.select("a.label-journal")]
         bidang = ", ".join(areas) if areas else INFO_NOT_FOUND
 
-        entry = JournalEntry(
-            nama_jurnal=sanitize_text(nama_jurnal),
-            penerbit=sanitize_text(penerbit),
-            link_ojs=detail_url,
-            garuda_profile_url=detail_url if "garuda.kemdiktisaintek.go.id/journal/view" in detail_url else "",
-            sinta_profile_url="",
-            peringkat_sinta=INFO_NOT_FOUND,
-            issn=normalize_issn(issn),
-            e_issn=normalize_issn(e_issn),
-            bidang=clean_and_merge_subjects(bidang),
-            apc_status=INFO_NOT_FOUND,
-            apc_amount=None,
-            email=INFO_NOT_FOUND,
-            telepon=INFO_NOT_FOUND,
-            frekuensi=INFO_NOT_FOUND,
-            sumber="Garuda",
+        journals.append(
+            JournalEntry(
+                nama_jurnal=sanitize_text(nama_jurnal),
+                penerbit=sanitize_text(penerbit),
+                link_ojs=detail_url,
+                garuda_profile_url=detail_url if "garuda.kemdiktisaintek.go.id/journal/view" in detail_url else "",
+                sinta_profile_url="",
+                peringkat_sinta=INFO_NOT_FOUND,
+                issn=normalize_issn(issn),
+                e_issn=normalize_issn(e_issn),
+                bidang=clean_and_merge_subjects(bidang),
+                apc_status=INFO_NOT_FOUND,
+                apc_amount=None,
+                email=INFO_NOT_FOUND,
+                telepon=INFO_NOT_FOUND,
+                frekuensi=INFO_NOT_FOUND,
+                sumber="Garuda",
+            )
         )
-        journals.append(entry)
-
-    # PENYETARAAN MUTLAK GARUDA KE SINTA (v1.3.5):
-    # Resolusi link OJS resmi dan pencocokan peringkat SINTA resmi secara paralel
-    if journals:
-        try:
-            with ThreadPoolExecutor(max_workers=min(len(journals), 16)) as executor:
-                def _enhance_garuda_entry(e: JournalEntry):
-                    target_g_url = e.garuda_profile_url or (e.link_ojs if "garuda.kemdiktisaintek.go.id/journal/view" in (e.link_ojs or "") else "")
-                    if target_g_url:
-                        g_meta = resolve_garuda_profile_meta(session, target_g_url)
-                        if g_meta.get("ojs_url") and "garuda.kemdiktisaintek.go.id" not in g_meta["ojs_url"]:
-                            e.link_ojs = g_meta["ojs_url"]
-                        if g_meta.get("focus_scope") and (not e.focus_scope or e.focus_scope == INFO_NOT_FOUND):
-                            e.focus_scope = g_meta["focus_scope"]
-                        if g_meta.get("subject") and (not e.bidang or e.bidang == INFO_NOT_FOUND):
-                            e.bidang = g_meta["subject"]
-                        if g_meta.get("publisher") and (not e.penerbit or e.penerbit == INFO_NOT_FOUND):
-                            e.penerbit = g_meta["publisher"]
-                    cross_reference_garuda_with_sinta(session, e)
-                futures = [executor.submit(_enhance_garuda_entry, entry) for entry in journals]
-                for f in futures:
-                    f.result()
-        except Exception:
-            pass
-
     return journals
+
+
+def _enhance_garuda_entries(entries: list[JournalEntry], session: Optional[requests.Session] = None) -> None:
+    """Resolusi link OJS resmi dan pencocokan peringkat SINTA secara paralel untuk sekumpulan entri Garuda."""
+    if not entries:
+        return
+    try:
+        with ThreadPoolExecutor(max_workers=min(len(entries), 32)) as executor:
+            def _enhance_garuda_entry(e: JournalEntry):
+                w_sess = get_thread_local_session()
+                target_g_url = e.garuda_profile_url or (e.link_ojs if "garuda.kemdiktisaintek.go.id/journal/view" in (e.link_ojs or "") else "")
+                if target_g_url:
+                    g_meta = resolve_garuda_profile_meta(w_sess, target_g_url)
+                    if g_meta.get("ojs_url") and "garuda.kemdiktisaintek.go.id" not in g_meta["ojs_url"]:
+                        e.link_ojs = g_meta["ojs_url"]
+                    if g_meta.get("focus_scope") and (not e.focus_scope or e.focus_scope == INFO_NOT_FOUND):
+                        e.focus_scope = g_meta["focus_scope"]
+                    if g_meta.get("subject") and (not e.bidang or e.bidang == INFO_NOT_FOUND):
+                        e.bidang = g_meta["subject"]
+                    if g_meta.get("publisher") and (not e.penerbit or e.penerbit == INFO_NOT_FOUND):
+                        e.penerbit = g_meta["publisher"]
+                cross_reference_garuda_with_sinta(w_sess, e)
+
+            futures = [executor.submit(_enhance_garuda_entry, entry) for entry in entries]
+            for f in futures:
+                f.result()
+    except Exception:
+        pass
+
+
+def _parse_garuda_rows(soup: BeautifulSoup, session: requests.Session, deep_detail: bool = False) -> list[JournalEntry]:
+    """Parse tabel baris jurnal dari halaman pencarian Garuda dengan penyetaraan SINTA."""
+    journals = _parse_garuda_soup_entries(soup)
+    _enhance_garuda_entries(journals, session)
+    return journals
+
+
+def _extract_garuda_last_page(soup: BeautifulSoup) -> Optional[int]:
+    """Mendeteksi batas halaman terakhir Garuda jika komponen paginasi menampilkannya secara eksplisit."""
+    if soup is None:
+        return None
+    max_num = 0
+    has_ellipsis = False
+    for el in soup.select(".pagination a, .ui.pagination.menu a, ul.pagination a, a[href*='page=']"):
+        txt = (el.get_text(" ", strip=True) or "").strip()
+        if "..." in txt or "…" in txt:
+            has_ellipsis = True
+        if txt.isdigit():
+            max_num = max(max_num, int(txt))
+        href = el.get("href") or ""
+        m_p = re.search(r"[?&]page=(\d+)", href)
+        if m_p:
+            max_num = max(max_num, int(m_p.group(1)))
+    if has_ellipsis:
+        return max_num if max_num >= 10 else None
+    return max_num if max_num >= 1 else None
 
 
 def _scrape_garuda_single_keyword(
@@ -2833,91 +2903,170 @@ def _scrape_garuda_single_keyword(
     include_unknown_apc: bool = True,
     progress_cb=None,
 ) -> list[JournalEntry]:
-    """Scraping satu kata kunci pada Portal Garuda dengan paginasi dinamis dan short-circuiting (v1.3.8)."""
+    """Scraping satu kata kunci pada Portal Garuda dengan Concurrent Multi-Page Fetching (v2.1.1)."""
     if session is None:
         session = get_high_capacity_session()
     all_journals: list[JournalEntry] = []
     active_workers = TURBO_SCRAPE_WORKERS if turbo_mode else NORMAL_SCRAPE_WORKERS
+    pool_target = compute_candidate_pool_limit(max_results)
 
-    console.print(f"\n[bold cyan]🔍 Memulai scraping Portal Garuda (v1.3.8)...[/bold cyan]")
+    console.print(f"\n[bold cyan]🔍 Memulai scraping Portal Garuda (v2.1.1 Concurrent)...[/bold cyan]")
     console.print(f"[dim]   Keyword      : {keyword}[/dim]")
     console.print(f"[dim]   Filter SINTA : Sinta {sinta_ranks if sinta_ranks else 'semua'}[/dim]")
-    console.print(f"[dim]   Target Hasil : {max_results} jurnal | Mode Detail OJS: {'Aktif (Quad-Pass)' if deep_detail else 'Mati (Mode Cepat)'}[/dim]")
-    console.print(f"[dim]   Hardware Concurrency: {active_workers} workers {'(Turbo Mode)' if turbo_mode else ''}[/dim]")
+    console.print(f"[dim]   Target Hasil : {max_results} jurnal (Pool {pool_target}) | Mode Detail OJS: {'Aktif' if deep_detail else 'Mati (Mode Cepat)'}[/dim]")
+    console.print(f"[dim]   Concurrency  : 8 page workers + {active_workers} deep workers[/dim]")
 
-    max_pages = min(MAX_PAGES_LIMIT, max(10, (max_results // 5) + 5))
+    # 1. Fetch Halaman 1 terlebih dahulu untuk mengetahui total halaman & kepadatan baris
+    try:
+        r1 = session.get(
+            GARUDA_JOURNAL_URL,
+            params={"q": keyword, "page": 1},
+            headers=get_browser_headers(referer="https://garuda.kemdiktisaintek.go.id/"),
+            timeout=15,
+            verify=False,
+        )
+        if r1.status_code in (403, 503) or any(
+            cf_word in r1.text.lower()
+            for cf_word in ("just a moment", "cf-browser-verification", "turnstile", "challenge-running")
+        ):
+            console.print("[bold red]⚠️  Garuda memblokir request (Cloudflare Challenge Detected).[/bold red]")
+            return []
+        r1.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        console.print(f"[red]✗ Koneksi Garuda gagal: {e}[/red]")
+        return []
 
-    for page in range(1, max_pages + 1):
-        params = {"q": keyword, "page": page}
-        url = GARUDA_JOURNAL_URL
-        console.print(f"[yellow]📄 Garuda Halaman {page}/{max_pages}[/yellow] → {url}?q={keyword}&page={page}")
+    soup1 = BeautifulSoup(r1.text, "lxml")
+    p1_journals = _parse_garuda_rows(soup1, session, deep_detail=False)
+    if not p1_journals:
+        console.print(f"[dim]   Tidak ada data di halaman 1, pencarian Garuda selesai.[/dim]")
+        return []
 
+    console.print(f"[green]   ✓ Garuda Hal. 1: {len(p1_journals)} jurnal[/green]")
+    all_journals.extend(p1_journals)
+
+    per_page_est = max(5, len(p1_journals))
+    pages_needed = ((pool_target + per_page_est - 1) // per_page_est) + (4 if sinta_ranks else 2)
+    max_pages = min(MAX_PAGES_LIMIT, max(6, pages_needed, (max_results // 5) + 5))
+    detected_last = _extract_garuda_last_page(soup1)
+    if detected_last is not None:
+        max_pages = min(max_pages, max(1, detected_last))
+
+    if callable(progress_cb):
         try:
-            response = session.get(
-                url,
-                params=params,
-                headers=get_browser_headers(referer="https://garuda.kemdiktisaintek.go.id/"),
-                timeout=20,
-                verify=False,
+            progress_cb(
+                phase="fase1_portal",
+                done=1,
+                total=max_pages,
+                current_item=f"Garuda '{keyword}' — Hal. 1/{max_pages} ({len(all_journals)} jurnal)",
             )
+        except Exception:
+            pass
 
-            if response.status_code in (403, 503) or any(
-                cf_word in response.text.lower()
-                for cf_word in ("just a moment", "cf-browser-verification", "turnstile", "challenge-running")
-            ):
-                console.print(
-                    "[bold red]⚠️  Garuda memblokir request (Cloudflare Challenge Detected).[/bold red]"
-                )
-                break
+    rank_labels = (
+        [f"S{r}" for r in sinta_ranks] + [f"Sinta {r}" for r in sinta_ranks] + [str(r) for r in sinta_ranks]
+        if sinta_ranks
+        else []
+    )
 
-            response.raise_for_status()
-
-        except requests.exceptions.RequestException as e:
-            console.print(f"[red]✗ Koneksi Garuda gagal: {e}[/red]")
-            break
-
-        soup = BeautifulSoup(response.text, "lxml")
-        page_journals = _parse_garuda_rows(soup, session, deep_detail=False)
-        if not page_journals:
-            console.print(f"[dim]   Tidak ada data lagi di halaman {page}, pencarian Garuda selesai.[/dim]")
-            break
-
-        console.print(f"[green]   ✓ Ditemukan {len(page_journals)} jurnal di halaman {page}[/green]")
-        all_journals.extend(page_journals)
-
-        # Adaptive Candidate Pool Multiplier (v2.1.0)
-        pool_target = compute_candidate_pool_limit(max_results)
+    def _pool_satisfied() -> bool:
         if sinta_ranks:
-            rank_labels = [f"S{r}" for r in sinta_ranks] + [f"Sinta {r}" for r in sinta_ranks] + [str(r) for r in sinta_ranks]
             cur_matching = [
                 j for j in all_journals
                 if any(r in j.peringkat_sinta for r in rank_labels)
                 or j.peringkat_sinta == INFO_NOT_FOUND
             ]
-            if len(cur_matching) >= max(max_results, 40) or len(all_journals) >= pool_target:
-                console.print(f"[dim]   Pool kandidat Garuda memadai ({len(cur_matching)} lolos SINTA / {len(all_journals)} total).[/dim]")
-                break
-        else:
-            if len(all_journals) >= pool_target:
-                console.print(f"[dim]   Target pool {pool_target} kandidat Garuda tercapai.[/dim]")
-                break
+            return len(cur_matching) >= max(max_results, 40) or len(all_journals) >= pool_target
+        return len(all_journals) >= pool_target
 
-        if callable(progress_cb):
-            try:
-                progress_cb(
-                    phase="fase1_portal",
-                    done=page,
-                    total=0,
-                    current_item=f"Garuda '{keyword}' — Hal. {page} ({len(all_journals)} jurnal)",
-                )
-            except Exception:
-                pass
+    if max_pages > 1 and not _pool_satisfied():
+        batch_size = 16
+        stop_scraping = False
+        pages_done = 1
 
-        if turbo_mode and max_results >= 100:
-            time.sleep(0.02)
-        else:
-            delay = random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX)
-            time.sleep(delay)
+        for batch_start in range(2, max_pages + 1, batch_size):
+            if stop_scraping:
+                break
+            batch_end = min(max_pages + 1, batch_start + batch_size)
+            page_numbers = list(range(batch_start, batch_end))
+            console.print(f"[yellow]⚡ Memindai Garuda Halaman {batch_start}..{batch_end - 1} secara paralel (8 workers)...[/yellow]")
+
+            def _fetch_garuda_page(p_num: int) -> tuple[int, Optional[str], bool]:
+                w_sess = get_thread_local_session()
+                try:
+                    resp = w_sess.get(
+                        GARUDA_JOURNAL_URL,
+                        params={"q": keyword, "page": p_num},
+                        headers=get_browser_headers(referer="https://garuda.kemdiktisaintek.go.id/"),
+                        timeout=12,
+                        verify=False,
+                    )
+                    txt = resp.text or ""
+                    if resp.status_code in (403, 503) or any(
+                        cw in txt.lower()
+                        for cw in ("just a moment", "cf-browser-verification", "turnstile", "challenge-running")
+                    ):
+                        return p_num, None, True
+                    if resp.status_code == 200:
+                        return p_num, txt, False
+                except Exception:
+                    pass
+                return p_num, None, False
+
+            page_html_map: dict[int, Optional[str]] = {}
+            cf_hit = False
+            with ThreadPoolExecutor(max_workers=8) as page_exec:
+                fut_map = {page_exec.submit(_fetch_garuda_page, p): p for p in page_numbers}
+                for fut in as_completed(fut_map):
+                    p_num, p_html, is_cf = fut.result()
+                    pages_done += 1
+                    if is_cf:
+                        cf_hit = True
+                    page_html_map[p_num] = p_html
+                    if callable(progress_cb):
+                        try:
+                            progress_cb(
+                                phase="fase1_portal",
+                                done=pages_done,
+                                total=max_pages,
+                                current_item=f"Garuda '{keyword}' — Hal. {pages_done}/{max_pages}",
+                            )
+                        except Exception:
+                            pass
+
+            if cf_hit:
+                console.print("[bold red]⚠️  Garuda memblokir sebagian request paralel (Cloudflare Challenge Detected).[/bold red]")
+
+            batch_entries: list[JournalEntry] = []
+            valid_html_count = 0
+            for p_num in sorted(page_html_map.keys()):
+                p_html = page_html_map[p_num]
+                if not p_html:
+                    continue
+                valid_html_count += 1
+                p_soup = BeautifulSoup(p_html, "lxml")
+                raw_rows = _parse_garuda_soup_entries(p_soup)
+                if not raw_rows:
+                    console.print(f"[dim]   Tidak ada data lagi di halaman {p_num}, pencarian Garuda selesai.[/dim]")
+                    stop_scraping = True
+                    break
+                batch_entries.extend(raw_rows)
+            if valid_html_count == 0:
+                stop_scraping = True
+
+            if batch_entries:
+                _enhance_garuda_entries(batch_entries, session)
+                all_journals.extend(batch_entries)
+                console.print(f"[green]   ✓ Batch Hal. {batch_start}..{batch_end - 1}: +{len(batch_entries)} jurnal (Total {len(all_journals)})[/green]")
+
+            if _pool_satisfied() or cf_hit:
+                stop_scraping = True
+
+            if not stop_scraping:
+                if turbo_mode and max_results >= 100:
+                    time.sleep(0.02)
+                else:
+                    time.sleep(random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX))
 
     # Filter peringkat SINTA jika diminta
     if sinta_ranks and all_journals:

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light dark" />
-  <title>JSFS v2.1.0 — Journal Scraper For Students</title>
+  <title>JSFS v2.1.1 — Journal Scraper For Students</title>
   <script>
     (function () {
       try {
@@ -34,7 +34,7 @@
           </svg>
         </div>
         <div class="brand-copy">
-          <h1 class="brand-title">JSFS <span class="brand-version">v2.1.0</span></h1>
+          <h1 class="brand-title">JSFS <span class="brand-version">v2.1.1</span></h1>
           <p class="brand-caption">Asisten Pencari Jurnal SINTA &amp; Garuda untuk Mahasiswa</p>
         </div>
       </div>
@@ -490,6 +490,27 @@
           <tbody id="results-tbody"></tbody>
         </table>
       </div>
+
+      <!-- Kontrol Paginasi Instan (50 / 100 / Semua) -->
+      <nav id="pagination-bar" class="pagination-bar is-hidden" aria-label="Navigasi halaman hasil jurnal">
+        <div class="pagination-nav">
+          <button type="button" id="btn-page-prev" class="btn btn-secondary btn-xs" disabled aria-label="Halaman sebelumnya">
+            &laquo; Sebelumnya
+          </button>
+          <span id="pagination-info" class="pagination-info" aria-live="polite">Halaman 1 dari 1 (0 jurnal)</span>
+          <button type="button" id="btn-page-next" class="btn btn-secondary btn-xs" disabled aria-label="Halaman berikutnya">
+            Berikutnya &raquo;
+          </button>
+        </div>
+        <div class="pagination-size">
+          <label for="select-page-size" class="page-size-label">Baris/hal:</label>
+          <select id="select-page-size" class="select-input xs" aria-label="Jumlah baris per halaman">
+            <option value="50" selected>50</option>
+            <option value="100">100</option>
+            <option value="all">Semua</option>
+          </select>
+        </div>
+      </nav>
     </section>
   </main>
 
