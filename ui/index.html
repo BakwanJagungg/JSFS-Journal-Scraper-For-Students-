@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="id" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <title>JSFS v3.0.0 — Journal Scraper For Students</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem("color-scheme");
+        var meta = document.querySelector('meta[name="color-scheme"]');
+        if (saved === "light" || saved === "dark") {
+          if (meta) meta.setAttribute("content", saved);
+          document.documentElement.setAttribute("data-theme", saved);
+        } else {
+          if (meta) meta.setAttribute("content", "light");
+          document.documentElement.setAttribute("data-theme", "light");
+        }
+      } catch (e) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="brand-group">
+        <div class="brand-mark" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" fill="currentColor" fill-opacity="0.16"/>
+            <circle cx="12" cy="10" r="3"/>
+            <path d="m14.2 12.2 2.3 2.3"/>
+          </svg>
+        </div>
+        <div class="brand-copy">
+          <h1 class="brand-title">JSFS <span class="brand-version">v3.0.0</span></h1>
+          <p class="brand-caption">Asisten Pencari Jurnal SINTA &amp; Garuda untuk Mahasiswa</p>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <button type="button" id="btn-ai-status" class="status-pill" aria-label="Status AI Ollama dan Pengaturan AI">
+          <span class="status-dot" aria-hidden="true"></span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3a4 4 0 0 1 4 4v1h1a3 3 0 0 1 3 3v1a3 3 0 0 1-3 3h-1v1a4 4 0 0 1-8 0v-1H7a3 3 0 0 1-3-3v-1a3 3 0 0 1 3-3h1V7a4 4 0 0 1 4-4z" fill="currentColor" fill-opacity="0.12"/>
+            <circle cx="9.5" cy="11.5" r="1"/><circle cx="14.5" cy="11.5" r="1"/>
+          </svg>
+          <span id="ai-status-text">Mode Regex Cepat</span>
+        </button>
+
+        <button type="button" id="btn-guide" class="btn btn-ghost btn-sm" aria-label="Buka panduan penggunaan">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" fill="currentColor" fill-opacity="0.1"/>
+            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+            <path d="M12 17h.01"/>
+          </svg>
+          <span>Panduan</span>
+        </button>
+
+        <button type="button" id="btn-theme-toggle" class="btn btn-ghost btn-sm" aria-label="Ubah tema tampilan terang atau gelap">
+          <span class="theme-opt theme-opt-to-dark">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" fill="currentColor" fill-opacity="0.12"/>
+            </svg>
+            <span>Gelap</span>
+          </span>
+          <span class="theme-opt theme-opt-to-light">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="4" fill="currentColor" fill-opacity="0.14"/>
+              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>
+            </svg>
+            <span>Daylight</span>
+          </span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Hero Pencarian Ringkas + 4 Preset -->
+    <section class="card hero-card" aria-labelledby="search-heading">
+      <h2 id="search-heading" class="sr-only">Pencarian Jurnal dan Preset Mahasiswa</h2>
+
+      <form id="search-form" class="hero-search-row" novalidate>
+        <div class="keyword-wrap">
+          <svg class="input-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+          </svg>
+          <label for="input-keyword" class="sr-only">Kata kunci topik atau bidang ilmu</label>
+          <input
+            type="text"
+            id="input-keyword"
+            class="text-input has-icon"
+            placeholder="Ketik topik skripsi atau bidang ilmu (mis. manajemen, informatika, akuntansi)..."
+            autocomplete="off"
+          />
+        </div>
+
+        <div class="target-wrap" title="Ketik bebas jumlah jurnal target dari 1 hingga 1000">
+          <label for="target-count" class="target-label">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/>
+            </svg>
+            <span>Target</span>
+          </label>
+          <input
+            type="number"
+            id="target-count"
+            class="target-input"
+            min="1"
+            max="1000"
+            value="25"
+            list="target-presets"
+            aria-label="Target jumlah jurnal antara 1 hingga 1000"
+          />
+          <datalist id="target-presets">
+            <option value="25"></option>
+            <option value="50"></option>
+            <option value="100"></option>
+            <option value="250"></option>
+            <option value="500"></option>
+            <option value="1000"></option>
+          </datalist>
+        </div>
+
+        <input
+          type="file"
+          id="input-manuscript-file"
+          name="manuscript"
+          accept=".docx,.pdf"
+          class="sr-only"
+          tabindex="-1"
+          aria-hidden="true"
+        />
+        <button type="button" id="btn-pick-manuscript" class="btn btn-secondary" aria-label="Unggah naskah docx atau pdf untuk analisis kesesuaian">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" fill="currentColor" fill-opacity="0.1"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <path d="M12 18v-6"/><path d="m9.5 14.5 2.5-2.5 2.5 2.5"/>
+          </svg>
+          <span>Unggah Naskah (.docx/.pdf)</span>
+        </button>
+
+        <button type="button" id="btn-clear-manuscript" class="btn btn-ghost btn-icon is-hidden" aria-label="Hapus lampiran naskah" title="Hapus lampiran naskah">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+          </svg>
+        </button>
+
+        <button type="button" id="btn-advanced-filter" class="btn btn-secondary" aria-label="Buka filter lanjutan SINTA, bulan terbit, batas biaya, dan target">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/>
+            <line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/>
+            <line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/>
+            <circle cx="12" cy="4" r="2" fill="currentColor" fill-opacity="0.15"/>
+            <circle cx="10" cy="12" r="2" fill="currentColor" fill-opacity="0.15"/>
+            <circle cx="14" cy="20" r="2" fill="currentColor" fill-opacity="0.15"/>
+          </svg>
+          <span>Filter Lanjutan</span>
+          <span id="active-filter-badge" class="filter-badge">4</span>
+        </button>
+
+        <button type="submit" id="btn-start" class="btn btn-primary" aria-label="Mulai cari jurnal">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polygon points="6 3 20 12 6 21 6 3" fill="currentColor" fill-opacity="0.22"/>
+          </svg>
+          <span>Mulai Cari Jurnal</span>
+        </button>
+
+        <button type="button" id="btn-stop" class="btn btn-danger is-hidden" aria-label="Hentikan pencarian">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" fill-opacity="0.25"/>
+          </svg>
+          <span>Hentikan</span>
+        </button>
+      </form>
+
+      <div id="manuscript-banner" class="manuscript-banner is-hidden">
+        <span>Naskah terlampir: <strong id="manuscript-name">-</strong></span>
+        <span class="muted">Skor kesesuaian (Match Score) akan dihitung otomatis dari abstrak &amp; topik naskah.</span>
+      </div>
+
+      <!-- 4 Kartu Preset 1-Klik -->
+      <div class="presets-grid" role="group" aria-label="Preset cepat pilihan mahasiswa">
+        <button type="button" class="preset-card is-active" data-preset="skripsi" aria-pressed="true">
+          <span class="preset-icon accent-blue" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 10v6M2 10l10-5 10 5-10 5z" fill="currentColor" fill-opacity="0.14"/>
+              <path d="M6 12v5c3 3 9 3 12 0v-5"/>
+            </svg>
+          </span>
+          <span class="preset-copy">
+            <span class="preset-title">Target Skripsi S1</span>
+            <span class="preset-desc">SINTA 3–5 • Biaya Terjangkau</span>
+          </span>
+        </button>
+
+        <button type="button" class="preset-card" data-preset="gratis" aria-pressed="false">
+          <span class="preset-icon accent-green" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" fill="currentColor" fill-opacity="0.14"/>
+              <path d="m9 12 2 2 4-4"/>
+            </svg>
+          </span>
+          <span class="preset-copy">
+            <span class="preset-title">Jurnal Gratis (Rp 0)</span>
+            <span class="preset-desc">Bebas Biaya Publikasi</span>
+          </span>
+        </button>
+
+        <button type="button" class="preset-card" data-preset="cepat" aria-pressed="false">
+          <span class="preset-icon accent-amber" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="4" width="18" height="18" rx="2" fill="currentColor" fill-opacity="0.12"/>
+              <path d="M16 2v4M8 2v4M3 10h18"/>
+              <path d="m9 16 2 2 4-4"/>
+            </svg>
+          </span>
+          <span class="preset-copy">
+            <span class="preset-title">Terbit Terdekat</span>
+            <span class="preset-desc">Edisi 1–3 Bulan ke Depan</span>
+          </span>
+        </button>
+
+        <button type="button" class="preset-card" data-preset="reputasi" aria-pressed="false">
+          <span class="preset-icon accent-purple" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="8" r="6" fill="currentColor" fill-opacity="0.14"/>
+              <path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/>
+            </svg>
+          </span>
+          <span class="preset-copy">
+            <span class="preset-title">Reputasi Tinggi</span>
+            <span class="preset-desc">SINTA 1 &amp; 2 / Nasional A</span>
+          </span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Strip KPI 1 Baris (maks 56px) + Progress Ringkas -->
+    <section class="status-strip-row" aria-label="Ringkasan hasil dan progres pencarian">
+      <div class="kpi-strip">
+        <div class="kpi-item">
+          <span class="kpi-icon" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>
+            </svg>
+          </span>
+          <span class="kpi-label">Total Jurnal</span>
+          <strong class="kpi-num" id="kpi-total">0</strong>
+        </div>
+
+        <div class="kpi-item is-free">
+          <span class="kpi-icon" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="9"/><path d="m9 12 2 2 4-4"/>
+            </svg>
+          </span>
+          <span class="kpi-label">Gratis Rp 0</span>
+          <strong class="kpi-num" id="kpi-free">0</strong>
+        </div>
+
+        <div class="kpi-item is-paid">
+          <span class="kpi-icon" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2"/>
+            </svg>
+          </span>
+          <span class="kpi-label">Berbayar</span>
+          <strong class="kpi-num" id="kpi-paid">0</strong>
+        </div>
+
+        <div class="kpi-item is-fast">
+          <span class="kpi-icon" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>
+            </svg>
+          </span>
+          <span class="kpi-label">Terbit 1–3 Bln</span>
+          <strong class="kpi-num" id="kpi-fast">0</strong>
+        </div>
+      </div>
+
+      <div class="progress-strip">
+        <div class="prog-main">
+          <div class="prog-bars">
+            <div class="prog-unit">
+              <div class="prog-meta">
+                <span id="scrape-label">Siap menjelajahi SINTA &amp; Garuda</span>
+                <span id="scrape-prog-text" class="prog-num">0 / 0</span>
+              </div>
+              <progress id="scrape-prog-bar" class="progress-bar" max="100" value="0" aria-label="Progres pencarian portal"></progress>
+            </div>
+
+            <div class="prog-unit">
+              <div class="prog-meta">
+                <span id="ai-label">Memeriksa biaya &amp; jadwal terbit</span>
+                <span id="ai-prog-text" class="prog-num">0 / 0</span>
+              </div>
+              <progress id="ai-prog-bar" class="progress-bar is-success" max="100" value="0" aria-label="Progres analisis biaya dan jadwal"></progress>
+            </div>
+          </div>
+
+          <div class="prog-telemetry-row" aria-live="polite">
+            <span id="current-item-ticker" class="telemetry-ticker" title="Status proses aktif saat ini">Masukkan topik lalu klik Cari Jurnal untuk memulai</span>
+            <div class="telemetry-badges">
+              <span id="elapsed-timer" class="telemetry-badge" title="Waktu berjalan &amp; estimasi sisa">00:00</span>
+              <span id="scrape-rate" class="telemetry-badge" title="Kecepatan rata-rata">~0.0/dtk</span>
+            </div>
+          </div>
+        </div>
+
+        <button type="button" id="btn-toggle-log" class="btn btn-ghost btn-xs" aria-expanded="false" aria-controls="technical-log-drawer">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/>
+          </svg>
+          <span>Lihat Log Teknis</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Collapsible Technical Log Drawer -->
+    <section id="technical-log-drawer" class="log-drawer is-hidden" aria-label="Log teknis proses scraping">
+      <div class="log-drawer-head">
+        <span>Log Aktivitas Teknis</span>
+        <span id="run-state-badge" class="state-badge">Siap mencari</span>
+      </div>
+      <div id="activity-log" class="activity-log" role="log" aria-live="polite"></div>
+    </section>
+
+    <!-- Area Dominan: Hasil Pencarian Jurnal (Above the Fold) -->
+    <section class="card results-card" aria-labelledby="results-title">
+      <div class="results-toolbar">
+        <div class="results-title-group">
+          <h2 id="results-title" class="section-title">Hasil Pencarian Jurnal</h2>
+          <span id="results-count-pill" class="count-pill">0 jurnal</span>
+        </div>
+
+        <div class="results-controls">
+          <label for="filter-search" class="sr-only">Cari di dalam hasil</label>
+          <input type="search" id="filter-search" class="text-input sm" placeholder="Cari nama jurnal, penerbit, atau email..." aria-label="Filter tabel hasil jurnal" />
+
+          <label for="filter-apc" class="sr-only">Filter status biaya</label>
+          <select id="filter-apc" class="select-input sm" aria-label="Filter berdasarkan status biaya publikasi">
+            <option value="all">Semua Status Biaya</option>
+            <option value="free">Gratis (Rp 0)</option>
+            <option value="paid">Berbayar</option>
+            <option value="unknown">Cek Web / Belum Terdata</option>
+          </select>
+
+          <button type="button" id="btn-copy-wa" class="btn btn-secondary btn-sm" disabled aria-label="Salin daftar jurnal format WhatsApp">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
+            </svg>
+            <span>Salin Daftar WA</span>
+          </button>
+
+          <button type="button" id="btn-copy-editor" class="btn btn-teal btn-sm" disabled aria-label="Salin draf chat untuk editor jurnal terpilih" title="Pilih 1 baris jurnal untuk menyalin pesan ke editor">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" fill="currentColor" fill-opacity="0.14"/>
+            </svg>
+            <span>Salin Draf Editor</span>
+          </button>
+
+          <button type="button" id="btn-open-excel" class="btn btn-primary btn-sm" disabled aria-label="Buka file Excel hasil">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+              <path d="M8 13h8M8 17h8M10 9H8"/>
+            </svg>
+            <span>Buka Excel</span>
+          </button>
+
+          <button type="button" id="btn-sound-toggle" class="btn btn-ghost btn-sm" aria-pressed="true" aria-label="Suara notifikasi saat pencarian selesai" title="Aktif atau matikan suara notifikasi selesai">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+              <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+            </svg>
+            <span id="sound-toggle-label">Suara On</span>
+          </button>
+
+          <button type="button" id="btn-open-folder" class="btn btn-ghost btn-sm" aria-label="Buka folder output hasil ekspor">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" fill="currentColor" fill-opacity="0.1"/>
+            </svg>
+            <span>Folder Output</span>
+          </button>
+        </div>
+      </div>
+
+      <div id="completion-banner" class="completion-banner is-hidden" role="status" aria-live="polite">
+        <div class="completion-banner-copy">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>
+          </svg>
+          <span id="completion-banner-text">Pencarian selesai.</span>
+        </div>
+        <button type="button" id="btn-close-completion" class="btn btn-ghost btn-xs" aria-label="Tutup ringkasan selesai">Tutup</button>
+      </div>
+
+      <!-- Visual Empty State: Ilustrasi SVG + Panduan 3 Langkah -->
+      <div id="empty-state-panel" class="empty-hero">
+        <div class="empty-illustration" aria-hidden="true">
+          <svg width="132" height="96" viewBox="0 0 132 96" fill="none">
+            <rect x="18" y="16" width="76" height="64" rx="10" fill="#eff6ff" stroke="#bfdbfe" stroke-width="2"/>
+            <rect x="30" y="28" width="44" height="7" rx="3.5" fill="#93c5fd"/>
+            <rect x="30" y="42" width="52" height="6" rx="3" fill="#cbd5e1"/>
+            <rect x="30" y="54" width="38" height="6" rx="3" fill="#cbd5e1"/>
+            <rect x="30" y="66" width="24" height="6" rx="3" fill="#a7f3d0"/>
+            <circle cx="92" cy="54" r="22" fill="#ffffff" stroke="#2563eb" stroke-width="3"/>
+            <circle cx="92" cy="54" r="14" fill="#dbeafe"/>
+            <path d="M86 54.5l4 4 8-8" stroke="#059669" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M108 70l10 10" stroke="#2563eb" stroke-width="4" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <h3 class="empty-heading">Temukan Jurnal SINTA &amp; Garuda yang Tepat dalam Hitungan Detik</h3>
+        <p class="empty-sub">Ikuti tiga langkah mudah berikut untuk mendapatkan daftar jurnal lengkap beserta biaya APC dan kontak redaksi.</p>
+
+        <div class="steps-grid">
+          <div class="step-card">
+            <div class="step-badge">1</div>
+            <div class="step-icon" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="7" fill="currentColor" fill-opacity="0.12"/><path d="m21 21-4.3-4.3"/>
+              </svg>
+            </div>
+            <h4>Ketik Topik, Atur Target (1–1000), atau Unggah Naskah</h4>
+            <p>Tulis bidang studi Anda atau lampirkan file <code>.docx/.pdf</code> agar relevansi topik dihitung otomatis.</p>
+          </div>
+
+          <div class="step-card">
+            <div class="step-badge">2</div>
+            <div class="step-icon" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="8" height="8" rx="2" fill="currentColor" fill-opacity="0.14"/>
+                <rect x="13" y="3" width="8" height="8" rx="2"/>
+                <rect x="3" y="13" width="8" height="8" rx="2"/>
+                <rect x="13" y="13" width="8" height="8" rx="2"/>
+              </svg>
+            </div>
+            <h4>Pilih Preset Target Jurnal Anda</h4>
+            <p>Gunakan kartu preset cepat seperti <em>Skripsi S1</em>, <em>Jurnal Gratis</em>, atau sesuaikan di <em>Filter Lanjutan</em>.</p>
+          </div>
+
+          <div class="step-card">
+            <div class="step-badge">3</div>
+            <div class="step-icon" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" fill="currentColor" fill-opacity="0.14"/>
+              </svg>
+            </div>
+            <h4>Salin Kontak Editor &amp; Kirim Artikel</h4>
+            <p>Cek jadwal terbit terdekat, ekspor ke Excel, atau salin draf pesan WhatsApp ke tim editor jurnal.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tabel Hasil Interaktif (Sortable + Scrollable Region) -->
+      <div id="results-table-wrap" class="table-wrap is-hidden" tabindex="0" role="region" aria-labelledby="results-title">
+        <div id="sort-status" class="sr-live" role="status" aria-live="polite"></div>
+        <table id="results-table" class="results-table">
+          <caption class="sr-only">Daftar jurnal hasil pencarian beserta peringkat SINTA, Match Score, biaya APC, jadwal terbit, dan kontak editor</caption>
+          <thead>
+            <tr>
+              <th scope="col" class="col-num">#</th>
+              <th scope="col" data-sort-key="nama" data-sort-type="text">
+                <button type="button" class="th-sort">
+                  <span>Nama Jurnal &amp; Penerbit</span>
+                  <span class="sort-ind" aria-hidden="true"></span>
+                </button>
+              </th>
+              <th scope="col" data-sort-key="sinta" data-sort-type="number">
+                <button type="button" class="th-sort">
+                  <span>SINTA</span>
+                  <span class="sort-ind" aria-hidden="true"></span>
+                </button>
+              </th>
+              <th scope="col" data-sort-key="match_score" data-sort-type="number">
+                <button type="button" class="th-sort">
+                  <span>Match</span>
+                  <span class="sort-ind" aria-hidden="true"></span>
+                </button>
+              </th>
+              <th scope="col" data-sort-key="biaya_sort" data-sort-type="number">
+                <button type="button" class="th-sort">
+                  <span>Biaya (APC)</span>
+                  <span class="sort-ind" aria-hidden="true"></span>
+                </button>
+              </th>
+              <th scope="col" data-sort-key="jadwal_sort" data-sort-type="text">
+                <button type="button" class="th-sort">
+                  <span>Jadwal Terbit &amp; Est.</span>
+                  <span class="sort-ind" aria-hidden="true"></span>
+                </button>
+              </th>
+              <th scope="col">Kontak &amp; Aksi</th>
+            </tr>
+          </thead>
+          <tbody id="results-tbody"></tbody>
+        </table>
+      </div>
+
+      <!-- Kontrol Paginasi Instan (50 / 100 / Semua) -->
+      <nav id="pagination-bar" class="pagination-bar is-hidden" aria-label="Navigasi halaman hasil jurnal">
+        <div class="pagination-nav">
+          <button type="button" id="btn-page-prev" class="btn btn-secondary btn-xs" disabled aria-label="Halaman sebelumnya">
+            &laquo; Sebelumnya
+          </button>
+          <span id="pagination-info" class="pagination-info" aria-live="polite">Halaman 1 dari 1 (0 jurnal)</span>
+          <button type="button" id="btn-page-next" class="btn btn-secondary btn-xs" disabled aria-label="Halaman berikutnya">
+            Berikutnya &raquo;
+          </button>
+        </div>
+        <div class="pagination-size">
+          <label for="select-page-size" class="page-size-label">Baris/hal:</label>
+          <select id="select-page-size" class="select-input xs" aria-label="Jumlah baris per halaman">
+            <option value="50" selected>50</option>
+            <option value="100">100</option>
+            <option value="all">Semua</option>
+          </select>
+        </div>
+      </nav>
+    </section>
+  </main>
+
+  <div id="toast" class="toast is-hidden" role="status" aria-live="polite"></div>
+
+  <!-- Modal Dialog: Filter Lanjutan (Menyembunyikan seluruh opsi teknis dari halaman utama) -->
+  <dialog id="dialog-filters" class="modal-dialog modal-xl" closedby="any" aria-labelledby="filters-title">
+    <div class="modal-header">
+      <h2 id="filters-title">Filter Lanjutan &amp; Pengaturan Pencarian</h2>
+      <button type="button" class="btn btn-ghost btn-icon" data-close-dialog="dialog-filters" aria-label="Tutup dialog filter lanjutan">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="modal-body">
+      <div class="filter-sections-grid">
+        <!-- Target Jumlah Jurnal Custom 1-1000 -->
+        <div class="filter-box">
+          <div class="adv-label">Target Jumlah Jurnal (1 – 1.000)</div>
+          <div class="modal-target-row">
+            <label for="modal-target-count" class="sr-only">Jumlah target jurnal di filter lanjutan</label>
+            <input type="number" id="modal-target-count" class="text-input sm" min="1" max="1000" value="25" />
+            <div class="quick-target-chips" role="group" aria-label="Pintasan jumlah target jurnal">
+              <button type="button" class="chip-btn" data-target-val="25">25</button>
+              <button type="button" class="chip-btn" data-target-val="100">100</button>
+              <button type="button" class="chip-btn" data-target-val="500">500</button>
+              <button type="button" class="chip-btn" data-target-val="1000">1000</button>
+            </div>
+          </div>
+          <p class="muted mt-6">Target 100 jurnal ke atas otomatis mengaktifkan Turbo Mode agar tetap cepat.</p>
+
+          <div class="adv-label mt-12">Peringkat SINTA</div>
+          <div class="chip-group" id="sinta-group">
+            <label class="chip-check"><input type="checkbox" name="sinta" value="1" /><span>SINTA 1</span></label>
+            <label class="chip-check"><input type="checkbox" name="sinta" value="2" /><span>SINTA 2</span></label>
+            <label class="chip-check"><input type="checkbox" name="sinta" value="3" checked /><span>SINTA 3</span></label>
+            <label class="chip-check"><input type="checkbox" name="sinta" value="4" checked /><span>SINTA 4</span></label>
+            <label class="chip-check"><input type="checkbox" name="sinta" value="5" checked /><span>SINTA 5</span></label>
+            <label class="chip-check"><input type="checkbox" name="sinta" value="6" /><span>SINTA 6</span></label>
+          </div>
+
+          <div class="adv-label mt-12">Sumber Portal</div>
+          <div class="inline-checks">
+            <label class="inline-check"><input type="checkbox" id="chk-garuda" checked /><span>Portal Garuda</span></label>
+            <label class="inline-check"><input type="checkbox" id="chk-sinta-src" checked /><span>Portal SINTA</span></label>
+          </div>
+        </div>
+
+        <!-- Bulan Terbit -->
+        <div class="filter-box">
+          <div class="adv-label-row">
+            <span class="adv-label">Jadwal Bulan Terbit (1–12)</span>
+            <div class="mini-actions">
+              <button type="button" class="link-btn" id="btn-months-all">Semua</button>
+              <button type="button" class="link-btn" id="btn-months-near">3 Bln Dekat</button>
+              <button type="button" class="link-btn" id="btn-months-none">Kosongkan</button>
+            </div>
+          </div>
+          <div class="months-grid" id="months-group">
+            <label class="chip-check"><input type="checkbox" name="month" value="1" checked /><span>Jan</span></label>
+            <label class="chip-check"><input type="checkbox" name="month" value="2" checked /><span>Feb</span></label>
+            <label class="chip-check"><input type="checkbox" name="month" value="3" checked /><span>Mar</span></label>
+            <label class="chip-check"><input type="checkbox" name="month" value="4" checked /><span>Apr</span></label>
+            <label class="chip-check"><input type="checkbox" name="month" value="5" checked /><span>Mei</span></label>
+            <label class="chip-check"><input type="checkbox" name="month" value="6" checked /><span>Jun</span></label>
+            <label class="chip-check"><input type="checkbox" name="month" value="7" checked /><span>Jul</span></label>
+            <label class="chip-check"><input type="checkbox" name="month" value="8" checked /><span>Agu</span></label>
+            <label class="chip-check"><input type="checkbox" name="month" value="9" checked /><span>Sep</span></label>
+            <label class="chip-check"><input type="checkbox" name="month" value="10" checked /><span>Okt</span></label>
+            <label class="chip-check"><input type="checkbox" name="month" value="11" checked /><span>Nov</span></label>
+            <label class="chip-check"><input type="checkbox" name="month" value="12" checked /><span>Des</span></label>
+          </div>
+          <label class="inline-check mt-8">
+            <input type="checkbox" id="chk-include-unknown-month" checked />
+            <span>Sertakan jurnal yang jadwal bulannya belum terdata</span>
+          </label>
+        </div>
+
+        <!-- Batas Biaya & Filter -->
+        <div class="filter-box">
+          <div class="adv-label">Batas Biaya Publikasi (Rp)</div>
+          <div class="fields-2">
+            <label class="field-box">
+              <span>Minimum (Rp)</span>
+              <input type="text" id="input-min-rp" class="text-input sm" value="0" />
+            </label>
+            <label class="field-box">
+              <span>Maksimum (Rp)</span>
+              <input type="text" id="input-max-rp" class="text-input sm" value="1.500.000" />
+            </label>
+          </div>
+          <div class="stack-checks mt-10">
+            <label class="inline-check"><input type="checkbox" id="chk-only-free" /><span>Hanya Jurnal Gratis (Rp 0)</span></label>
+            <label class="inline-check"><input type="checkbox" id="chk-include-na" checked /><span>Sertakan biaya "Cek Web / Belum Terdata"</span></label>
+            <label class="inline-check"><input type="checkbox" id="chk-match" checked /><span>Hitung skor kesesuaian topik (Match Score)</span></label>
+          </div>
+        </div>
+
+        <!-- Engine Teknis, AI & Ekspor -->
+        <div class="filter-box">
+          <div class="adv-label">Mesin Scraping, AI &amp; Ekspor</div>
+          <div class="stack-checks">
+            <label class="inline-check"><input type="checkbox" id="chk-turbo" checked /><span>Turbo Mode (Paralel Cepat)</span></label>
+            <label class="inline-check"><input type="checkbox" id="chk-selenium" /><span>Mode Browser Selenium (Bypass Cloudflare SINTA)</span></label>
+            <label class="inline-check"><input type="checkbox" id="chk-ai" checked /><span>Gunakan AI Ollama Lokal (bila tersedia)</span></label>
+          </div>
+
+          <div class="fields-2 mt-10">
+            <label class="field-box">
+              <span>Worker AI</span>
+              <select id="select-ai-workers" class="select-input sm">
+                <option value="1">1</option>
+                <option value="2" selected>2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+              </select>
+            </label>
+            <div class="field-box">
+              <span>Format Ekspor</span>
+              <div class="inline-checks">
+                <label class="inline-check"><input type="checkbox" name="fmt" value=".xlsx" checked /><span>.xlsx</span></label>
+                <label class="inline-check"><input type="checkbox" name="fmt" value=".md" checked /><span>.md</span></label>
+                <label class="inline-check"><input type="checkbox" name="fmt" value=".csv" /><span>.csv</span></label>
+              </div>
+            </div>
+          </div>
+
+          <div class="mini-toolbar mt-10">
+            <button type="button" id="btn-open-ai-modal" class="btn btn-secondary btn-xs">Pengaturan Ollama AI</button>
+            <button type="button" id="btn-clear-cache" class="btn btn-ghost btn-xs">Bersihkan Cache (<span id="cache-count">0</span>)</button>
+            <button type="button" id="btn-open-logs" class="btn btn-ghost btn-xs">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
+              </svg>
+              Log Diagnostik
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-footer between">
+      <button type="button" id="btn-reset-filters" class="btn btn-ghost">Reset Default</button>
+      <div class="footer-right">
+        <button type="button" id="btn-apply-filters" class="btn btn-primary" autofocus>Terapkan Filter</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Modal Dialog: Panduan Singkat -->
+  <dialog id="dialog-guide" class="modal-dialog" closedby="any" aria-labelledby="guide-title">
+    <div class="modal-header">
+      <h2 id="guide-title">Panduan Penggunaan JSFS v2.4.0</h2>
+      <button type="button" class="btn btn-ghost btn-icon" data-close-dialog="dialog-guide" aria-label="Tutup panduan">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="guide-list">
+        <div class="guide-item">
+          <h3>1. Target Jurnal Fleksibel (1 s.d. 1.000 Jurnal)</h3>
+          <p>Isi kotak <strong>Target</strong> dengan angka bebas antara 1 sampai 1.000, atau pilih saran cepat dari daftar. Untuk target 100 ke atas, mode cepat aktif otomatis.</p>
+        </div>
+        <div class="guide-item">
+          <h3>2. Preset Cepat &amp; Filter Lanjutan</h3>
+          <p>Pilih salah satu dari 4 kartu preset sesuai kebutuhan Anda, lalu klik <strong>Filter Lanjutan</strong> jika ingin mengatur peringkat SINTA, bulan terbit, atau batas biaya secara spesifik.</p>
+        </div>
+        <div class="guide-item">
+          <h3>3. Memeriksa Biaya (APC) Sebelum Submit</h3>
+          <p>JSFS memverifikasi langsung halaman biaya OJS jurnal. Apabila tertulis <em>Cek Web / Belum Terdata</em>, pastikan membuka situs OJS jurnal terlebih dahulu sebelum mengirim naskah.</p>
+        </div>
+        <div class="guide-item">
+          <h3>4. Berbagi Daftar &amp; Menghubungi Editor</h3>
+          <p>Klik baris jurnal lalu tekan <strong>Salin Draf Editor</strong> untuk membuat pesan sopan menanyakan kuota edisi terdekat, atau <strong>Salin Daftar WA</strong> untuk mengirim ringkasan ke WhatsApp.</p>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-primary" data-close-dialog="dialog-guide" autofocus>Mengerti</button>
+    </div>
+  </dialog>
+
+  <!-- Modal Dialog: Setup AI Ollama -->
+  <dialog id="dialog-ai-setup" class="modal-dialog" closedby="any" aria-labelledby="ai-modal-title">
+    <div class="modal-header">
+      <h2 id="ai-modal-title">Status &amp; Pengaturan Ollama AI Lokal</h2>
+      <button type="button" class="btn btn-ghost btn-icon" data-close-dialog="dialog-ai-setup" aria-label="Tutup dialog AI">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <p class="muted">Ollama AI bersifat opsional. Tanpa Ollama, JSFS tetap berjalan cepat menggunakan ekstraksi Regex.</p>
+      <div class="ai-status-box">
+        <div><strong>Layanan Ollama:</strong> <span id="ai-dlg-running">Memeriksa...</span></div>
+        <div><strong>Model (<code id="ai-dlg-model">-</code>):</strong> <span id="ai-dlg-installed">Memeriksa...</span></div>
+      </div>
+      <div class="ai-prog-area is-hidden mt-10" id="ai-dlg-prog-wrap">
+        <div class="prog-meta">
+          <span id="ai-dlg-prog-status">Memproses...</span>
+          <span id="ai-dlg-prog-pct" class="prog-num">0%</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill is-success" id="ai-dlg-prog-fill"></div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" id="btn-ai-refresh" class="btn btn-ghost">Cek Ulang</button>
+      <button type="button" id="btn-ai-launch" class="btn btn-secondary">Jalankan Ollama</button>
+      <button type="button" id="btn-ai-install" class="btn btn-secondary">Unduh Ollama</button>
+      <button type="button" id="btn-ai-pull" class="btn btn-primary">Unduh Model AI</button>
+    </div>
+  </dialog>
+
+  <!-- Modal Dialog: Detail Jurnal -->
+  <dialog id="dialog-detail" class="modal-dialog modal-lg" closedby="any" aria-labelledby="detail-title">
+    <div class="modal-header">
+      <h2 id="detail-title">Detail Jurnal</h2>
+      <button type="button" class="btn btn-ghost btn-icon" data-close-dialog="dialog-detail" aria-label="Tutup detail jurnal">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+        </svg>
+      </button>
+    </div>
+    <div class="modal-body" id="detail-body"></div>
+    <div class="modal-footer">
+      <button type="button" id="btn-detail-chat" class="btn btn-teal">Salin Draf Editor</button>
+      <button type="button" id="btn-detail-open-url" class="btn btn-primary" autofocus>Buka Situs Jurnal</button>
+    </div>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>

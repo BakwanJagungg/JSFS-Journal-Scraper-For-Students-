@@ -1,0 +1,494 @@
+//! 5-point OJS deep crawler with 5.5-second hard wall-clock deadline and SQLite cache write-back.
+
+use crate::cache::JournalCache;
+use crate::config::{
+    APC_UNKNOWN, CACHE_VERSION, DEAD_LINK_TEXT, INFO_NOT_FOUND, OJS_HARD_TIMEOUT_MS,
+    TIMEOUT_APC_LABEL,
+};
+use crate::models::JournalRecord;
+use crate::parser::{apc, contact, focus, month};
+use crate::scraper::dedup::normalize_ojs_root_url;
+use crate::scraper::{safe_fetch_html, DomainBreaker};
+use scraper::{Html, Selector};
+use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use url::Url;
+
+#[derive(Debug, Default)]
+struct HtmlMeta {
+    publisher: String,
+    issn: String,
+    eissn: String,
+    emails: Vec<String>,
+    subjects: Vec<String>,
+}
+
+fn extract_html_meta(html: &str) -> HtmlMeta {
+    let doc = Html::parse_document(html);
+    let mut meta = HtmlMeta::default();
+    let Ok(sel) = Selector::parse("meta") else {
+        return meta;
+    };
+    for m in doc.select(&sel) {
+        let name = m
+            .value()
+            .attr("name")
+            .or_else(|| m.value().attr("property"))
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let content = m.value().attr("content").unwrap_or("").trim();
+        if content.is_empty() {
+            continue;
+        }
+        if matches!(name.as_str(), "dc.publisher" | "citation_publisher") && meta.publisher.is_empty()
+        {
+            meta.publisher = content.to_string();
+        } else if matches!(
+            name.as_str(),
+            "citation_issn" | "dc.source.issn" | "dc.identifier.issn" | "prism.issn"
+        ) {
+            let digits: String = content
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric())
+                .collect::<String>()
+                .to_ascii_uppercase();
+            if digits.len() == 8 {
+                let norm = format!("{}-{}", &digits[..4], &digits[4..]);
+                if meta.issn.is_empty() {
+                    meta.issn = norm;
+                } else if meta.eissn.is_empty() && norm != meta.issn {
+                    meta.eissn = norm;
+                }
+            }
+        } else if matches!(name.as_str(), "citation_eissn" | "prism.eissn") {
+            let digits: String = content
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric())
+                .collect::<String>()
+                .to_ascii_uppercase();
+            if digits.len() == 8 {
+                meta.eissn = format!("{}-{}", &digits[..4], &digits[4..]);
+            }
+        } else if matches!(
+            name.as_str(),
+            "dc.subject" | "keywords" | "citation_keywords" | "dc.subject.classification"
+        ) {
+            meta.subjects.push(content.to_string());
+        } else if (name.contains("email") || content.contains('@')) && content.contains('@') {
+            meta.emails.push(content.to_ascii_lowercase());
+        }
+    }
+    meta
+}
+
+fn discover_ojs_links(html: &str, clean_base: &str) -> (Vec<String>, Vec<String>, Vec<String>, Vec<String>) {
+    let doc = Html::parse_document(html);
+    let Ok(base_url) = Url::parse(&format!("{clean_base}/")) else {
+        return (vec![], vec![], vec![], vec![]);
+    };
+    let mut fee_links = Vec::new();
+    let mut contact_links = Vec::new();
+    let mut scope_links = Vec::new();
+    let mut archive_links = Vec::new();
+
+    let Ok(sel) = Selector::parse(
+        "nav a, .navbar a, #navMenu a, #navigation a, .pkp_navigation_primary a, #sidebar a, .block a, header a, footer a, a[href]",
+    ) else {
+        return (vec![], vec![], vec![], vec![]);
+    };
+
+    for a in doc.select(&sel) {
+        let Some(href) = a.value().attr("href") else {
+            continue;
+        };
+        let h_trim = href.trim();
+        let h_low = h_trim.to_ascii_lowercase();
+        if h_trim.is_empty()
+            || [".pdf", ".doc", ".docx", ".jpg", ".png", ".zip", ".xml"]
+                .iter()
+                .any(|ext| h_low.ends_with(ext))
+        {
+            continue;
+        }
+        let Ok(joined) = base_url.join(h_trim) else {
+            continue;
+        };
+        let full = joined.to_string();
+        if !full.starts_with("http") || full.contains("kemdiktisaintek") {
+            continue;
+        }
+        let txt = a.text().collect::<Vec<_>>().join(" ").to_ascii_lowercase();
+
+        if (["fee", "apc", "biaya", "charge", "payment", "tarif"]
+            .iter()
+            .any(|k| txt.contains(k) || h_low.contains(k))
+            || h_low.contains("/af"))
+            && !fee_links.contains(&full)
+        {
+            fee_links.push(full.clone());
+        }
+        if ["contact", "kontak", "hubungi", "about", "editorial team", "editorialteam", "dewan redaksi"]
+            .iter()
+            .any(|k| txt.contains(k) || h_low.contains(k))
+            && !contact_links.contains(&full)
+        {
+            contact_links.push(full.clone());
+        }
+        if ["focus", "scope", "ruang lingkup", "editorialpolicies"]
+            .iter()
+            .any(|k| txt.contains(k) || h_low.contains(k))
+            && !scope_links.contains(&full)
+        {
+            scope_links.push(full.clone());
+        }
+        if ["issue/archive", "archive", "arsip", "terbitan", "past issues"]
+            .iter()
+            .any(|k| txt.contains(k) || h_low.contains(k))
+            && !archive_links.contains(&full)
+        {
+            archive_links.push(full);
+        }
+    }
+
+    (fee_links, contact_links, scope_links, archive_links)
+}
+
+fn has_complete_core_data(rec: &JournalRecord) -> bool {
+    let has_apc = !rec.apc_status.is_empty()
+        && rec.apc_status != APC_UNKNOWN
+        && rec.apc_status != INFO_NOT_FOUND
+        && rec.apc_status != DEAD_LINK_TEXT
+        && rec.apc_status != TIMEOUT_APC_LABEL;
+    let has_contact = !rec.email.trim().is_empty() || !rec.phone.trim().is_empty();
+    let has_months = !rec.publish_month_nums.is_empty();
+    has_apc && has_contact && has_months
+}
+
+fn absorb_page(rec: &mut JournalRecord, page_url: &str, html: &str, is_homepage: bool, agg_text: &mut String, archive_hints: &mut Vec<String>) {
+    let plain = focus::sanitize_html_text(html);
+    if agg_text.len() < 8000 {
+        agg_text.push(' ');
+        agg_text.push_str(&plain.chars().take(2000).collect::<String>());
+    }
+
+    let meta = extract_html_meta(html);
+    if rec.publisher.trim().is_empty() && !meta.publisher.is_empty() {
+        rec.publisher = meta.publisher;
+    }
+    if (rec.issn.is_empty() || rec.issn == INFO_NOT_FOUND) && !meta.issn.is_empty() {
+        rec.issn = meta.issn;
+    }
+    if (rec.eissn.is_empty() || rec.eissn == INFO_NOT_FOUND) && !meta.eissn.is_empty() {
+        rec.eissn = meta.eissn;
+    }
+    if !meta.subjects.is_empty() && (rec.subject_area.is_empty() || rec.subject_area == "Umum") {
+        rec.subject_area = meta.subjects.join(", ");
+    }
+
+    if rec.focus_and_scope.trim().is_empty() || rec.focus_and_scope == INFO_NOT_FOUND {
+        let extracted = focus::extract_focus_and_scope_from_html(html, is_homepage);
+        if extracted != INFO_NOT_FOUND {
+            rec.focus_and_scope = extracted;
+            if page_url.to_ascii_lowercase().contains("about") && rec.about_url.is_empty() {
+                rec.about_url = page_url.to_string();
+            }
+        }
+    }
+
+    // Extract contacts
+    let (new_em, new_ph) = contact::extract_contacts(html, &plain, &rec.website_url);
+    if !new_em.is_empty() {
+        let mut combined: Vec<String> = rec
+            .email
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        for e in new_em.split(',').map(str::trim) {
+            if !e.is_empty() && !combined.iter().any(|x| x.eq_ignore_ascii_case(e)) {
+                combined.push(e.to_string());
+            }
+        }
+        combined.truncate(3);
+        rec.email = combined.join(", ");
+        if rec.contact_url.is_empty() && page_url.to_ascii_lowercase().contains("contact") {
+            rec.contact_url = page_url.to_string();
+        }
+    }
+    if !new_ph.is_empty() {
+        let mut combined: Vec<String> = rec
+            .phone
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        for p in new_ph.split(',').map(str::trim) {
+            if !p.is_empty() && !combined.contains(&p.to_string()) {
+                combined.push(p.to_string());
+            }
+        }
+        combined.truncate(3);
+        rec.phone = combined.join(", ");
+    }
+
+    // Extract APC contextually (only overwrite if unknown)
+    if rec.apc_status.is_empty() || rec.apc_status == APC_UNKNOWN || rec.apc_status == INFO_NOT_FOUND {
+        let (parsed_apc, sub_fee) = apc::extract_apc_contextual_html(html);
+        if sub_fee.is_some() && rec.submission_fee_idr.is_none() {
+            rec.submission_fee_idr = sub_fee;
+        }
+        match parsed_apc {
+            apc::ApcParsed::Free => {
+                rec.apc_status = "Gratis (Rp 0)".to_string();
+                rec.publication_fee = "Rp 0".to_string();
+                rec.fee_currency = "IDR".to_string();
+                rec.fee_amount = "0".to_string();
+                rec.publication_fee_idr = Some(0);
+            }
+            apc::ApcParsed::Paid {
+                currency,
+                display,
+                amount_idr,
+                raw_amount,
+            } => {
+                rec.apc_status = display.clone();
+                rec.publication_fee = display;
+                rec.fee_currency = currency;
+                rec.fee_amount = raw_amount;
+                rec.publication_fee_idr = Some(amount_idr);
+            }
+            apc::ApcParsed::Unknown => {}
+        }
+        if rec.apc_raw_text.len() < 1500
+            && (page_url.to_ascii_lowercase().contains("submission")
+                || page_url.to_ascii_lowercase().contains("fee")
+                || page_url.to_ascii_lowercase().contains("apc")
+                || is_homepage)
+        {
+            rec.apc_raw_text.push(' ');
+            rec.apc_raw_text.push_str(&plain.chars().take(1200).collect::<String>());
+        }
+    }
+
+    // Grab current issue hints on homepage
+    if is_homepage {
+        let doc = Html::parse_document(html);
+        if let Ok(sel) = Selector::parse(".current_issue, #currentIssue, .obj_issue_toc, .issue-summary") {
+            for el in doc.select(&sel) {
+                let t = el.text().collect::<Vec<_>>().join(" ").trim().to_string();
+                if !t.is_empty() {
+                    archive_hints.push(t);
+                }
+            }
+        }
+    }
+}
+
+pub async fn deep_enrich_record(
+    client: &reqwest::Client,
+    breaker: Arc<DomainBreaker>,
+    cache: Arc<Mutex<Option<JournalCache>>>,
+    mut rec: JournalRecord,
+    cancel_flag: Arc<AtomicBool>,
+) -> JournalRecord {
+    rec.cache_version = CACHE_VERSION.to_string();
+
+    if !rec.website_url.starts_with("http") || rec.website_url.contains("kemdiktisaintek.go.id") {
+        if rec.apc_status.is_empty() {
+            rec.apc_status = APC_UNKNOWN.to_string();
+        }
+        if rec.focus_and_scope.is_empty() || rec.focus_and_scope == INFO_NOT_FOUND {
+            rec.focus_and_scope = focus::build_tier3_scope_fallback(&rec.title, &rec.subject_area);
+        }
+        return rec;
+    }
+
+    // Step 0: Check SQLite WAL cache (incomplete records automatically bypassed inside `cache.get`)
+    if let Ok(guard) = cache.lock() {
+        if let Some(ref db) = *guard {
+            if let Ok(Some(mut cached)) = db.get(&rec.website_url) {
+                // Keep authoritative portal SINTA score & portal URLs if fresher
+                if cached.sinta_rank_num().is_none() && rec.sinta_rank_num().is_some() {
+                    cached.sinta_score = rec.sinta_score.clone();
+                }
+                if cached.sinta_url.is_empty() && !rec.sinta_url.is_empty() {
+                    cached.sinta_url = rec.sinta_url.clone();
+                }
+                if cached.garuda_url.is_empty() && !rec.garuda_url.is_empty() {
+                    cached.garuda_url = rec.garuda_url.clone();
+                }
+                return cached;
+            }
+        }
+    }
+
+    let base_root = normalize_ojs_root_url(&rec.website_url);
+    let crawl_fut = async {
+        let mut agg_text = String::new();
+        let mut archive_hints = Vec::new();
+        let per_req = Duration::from_millis(2600);
+
+        let home_res = safe_fetch_html(client, &breaker, &rec.website_url, per_req).await;
+        match home_res {
+            Err(err) => {
+                if err.contains("timeout") {
+                    rec.apc_status = TIMEOUT_APC_LABEL.to_string();
+                    rec.server_status = "Timeout / Cek Manual".to_string();
+                } else {
+                    rec.apc_status = DEAD_LINK_TEXT.to_string();
+                    rec.server_status = "Non-Aktif".to_string();
+                }
+                rec.is_incomplete = true;
+            }
+            Ok(home) => {
+                if home.status >= 400 || home.cloudflare_blocked {
+                    rec.apc_status = if home.status == 403 || home.cloudflare_blocked {
+                        TIMEOUT_APC_LABEL.to_string()
+                    } else {
+                        DEAD_LINK_TEXT.to_string()
+                    };
+                    rec.is_incomplete = true;
+                    return;
+                }
+                if home.final_url.starts_with("http") && !home.final_url.contains("kemdiktisaintek") {
+                    rec.website_url = normalize_ojs_root_url(&home.final_url);
+                }
+                let effective_base = normalize_ojs_root_url(&rec.website_url);
+                absorb_page(&mut rec, &home.final_url, &home.html, true, &mut agg_text, &mut archive_hints);
+                let (m_nums_home, m_names_home, sched_home) = month::resolve_schedule_and_frequency(&agg_text);
+                if !m_nums_home.is_empty() {
+                    rec.publish_month_nums = m_nums_home;
+                    rec.publish_months = m_names_home;
+                    rec.publish_schedule = sched_home;
+                    rec.next_issue_estimate = month::get_next_issue_estimate_now(&rec.publish_month_nums);
+                }
+
+                if !has_complete_core_data(&rec) && !cancel_flag.load(Ordering::Relaxed) {
+                    let (fee_links, contact_links, scope_links, archive_links) =
+                        discover_ojs_links(&home.html, &effective_base);
+
+                    let mut candidates: Vec<String> = Vec::new();
+                    candidates.extend(fee_links.into_iter().take(2));
+                    candidates.push(format!("{effective_base}/about/submissions"));
+                    candidates.push(format!("{effective_base}/about/editorialPolicies"));
+                    candidates.extend(contact_links.into_iter().take(2));
+                    candidates.extend(scope_links.into_iter().take(2));
+                    candidates.push(format!("{effective_base}/about/contact"));
+                    candidates.push(format!("{effective_base}/about"));
+                    candidates.push(format!("{effective_base}/about/editorialTeam"));
+
+                    let mut visited = HashSet::new();
+                    visited.insert(rec.website_url.clone());
+
+                    let mut visits = 0usize;
+                    for sub in candidates {
+                        if visits >= 3 || has_complete_core_data(&rec) || cancel_flag.load(Ordering::Relaxed) {
+                            break;
+                        }
+                        if !visited.insert(sub.clone()) {
+                            continue;
+                        }
+                        visits += 1;
+                        if let Ok(sub_out) = safe_fetch_html(client, &breaker, &sub, per_req).await {
+                            if sub_out.status == 200 && !sub_out.cloudflare_blocked {
+                                absorb_page(&mut rec, &sub, &sub_out.html, false, &mut agg_text, &mut archive_hints);
+                            }
+                        }
+                    }
+
+                    // Resolve publish months from aggregated text, or /issue/archive if still empty
+                    let (mut m_nums, mut m_names, mut sched_str) =
+                        month::resolve_schedule_and_frequency(&agg_text);
+
+                    if m_nums.is_empty() && !cancel_flag.load(Ordering::Relaxed) {
+                        if !archive_hints.is_empty() {
+                            m_nums = month::extract_months_from_archive_titles(&archive_hints);
+                        }
+                        if m_nums.is_empty() {
+                            let arc_url = archive_links
+                                .first()
+                                .cloned()
+                                .unwrap_or_else(|| format!("{effective_base}/issue/archive"));
+                            if let Ok(arc_out) = safe_fetch_html(client, &breaker, &arc_url, per_req).await {
+                                if arc_out.status == 200 {
+                                    let doc = Html::parse_document(&arc_out.html);
+                                    if let Ok(sel) = Selector::parse("a.title, .obj_issue_toc h2, .obj_issue_toc h3, h2, h3, h4") {
+                                        let titles: Vec<String> = doc
+                                            .select(&sel)
+                                            .map(|e| e.text().collect::<Vec<_>>().join(" ").trim().to_string())
+                                            .filter(|t| {
+                                                let l = t.to_ascii_lowercase();
+                                                l.contains("vol") || l.contains("no") || l.contains("issue") || l.contains("202") || l.contains("201")
+                                            })
+                                            .take(15)
+                                            .collect();
+                                        m_nums = month::extract_months_from_archive_titles(&titles);
+                                    }
+                                }
+                            }
+                        }
+                        if !m_nums.is_empty() {
+                            m_names = month::month_nums_to_names_id(&m_nums);
+                            let cnt = m_names.len();
+                            let joined = if cnt > 1 {
+                                format!("{} & {}", m_names[..cnt - 1].join(", "), m_names[cnt - 1])
+                            } else {
+                                m_names[0].clone()
+                            };
+                            sched_str = format!("{cnt} kali setahun ({joined})");
+                        }
+                    }
+
+                    rec.publish_month_nums = m_nums;
+                    rec.publish_months = m_names;
+                    if !sched_str.is_empty() {
+                        rec.publish_schedule = sched_str;
+                    }
+                    rec.next_issue_estimate = month::get_next_issue_estimate_now(&rec.publish_month_nums);
+                } else {
+                    let (m_nums, m_names, sched_str) = month::resolve_schedule_and_frequency(&agg_text);
+                    if !m_nums.is_empty() {
+                        rec.publish_month_nums = m_nums;
+                        rec.publish_months = m_names;
+                        rec.publish_schedule = sched_str;
+                        rec.next_issue_estimate =
+                            month::get_next_issue_estimate_now(&rec.publish_month_nums);
+                    }
+                }
+            }
+        }
+    };
+
+    if tokio::time::timeout(Duration::from_millis(OJS_HARD_TIMEOUT_MS), crawl_fut)
+        .await
+        .is_err()
+    {
+        if rec.apc_status.is_empty() || rec.apc_status == APC_UNKNOWN {
+            rec.apc_status = TIMEOUT_APC_LABEL.to_string();
+        }
+        rec.server_status = "Timeout (Batas 5.5 dtk)".to_string();
+        rec.is_incomplete = true;
+    }
+
+    if rec.apc_status.is_empty() {
+        rec.apc_status = APC_UNKNOWN.to_string();
+    }
+    if rec.focus_and_scope.trim().is_empty() || rec.focus_and_scope == INFO_NOT_FOUND {
+        rec.focus_and_scope = focus::build_tier3_scope_fallback(&rec.title, &rec.subject_area);
+    }
+
+    if !rec.is_incomplete {
+        if let Ok(guard) = cache.lock() {
+            if let Some(ref db) = *guard {
+                let _ = db.put(&rec.website_url, &rec);
+                if base_root != rec.website_url {
+                    let _ = db.put(&base_root, &rec);
+                }
+            }
+        }
+    }
+
+    rec
+}

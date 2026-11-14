@@ -1,0 +1,30 @@
+# Rust / Cargo / Tauri
+target/
+**/target/
+src-tauri/gen/
+**/*.rs.bk
+*.pdb
+
+# Node / Frontend
+node_modules/
+dist/
+.npm/
+*.tsbuildinfo
+
+# JSFS Runtime Data & Outputs
+.cache/
+logs/
+output/
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*.swo
