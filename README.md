@@ -66,6 +66,9 @@ Bagi pengguna yang ingin langsung menggunakan aplikasi tanpa menginstal Rust ata
 ```text
 .
 ├── .github/workflows/          # GitHub Actions CI/CD rilis Windows otomatis
+├── docs/
+│   ├── ARCHITECTURE.md         # Penjelasan arsitektur teknis Rust + Tauri v2
+│   └── CHANGELOG.md            # Catatan perubahan versi rilis
 ├── src-tauri/
 │   ├── capabilities/           # Konfigurasi izin Tauri v2
 │   ├── icons/                  # Ikon aplikasi
@@ -84,9 +87,11 @@ Bagi pengguna yang ingin langsung menggunakan aplikasi tanpa menginstal Rust ata
 ├── ui/                         # Antarmuka frontend (HTML, CSS, JS)
 ├── package.json                # Skrip npm untuk dev & build Tauri
 ├── Jalankan_JSFS_v3.bat        # Peluncur cepat Windows
-├── CHANGELOG.md                # Catatan perubahan versi
+├── .gitignore                  # Pengecualian file build, cache, dan log
 └── LICENSE                     # Lisensi MIT
 ```
+
+Untuk detail teknis alur data dan modul internal, lihat **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** dan riwayat rilis di **[docs/CHANGELOG.md](docs/CHANGELOG.md)**.
 
 ---
 
