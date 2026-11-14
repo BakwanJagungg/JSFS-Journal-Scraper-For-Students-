@@ -41,13 +41,13 @@
       </div>
 
       <div class="header-actions">
-        <button type="button" id="btn-ai-status" class="status-pill" aria-label="Status AI Ollama dan Pengaturan AI">
+        <button type="button" id="btn-ai-status" class="status-pill is-ai-ready" aria-label="Status dan Pengaturan Match Engine">
           <span class="status-dot" aria-hidden="true"></span>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M12 3a4 4 0 0 1 4 4v1h1a3 3 0 0 1 3 3v1a3 3 0 0 1-3 3h-1v1a4 4 0 0 1-8 0v-1H7a3 3 0 0 1-3-3v-1a3 3 0 0 1 3-3h1V7a4 4 0 0 1 4-4z" fill="currentColor" fill-opacity="0.12"/>
             <circle cx="9.5" cy="11.5" r="1"/><circle cx="14.5" cy="11.5" r="1"/>
           </svg>
-          <span id="ai-status-text">Mode Regex Cepat</span>
+          <span id="ai-status-text">Match Engine: Built-in Smart</span>
         </button>
 
         <button type="button" id="btn-guide" class="btn btn-ghost btn-sm" aria-label="Buka panduan penggunaan">
@@ -627,7 +627,7 @@
           <div class="stack-checks">
             <label class="inline-check"><input type="checkbox" id="chk-turbo" checked /><span>Turbo Mode (Paralel Cepat)</span></label>
             <label class="inline-check"><input type="checkbox" id="chk-selenium" /><span>Mode Browser Selenium (Bypass Cloudflare SINTA)</span></label>
-            <label class="inline-check"><input type="checkbox" id="chk-ai" checked /><span>Gunakan AI Ollama Lokal (bila tersedia)</span></label>
+            <label class="inline-check"><input type="checkbox" id="chk-ai" checked /><span>Aktifkan Pengayaan Match Engine / AI (sesuai mode terpilih)</span></label>
           </div>
 
           <div class="fields-2 mt-10">
@@ -651,7 +651,7 @@
           </div>
 
           <div class="mini-toolbar mt-10">
-            <button type="button" id="btn-open-ai-modal" class="btn btn-secondary btn-xs">Pengaturan Ollama AI</button>
+            <button type="button" id="btn-open-ai-modal" class="btn btn-secondary btn-xs">Pengaturan Match Engine</button>
             <button type="button" id="btn-clear-cache" class="btn btn-ghost btn-xs">Bersihkan Cache (<span id="cache-count">0</span>)</button>
             <button type="button" id="btn-open-logs" class="btn btn-ghost btn-xs">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -710,37 +710,112 @@
     </div>
   </dialog>
 
-  <!-- Modal Dialog: Setup AI Ollama -->
-  <dialog id="dialog-ai-setup" class="modal-dialog" closedby="any" aria-labelledby="ai-modal-title">
+  <!-- Modal Dialog: Pengaturan Multi-Provider Match Engine -->
+  <dialog id="dialog-ai-setup" class="modal-dialog modal-lg" closedby="any" aria-labelledby="ai-modal-title">
     <div class="modal-header">
-      <h2 id="ai-modal-title">Status &amp; Pengaturan Ollama AI Lokal</h2>
-      <button type="button" class="btn btn-ghost btn-icon" data-close-dialog="dialog-ai-setup" aria-label="Tutup dialog AI">
+      <h2 id="ai-modal-title">Pengaturan Match Engine &amp; Validasi Jurnal</h2>
+      <button type="button" class="btn btn-ghost btn-icon" data-close-dialog="dialog-ai-setup" aria-label="Tutup pengaturan match engine">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
         </svg>
       </button>
     </div>
     <div class="modal-body">
-      <p class="muted">Ollama AI bersifat opsional. Tanpa Ollama, JSFS tetap berjalan cepat menggunakan ekstraksi Regex.</p>
-      <div class="ai-status-box">
-        <div><strong>Layanan Ollama:</strong> <span id="ai-dlg-running">Memeriksa...</span></div>
-        <div><strong>Model (<code id="ai-dlg-model">-</code>):</strong> <span id="ai-dlg-installed">Memeriksa...</span></div>
-      </div>
-      <div class="ai-prog-area is-hidden mt-10" id="ai-dlg-prog-wrap">
-        <div class="prog-meta">
-          <span id="ai-dlg-prog-status">Memproses...</span>
-          <span id="ai-dlg-prog-pct" class="prog-num">0%</span>
+      <p class="muted">Pilih mesin pencocokan topik naskah &amp; validasi biaya/fokus jurnal. Mode bawaan langsung siap pakai tanpa instalasi tambahan.</p>
+
+      <div class="matcher-modes-grid" role="radiogroup" aria-label="Pilih mode Match Engine">
+        <label class="matcher-option" for="radio-mode-builtin">
+          <input type="radio" id="radio-mode-builtin" name="matcher-mode" value="builtin" checked />
+          <div class="matcher-option-body">
+            <div class="matcher-option-head">
+              <strong>Built-in Smart Matcher</strong>
+              <span class="badge-chip is-green">Default • Gratis • Tanpa Setup</span>
+            </div>
+            <p class="matcher-option-desc">Menggunakan mesin <em>Bilingual BM25 + Academic Synonym Matcher (ID &amp; EN)</em> secara offline/instan (0 detik). Memahami padanan seperti UMKM ↔ SME, pembelajaran ↔ learning, sistem informasi ↔ information system.</p>
+          </div>
+        </label>
+
+        <label class="matcher-option" for="radio-mode-cloud">
+          <input type="radio" id="radio-mode-cloud" name="matcher-mode" value="cloud" />
+          <div class="matcher-option-body">
+            <div class="matcher-option-head">
+              <strong>Cloud AI API (Groq / Gemini / OpenAI-Compatible)</strong>
+              <span class="badge-chip">API Key Gratis</span>
+            </div>
+            <p class="matcher-option-desc">Validasi ekstraksi biaya &amp; Focus-Scope jurnal menggunakan LLM cloud super cepat dengan API Key Anda sendiri (menyimpan key hanya secara lokal).</p>
+          </div>
+        </label>
+
+        <div id="matcher-panel-cloud" class="matcher-subpanel is-hidden">
+          <div class="fields-2">
+            <label class="field-box">
+              <span>Provider Cloud</span>
+              <select id="select-cloud-provider" class="select-input sm">
+                <option value="groq">Groq (llama-3.1-8b-instant)</option>
+                <option value="gemini">Google Gemini (gemini-2.5-flash)</option>
+                <option value="openai_compatible">OpenAI-Compatible (Custom URL)</option>
+              </select>
+            </label>
+            <label class="field-box">
+              <span>Nama Model</span>
+              <input type="text" id="input-cloud-model" class="text-input sm" placeholder="llama-3.1-8b-instant" />
+            </label>
+          </div>
+
+          <label id="wrap-cloud-base-url" class="field-box mt-10 is-hidden">
+            <span>Base URL Endpoint (OpenAI-Compatible)</span>
+            <input type="url" id="input-cloud-base-url" class="text-input sm" placeholder="https://api.openai.com/v1" />
+          </label>
+
+          <div class="field-box mt-10">
+            <span>API Key <small id="cloud-key-status" class="muted"></small></span>
+            <div class="api-key-row">
+              <input type="password" id="input-cloud-api-key" class="text-input sm" autocomplete="off" placeholder="Tempel API Key Groq / Gemini Anda di sini..." />
+              <button type="button" id="btn-clear-cloud-key" class="btn btn-ghost btn-xs is-hidden">Hapus Key</button>
+              <button type="button" id="btn-test-cloud" class="btn btn-secondary btn-xs">Tes Koneksi</button>
+            </div>
+          </div>
+          <div id="cloud-test-result" class="cloud-test-msg muted mt-10 is-hidden"></div>
+          <p class="muted matcher-tip">Tips API Key gratis: <code>console.groq.com</code> (Groq) atau <code>aistudio.google.com</code> (Gemini).</p>
         </div>
-        <div class="progress-track">
-          <div class="progress-fill is-success" id="ai-dlg-prog-fill"></div>
+
+        <label class="matcher-option" for="radio-mode-ollama">
+          <input type="radio" id="radio-mode-ollama" name="matcher-mode" value="ollama" />
+          <div class="matcher-option-body">
+            <div class="matcher-option-head">
+              <strong>Ollama Lokal (Power-User)</strong>
+              <span class="badge-chip">localhost:11434</span>
+            </div>
+            <p class="matcher-option-desc">Menjalankan LLM secara lokal di komputer Anda via Ollama untuk validasi privat tanpa API Key cloud.</p>
+          </div>
+        </label>
+
+        <div id="matcher-panel-ollama" class="matcher-subpanel is-hidden">
+          <div class="ai-status-box">
+            <div><strong>Layanan Ollama:</strong> <span id="ai-dlg-running">Memeriksa...</span></div>
+            <div><strong>Model (<code id="ai-dlg-model">-</code>):</strong> <span id="ai-dlg-installed">Memeriksa...</span></div>
+          </div>
+          <div class="ai-prog-area is-hidden mt-10" id="ai-dlg-prog-wrap">
+            <div class="prog-meta">
+              <span id="ai-dlg-prog-status">Memproses...</span>
+              <span id="ai-dlg-prog-pct" class="prog-num">0%</span>
+            </div>
+            <div class="progress-track">
+              <div class="progress-fill is-success" id="ai-dlg-prog-fill"></div>
+            </div>
+          </div>
+          <div class="mini-toolbar mt-10">
+            <button type="button" id="btn-ai-refresh" class="btn btn-ghost btn-xs">Cek Ulang</button>
+            <button type="button" id="btn-ai-launch" class="btn btn-secondary btn-xs">Jalankan Ollama</button>
+            <button type="button" id="btn-ai-install" class="btn btn-secondary btn-xs">Unduh Ollama</button>
+            <button type="button" id="btn-ai-pull" class="btn btn-secondary btn-xs">Unduh Model AI</button>
+          </div>
         </div>
       </div>
     </div>
-    <div class="modal-footer">
-      <button type="button" id="btn-ai-refresh" class="btn btn-ghost">Cek Ulang</button>
-      <button type="button" id="btn-ai-launch" class="btn btn-secondary">Jalankan Ollama</button>
-      <button type="button" id="btn-ai-install" class="btn btn-secondary">Unduh Ollama</button>
-      <button type="button" id="btn-ai-pull" class="btn btn-primary">Unduh Model AI</button>
+    <div class="modal-footer between">
+      <button type="button" class="btn btn-ghost" data-close-dialog="dialog-ai-setup">Tutup</button>
+      <button type="button" id="btn-save-matcher" class="btn btn-primary" autofocus>Simpan Pengaturan</button>
     </div>
   </dialog>
 

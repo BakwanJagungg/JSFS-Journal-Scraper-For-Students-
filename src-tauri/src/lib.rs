@@ -23,12 +23,14 @@ pub struct AppState {
     pub last_excel_path: Arc<RwLock<Option<String>>>,
     pub cache: Arc<Mutex<Option<cache::JournalCache>>>,
     pub http_client: reqwest::Client,
+    pub matcher_config: Arc<RwLock<config::MatcherConfig>>,
 }
 
 impl AppState {
     pub fn new() -> Self {
         let http_client = scraper::build_http_client();
         let db = cache::JournalCache::open_default().ok();
+        let matcher_cfg = config::load_matcher_config();
         Self {
             cancel_flag: Arc::new(AtomicBool::new(false)),
             is_running: Arc::new(AtomicBool::new(false)),
@@ -37,6 +39,7 @@ impl AppState {
             last_excel_path: Arc::new(RwLock::new(None)),
             cache: Arc::new(Mutex::new(db)),
             http_client,
+            matcher_config: Arc::new(RwLock::new(matcher_cfg)),
         }
     }
 }
@@ -74,6 +77,9 @@ pub fn run() {
             commands::search::stop_search,
             commands::manuscript::upload_manuscript,
             commands::ai_ops::get_ai_status,
+            commands::ai_ops::get_matcher_config,
+            commands::ai_ops::save_matcher_config,
+            commands::ai_ops::test_cloud_api,
             commands::ai_ops::launch_ollama,
             commands::ai_ops::install_ollama,
             commands::ai_ops::pull_ai_model,

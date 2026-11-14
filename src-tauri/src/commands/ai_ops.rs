@@ -1,13 +1,65 @@
-//! Ollama status, background launcher, one-click installer, and streaming model puller.
+//! Multi-provider Match Engine status, config persistence, Cloud API test, and optional Ollama management.
 
-use crate::ai::ollama::{self, GLOBAL_AI_BREAKER};
-use crate::config::{cache_dir, DEFAULT_AI_MODEL, OLLAMA_BASE_URL};
+use crate::ai::{cloud, ollama, GLOBAL_AI_BREAKER};
+use crate::config::{
+    cache_dir, default_model_for_provider, mask_api_key, save_matcher_config_to_disk,
+    MatcherConfig, DEFAULT_AI_MODEL, OLLAMA_BASE_URL,
+};
 use crate::error::JsfsError;
 use crate::AppState;
 use futures_util::StreamExt;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, State};
+
+#[derive(Clone, Serialize)]
+pub struct MatcherConfigView {
+    pub mode: String,
+    pub cloud_provider: String,
+    pub cloud_model: String,
+    pub cloud_base_url: String,
+    pub cloud_has_key: bool,
+    pub cloud_key_masked: String,
+    pub ollama_model: String,
+}
+
+impl From<&MatcherConfig> for MatcherConfigView {
+    fn from(cfg: &MatcherConfig) -> Self {
+        let mode = cfg.normalized_mode().to_string();
+        let provider = cfg.normalized_provider().to_string();
+        let key = cfg.cloud_api_key.trim();
+        Self {
+            mode,
+            cloud_provider: provider,
+            cloud_model: cfg.effective_cloud_model(),
+            cloud_base_url: cfg.cloud_base_url.clone(),
+            cloud_has_key: !key.is_empty(),
+            cloud_key_masked: mask_api_key(key),
+            ollama_model: if cfg.ollama_model.trim().is_empty() {
+                DEFAULT_AI_MODEL.to_string()
+            } else {
+                cfg.ollama_model.clone()
+            },
+        }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct SaveMatcherConfigInput {
+    pub mode: String,
+    #[serde(default)]
+    pub cloud_provider: Option<String>,
+    #[serde(default)]
+    pub cloud_api_key: Option<String>,
+    #[serde(default)]
+    pub clear_api_key: Option<bool>,
+    #[serde(default)]
+    pub cloud_model: Option<String>,
+    #[serde(default)]
+    pub cloud_base_url: Option<String>,
+    #[serde(default)]
+    pub ollama_model: Option<String>,
+}
 
 #[derive(Clone, Serialize)]
 pub struct AiStatusExtended {
@@ -23,6 +75,15 @@ pub struct AiStatusExtended {
     pub task_percent: f64,
     pub task_message: String,
     pub cache_count: usize,
+    // Multi-provider v3 fields
+    pub matcher_mode: String,
+    pub cloud_provider: String,
+    pub cloud_model: String,
+    pub cloud_base_url: String,
+    pub cloud_has_key: bool,
+    pub cloud_key_masked: String,
+    pub ollama_model: String,
+    pub active_engine_label: String,
 }
 
 #[derive(Serialize)]
@@ -41,10 +102,141 @@ struct AiProgressEvent {
     pub task_message: String,
 }
 
+fn compute_engine_label(cfg: &MatcherConfig, ollama_running: bool) -> String {
+    match cfg.normalized_mode() {
+        "cloud" => {
+            if cfg.cloud_api_key.trim().is_empty() {
+                "Match Engine: Cloud (Perlu API Key)".to_string()
+            } else {
+                let prov = match cfg.normalized_provider() {
+                    "gemini" => "Gemini",
+                    "openai_compatible" => "Cloud OpenAI",
+                    _ => "Groq",
+                };
+                format!("Match Engine: Cloud ({prov})")
+            }
+        }
+        "ollama" => {
+            if ollama_running {
+                "Match Engine: Ollama Aktif".to_string()
+            } else {
+                "Match Engine: Ollama Off".to_string()
+            }
+        }
+        _ => "Match Engine: Built-in Smart".to_string(),
+    }
+}
+
+#[tauri::command]
+pub async fn get_matcher_config(state: State<'_, AppState>) -> Result<MatcherConfigView, JsfsError> {
+    let cfg = state.matcher_config.read().await;
+    Ok(MatcherConfigView::from(&*cfg))
+}
+
+#[tauri::command]
+pub async fn save_matcher_config(
+    state: State<'_, AppState>,
+    input: SaveMatcherConfigInput,
+) -> Result<AiStatusExtended, JsfsError> {
+    {
+        let mut cfg = state.matcher_config.write().await;
+        cfg.mode = match input.mode.trim().to_ascii_lowercase().as_str() {
+            "cloud" => "cloud".to_string(),
+            "ollama" => "ollama".to_string(),
+            _ => "builtin".to_string(),
+        };
+        if let Some(p) = input.cloud_provider {
+            let norm_p = match p.trim().to_ascii_lowercase().as_str() {
+                "gemini" => "gemini",
+                "openai" | "openai_compatible" | "openai-compatible" => "openai_compatible",
+                _ => "groq",
+            };
+            cfg.cloud_provider = norm_p.to_string();
+        }
+        if input.clear_api_key.unwrap_or(false) {
+            cfg.cloud_api_key.clear();
+        } else if let Some(key) = input.cloud_api_key {
+            let trimmed = key.trim();
+            if !trimmed.is_empty() {
+                cfg.cloud_api_key = trimmed.to_string();
+            }
+        }
+        if let Some(m) = input.cloud_model {
+            let tm = m.trim();
+            cfg.cloud_model = if tm.is_empty() {
+                default_model_for_provider(cfg.normalized_provider()).to_string()
+            } else {
+                tm.to_string()
+            };
+        }
+        if let Some(u) = input.cloud_base_url {
+            cfg.cloud_base_url = u.trim().to_string();
+        }
+        if let Some(om) = input.ollama_model {
+            let tom = om.trim();
+            if !tom.is_empty() {
+                cfg.ollama_model = tom.to_string();
+            }
+        }
+        save_matcher_config_to_disk(&cfg)?;
+    }
+
+    get_ai_status(state).await
+}
+
+#[tauri::command]
+pub async fn test_cloud_api(
+    state: State<'_, AppState>,
+    input: SaveMatcherConfigInput,
+) -> Result<AiActionResp, JsfsError> {
+    let mut cfg = state.matcher_config.read().await.clone();
+    if let Some(p) = input.cloud_provider {
+        cfg.cloud_provider = p;
+        cfg.cloud_provider = cfg.normalized_provider().to_string();
+    }
+    if let Some(key) = input.cloud_api_key {
+        let trimmed = key.trim();
+        if !trimmed.is_empty() {
+            cfg.cloud_api_key = trimmed.to_string();
+        }
+    }
+    if let Some(m) = input.cloud_model {
+        cfg.cloud_model = m.trim().to_string();
+    }
+    if let Some(u) = input.cloud_base_url {
+        cfg.cloud_base_url = u.trim().to_string();
+    }
+
+    match cloud::test_cloud_connection(&state.http_client, &cfg).await {
+        Ok(msg) => Ok(AiActionResp {
+            ok: true,
+            progress: 100.0,
+            message: msg,
+        }),
+        Err(err) => Ok(AiActionResp {
+            ok: false,
+            progress: 0.0,
+            message: err,
+        }),
+    }
+}
+
 #[tauri::command]
 pub async fn get_ai_status(state: State<'_, AppState>) -> Result<AiStatusExtended, JsfsError> {
-    let st = ollama::get_ai_status(&state.http_client).await;
-    let rec = DEFAULT_AI_MODEL.to_string();
+    let cfg = state.matcher_config.read().await.clone();
+    let ollama_needed = cfg.normalized_mode() == "ollama";
+    let st = if ollama_needed {
+        ollama::get_ai_status(&state.http_client).await
+    } else {
+        // Non-blocking fast check when not actively in Ollama mode (still checks localhost quickly)
+        ollama::get_ai_status(&state.http_client).await
+    };
+
+    let rec = if cfg.ollama_model.trim().is_empty() {
+        DEFAULT_AI_MODEL.to_string()
+    } else {
+        cfg.ollama_model.clone()
+    };
     let base = rec.split(':').next().unwrap_or(&rec).to_ascii_lowercase();
     let model_installed = st.models.iter().any(|m| {
         let low = m.to_ascii_lowercase();
@@ -58,6 +250,9 @@ pub async fn get_ai_status(state: State<'_, AppState>) -> Result<AiStatusExtende
         .and_then(|g| g.as_ref().and_then(|db| db.count_valid().ok()))
         .unwrap_or(0);
 
+    let view = MatcherConfigView::from(&cfg);
+    let active_engine_label = compute_engine_label(&cfg, st.running);
+
     Ok(AiStatusExtended {
         installed: st.installed,
         running: st.running,
@@ -70,6 +265,14 @@ pub async fn get_ai_status(state: State<'_, AppState>) -> Result<AiStatusExtende
         task_percent: 0.0,
         task_message: String::new(),
         cache_count,
+        matcher_mode: view.mode,
+        cloud_provider: view.cloud_provider,
+        cloud_model: view.cloud_model,
+        cloud_base_url: view.cloud_base_url,
+        cloud_has_key: view.cloud_has_key,
+        cloud_key_masked: view.cloud_key_masked,
+        ollama_model: view.ollama_model,
+        active_engine_label,
     })
 }
 

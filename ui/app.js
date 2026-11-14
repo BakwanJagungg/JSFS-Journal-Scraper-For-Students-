@@ -29,6 +29,7 @@
     aiPollTimer: null,
     logOffset: 0,
     detailIndex: -1,
+    clearCloudKeyPending: false,
   };
 
   function $(id) {
@@ -115,6 +116,10 @@
         return await invoke("install_ollama");
       case "pullAiModel":
         return await invoke("pull_ai_model", { model: payload?.model ?? null });
+      case "saveMatcherConfig":
+        return await invoke("save_matcher_config", { input: payload });
+      case "testCloudApi":
+        return await invoke("test_cloud_api", { input: payload });
       default:
         return null;
     }
@@ -772,21 +777,82 @@
     }
   }
 
-  function updateAiBadgeUI(running) {
+  function defaultCloudModelFor(provider) {
+    if (provider === "gemini") return "gemini-2.5-flash";
+    if (provider === "openai_compatible") return "gpt-4o-mini";
+    return "llama-3.1-8b-instant";
+  }
+
+  function syncMatcherSubpanels(modeVal, providerVal) {
+    const mode = modeVal || document.querySelector('input[name="matcher-mode"]:checked')?.value || "builtin";
+    const prov = providerVal || $("select-cloud-provider")?.value || "groq";
+    if ($("matcher-panel-cloud")) $("matcher-panel-cloud").classList.toggle("is-hidden", mode !== "cloud");
+    if ($("matcher-panel-ollama")) $("matcher-panel-ollama").classList.toggle("is-hidden", mode !== "ollama");
+    if ($("wrap-cloud-base-url")) $("wrap-cloud-base-url").classList.toggle("is-hidden", prov !== "openai_compatible");
+  }
+
+  function updateAiBadgeUI(info) {
     const aiPill = $("btn-ai-status");
     const aiText = $("ai-status-text");
-    if (typeof running === "boolean" && aiPill && aiText) {
-      aiPill.classList.toggle("is-ai-ready", running);
-      aiText.textContent = running ? "AI Ollama Aktif" : "Mode Regex Cepat";
+    if (!aiPill || !aiText) return;
+
+    if (!info || typeof info !== "object") {
+      aiPill.classList.add("is-ai-ready");
+      aiPill.classList.remove("is-ai-warn");
+      aiText.textContent = "Match Engine: Built-in Smart";
+      return;
     }
+
+    const mode = info.matcher_mode || "builtin";
+    const isReady =
+      mode === "builtin" ||
+      (mode === "cloud" && !!info.cloud_has_key) ||
+      (mode === "ollama" && !!info.running);
+
+    aiPill.classList.toggle("is-ai-ready", isReady);
+    aiPill.classList.toggle("is-ai-warn", !isReady);
+    aiText.textContent = info.active_engine_label || "Match Engine: Built-in Smart";
   }
 
   function applyAiProgressPayload(info) {
     if (!info) return;
-    updateAiBadgeUI(!!info.running);
+    updateAiBadgeUI(info);
     if (typeof info.cache_count === "number" && $("cache-count")) {
       $("cache-count").textContent = String(info.cache_count);
     }
+
+    // Populate matcher dialog only when fields are present
+    if (info.matcher_mode) {
+      const r = document.querySelector(`input[name="matcher-mode"][value="${info.matcher_mode}"]`);
+      if (r) r.checked = true;
+    }
+    if (info.cloud_provider && $("select-cloud-provider")) {
+      $("select-cloud-provider").value = info.cloud_provider;
+    }
+    if (info.cloud_model && $("input-cloud-model")) {
+      $("input-cloud-model").value = info.cloud_model;
+    }
+    if (typeof info.cloud_base_url === "string" && $("input-cloud-base-url")) {
+      $("input-cloud-base-url").value = info.cloud_base_url;
+    }
+    if (typeof info.cloud_has_key === "boolean") {
+      state.clearCloudKeyPending = false;
+      if ($("cloud-key-status")) {
+        $("cloud-key-status").textContent = info.cloud_has_key
+          ? `(Tersimpan: ${info.cloud_key_masked || "••••••••"})`
+          : "(Belum ada API Key tersimpan)";
+      }
+      if ($("btn-clear-cloud-key")) {
+        $("btn-clear-cloud-key").classList.toggle("is-hidden", !info.cloud_has_key);
+      }
+      if ($("input-cloud-api-key")) {
+        $("input-cloud-api-key").placeholder = info.cloud_has_key
+          ? "Kosongkan jika tetap memakai key tersimpan, atau tempel key baru..."
+          : "Tempel API Key Groq / Gemini Anda di sini...";
+      }
+    }
+    syncMatcherSubpanels(info.matcher_mode, info.cloud_provider);
+
     if (info.model || info.recommended_model) {
       $("ai-dlg-model").textContent = info.model || info.recommended_model || "-";
     }
@@ -1264,6 +1330,79 @@
       const res = await callBackendApi("pullAiModel");
       if (res && res.message) showToast(res.message);
     });
+
+    document.querySelectorAll('input[name="matcher-mode"]').forEach((radio) => {
+      radio.addEventListener("change", () => syncMatcherSubpanels());
+    });
+
+    if ($("select-cloud-provider")) {
+      $("select-cloud-provider").addEventListener("change", (e) => {
+        const prov = e.target.value;
+        if ($("input-cloud-model")) {
+          $("input-cloud-model").value = defaultCloudModelFor(prov);
+          $("input-cloud-model").placeholder = defaultCloudModelFor(prov);
+        }
+        syncMatcherSubpanels(null, prov);
+      });
+    }
+
+    if ($("btn-clear-cloud-key")) {
+      $("btn-clear-cloud-key").addEventListener("click", () => {
+        state.clearCloudKeyPending = true;
+        if ($("input-cloud-api-key")) $("input-cloud-api-key").value = "";
+        if ($("cloud-key-status")) $("cloud-key-status").textContent = "(Akan dihapus saat disimpan)";
+        $("btn-clear-cloud-key").classList.add("is-hidden");
+      });
+    }
+
+    const collectMatcherForm = () => ({
+      mode: document.querySelector('input[name="matcher-mode"]:checked')?.value || "builtin",
+      cloud_provider: $("select-cloud-provider")?.value || "groq",
+      cloud_model: $("input-cloud-model")?.value.trim() || "",
+      cloud_base_url: $("input-cloud-base-url")?.value.trim() || "",
+      cloud_api_key: $("input-cloud-api-key")?.value.trim() || "",
+      clear_api_key: state.clearCloudKeyPending,
+    });
+
+    if ($("btn-test-cloud")) {
+      $("btn-test-cloud").addEventListener("click", async () => {
+        if (!hasApi()) return;
+        const msgBox = $("cloud-test-result");
+        if (msgBox) {
+          msgBox.className = "cloud-test-msg muted mt-10";
+          msgBox.textContent = "Menguji koneksi Cloud AI...";
+          msgBox.classList.remove("is-hidden");
+        }
+        try {
+          const res = await callBackendApi("testCloudApi", collectMatcherForm());
+          if (msgBox) {
+            msgBox.className = res && res.ok ? "cloud-test-msg is-ok mt-10" : "cloud-test-msg is-err mt-10";
+            msgBox.textContent = (res && res.message) || "Tidak ada respons.";
+          }
+        } catch (err) {
+          if (msgBox) {
+            msgBox.className = "cloud-test-msg is-err mt-10";
+            msgBox.textContent = String(err || "Gagal menguji koneksi.");
+          }
+        }
+      });
+    }
+
+    if ($("btn-save-matcher")) {
+      $("btn-save-matcher").addEventListener("click", async () => {
+        if (!hasApi()) return;
+        try {
+          const updated = await callBackendApi("saveMatcherConfig", collectMatcherForm());
+          if ($("input-cloud-api-key")) $("input-cloud-api-key").value = "";
+          applyAiProgressPayload(updated);
+          const dlg = $("dialog-ai-setup");
+          if (dlg && dlg.open) dlg.close();
+          showToast(`Pengaturan disimpan (${updated?.active_engine_label || "Built-in Smart"}).`);
+        } catch (err) {
+          showToast(String(err || "Gagal menyimpan pengaturan Match Engine."));
+        }
+      });
+    }
   }
 
   async function onBridgeReady() {

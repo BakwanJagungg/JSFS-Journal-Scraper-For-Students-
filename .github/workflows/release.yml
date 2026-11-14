@@ -32,7 +32,7 @@ jobs:
         run: npm install
 
       - name: Build Tauri Setup Installer & Release Binary
-        run: npx tauri build
+        run: npm run tauri build
 
       - name: Upload Setup Installer & Portable EXE to GitHub Release
         uses: softprops/action-gh-release@v2

@@ -1,7 +1,7 @@
 //! 4-Phase Async Search Pipeline (`start_search` & `stop_search`) implementing Filter-Before-Deep,
 //! Semaphore(32) concurrent OJS crawl, incremental auto-save every 50 journals, and instant cancel.
 
-use crate::ai::ollama;
+use crate::ai::{cloud, ollama};
 use crate::config::{AUTOSAVE_INTERVAL_ITEMS, MAX_WORKERS};
 use crate::error::JsfsError;
 use crate::exporter;
@@ -168,6 +168,7 @@ pub async fn start_search(
     let current_results = state.current_results.clone();
     let last_excel_path = state.last_excel_path.clone();
     let manuscript_guard = state.manuscript.clone();
+    let matcher_cfg_guard = state.matcher_config.clone();
 
     tauri::async_runtime::spawn(async move {
         let started_at = Instant::now();
@@ -426,32 +427,83 @@ pub async fn start_search(
         });
         survivors.truncate(target);
 
-        // ── PHASE 3: Selective Ollama AI Enrichment (8-item cap, 45s budget) ───────
+        // ── PHASE 3: Multi-Provider Match & Selective AI Enrichment ───────────────
+        let active_matcher = matcher_cfg_guard.read().await.clone();
         if params.use_ai && !survivors.is_empty() && !cancel_flag.load(Ordering::Relaxed) {
-            emit_log(
-                &app,
-                "Fase 3: Validasi cerdas AI selektif (maks 8 jurnal prioritas, batas 45 dtk)...",
-            );
             let kpi = compute_kpi(&survivors);
-            ollama::enrich_records_selective(
-                &client,
-                &mut survivors,
-                params.ai_model.as_deref(),
-                cancel_flag.clone(),
-                |d, t, title| {
-                    emit_progress(
+            match active_matcher.normalized_mode() {
+                "cloud" => {
+                    if active_matcher.cloud_api_key.trim().is_empty() {
+                        emit_log(
+                            &app,
+                            "ℹ️ Mode Cloud AI dipilih namun API Key belum diisi — memakai Built-in Smart Matcher.",
+                        );
+                    } else {
+                        let prov = active_matcher.normalized_provider().to_uppercase();
+                        emit_log(
+                            &app,
+                            format!(
+                                "Fase 3: Pengayaan AI Cloud {prov} ({}) untuk maks 8 jurnal prioritas...",
+                                active_matcher.effective_cloud_model()
+                            ),
+                        );
+                        cloud::enrich_records_cloud(
+                            &client,
+                            &mut survivors,
+                            &active_matcher,
+                            cancel_flag.clone(),
+                            |d, t, title| {
+                                emit_progress(
+                                    &app,
+                                    "fase3_ai",
+                                    d,
+                                    t,
+                                    title,
+                                    &format!("Validasi Cloud AI ({d}/{t} jurnal prioritas)..."),
+                                    started_at,
+                                    kpi,
+                                );
+                            },
+                        )
+                        .await;
+                    }
+                }
+                "ollama" => {
+                    emit_log(
                         &app,
-                        "fase3_ai",
-                        d,
-                        t,
-                        title,
-                        &format!("Validasi AI Ollama ({d}/{t} jurnal prioritas)..."),
-                        started_at,
-                        kpi,
+                        "Fase 3: Validasi cerdas AI Ollama selektif (maks 8 jurnal prioritas, batas 45 dtk)...",
                     );
-                },
-            )
-            .await;
+                    let ollama_m = params
+                        .ai_model
+                        .as_deref()
+                        .or(Some(active_matcher.ollama_model.as_str()));
+                    ollama::enrich_records_selective(
+                        &client,
+                        &mut survivors,
+                        ollama_m,
+                        cancel_flag.clone(),
+                        |d, t, title| {
+                            emit_progress(
+                                &app,
+                                "fase3_ai",
+                                d,
+                                t,
+                                title,
+                                &format!("Validasi AI Ollama ({d}/{t} jurnal prioritas)..."),
+                                started_at,
+                                kpi,
+                            );
+                        },
+                    )
+                    .await;
+                }
+                _ => {
+                    emit_log(
+                        &app,
+                        "Fase 3: Built-in Smart Matcher (Bilingual BM25 + Sinonim ID/EN) aktif tanpa perlu AI eksternal.",
+                    );
+                }
+            }
         }
 
         // Recompute final match score after any AI focus enrichment
@@ -463,6 +515,9 @@ pub async fn start_search(
                 rec.match_score = sc;
                 rec.match_label = lbl;
                 rec.match_reasons = rsn;
+                if rec.ai_source.is_empty() {
+                    rec.ai_source = "Built-in Smart (BM25+ID/EN)".to_string();
+                }
             }
         }
 

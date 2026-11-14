@@ -42,9 +42,10 @@ Operasi I/O sinkron (SQLite, ekstraksi ZIP/OOXML `.docx`, parsing `.pdf`, dan pe
 - Dilengkapi `DashMap`-backed `DomainBreaker` untuk mencegah pengulangan permintaan ke host yang bermasalah serta batas baca stream HTML `1.5 MB`.
 - Mengekstrak **APC** (`parser/apc.rs`), **Bulan Terbit** (`parser/month.rs`), **Kontak Editor & Email** termasuk dekode Cloudflare XOR (`parser/contact.rs`), dan **Focus & Scope** (`parser/focus.rs`).
 
-### Fase 3 — Doc Match Scoring & Selective AI (`parser/doc_matcher.rs`, `ai/ollama.rs`)
-- Naskah `.docx` atau `.pdf` diekstrak secara lokal (tanpa dependensi eksternal) dan dihitung skor kecocokan leksikal dwibahasa terhadap *Focus & Scope* jurnal.
-- Jika **Ollama** aktif, pengayaan semantik AI dijalankan secara selektif (maksimal 8 kandidat teratas, batas waktu fase `45` detik, dan *circuit breaker* 5 kali gagal).
+### Fase 3 — Multi-Provider Smart Matcher (`parser/doc_matcher.rs`, `ai/cloud.rs`, `ai/ollama.rs`)
+- **Built-in Smart Matcher (Default Zero-Setup)**: Ekstraksi `.docx`/`.pdf` murni Rust dikombinasikan dengan **Bilingual BM25 + Field-Weighted Scoring + Academic Synonym Dictionary (ID–EN)** untuk menghitung skor kesesuaian (*Match Score*) tanpa dependensi atau instalasi tambahan.
+- **Cloud AI API Opsional (`ai/cloud.rs`)**: Pengayaan selektif via **Groq**, **Google Gemini**, atau **OpenAI-Compatible endpoint** menggunakan API Key opsional dari pengguna (dibatasi maksimal 8 kandidat teratas, anggaran fase `45` detik, dan *circuit breaker*).
+- **Ollama Lokal (`ai/ollama.rs`)**: Opsi *power-user* menggunakan `http://127.0.0.1:11434` dengan batas keamanan yang sama.
 
 ### Fase 4 — Local Cache & Multi-Format Export (`cache.rs`, `exporter/`)
 - Hasil lengkap disimpan di **SQLite WAL mode** (`.cache/jsfs_cache.db`, TTL 14 hari) untuk mempercepat pencarian ulang.

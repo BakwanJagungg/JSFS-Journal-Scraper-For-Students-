@@ -17,10 +17,10 @@
 - **Filter-Before-Deep & Pre-Deep Deduplication**: Menyaring duplikasi ISSN/URL dan memvalidasi peringkat SINTA sebelum melakukan *deep crawl* ke situs OJS penerbit.
 - **Deep OJS Crawler**: Mengekstrak informasi **Biaya Publikasi (APC)**, **Bulan & Jadwal Terbit**, **Kontak Editor (Email / WhatsApp)**, serta **Focus & Scope** langsung dari halaman OJS jurnal.
 
-### 2. AI Semantic Match Score (Opsional via Ollama Lokal)
-- **Analisis Kesesuaian Naskah (`.docx` / `.pdf`)**: Unggah draf artikel untuk menghitung skor kecocokan terhadap *Focus & Scope* jurnal menggunakan pencocokan leksikal + **Ollama Local LLM**.
-- **Privasi Terjamin**: Seluruh pemrosesan AI berjalan 100% lokal di perangkat tanpa mengirim naskah ke layanan cloud pihak ketiga.
-- **Graceful Degradation**: Jika Ollama belum terpasang atau tidak aktif, aplikasi tetap berjalan normal dengan skor berbasis pencocokan teks.
+### 2. Multi-Provider Smart Matcher (Zero-Setup Default)
+- **Built-in Smart Matcher (Default — Tanpa Instalasi)**: Menggunakan mesin **Bilingual BM25 + Academic Synonym Matcher (Indonesia & Inggris)** yang langsung siap pakai (0 detik) tanpa perlu menginstal AI eksternal (memahami padanan seperti *UMKM ↔ SME, pembelajaran ↔ learning, sistem informasi ↔ information system, bisnis ↔ commerce*).
+- **Cloud AI API Opsional (Gratis)**: Mendukung **Groq (`llama-3.1-8b-instant`)**, **Google Gemini (`gemini-2.5-flash`)**, dan **OpenAI-Compatible URL** cukup dengan memasukkan API Key gratis di menu pengaturan.
+- **Ollama Lokal (Power-User)**: Tetap mendukung deteksi otomatis `http://127.0.0.1:11434` bagi pengguna yang mengutamakan LLM lokal privat.
 
 ### 3. Ekspor Multi-Format Siap Pakai
 Hasil pencarian otomatis tersimpan di folder `output/` dalam 4 format:
@@ -43,7 +43,7 @@ Bagi pengguna yang ingin langsung menggunakan aplikasi tanpa menginstal Rust ata
 2. Pada rilis terbaru (**v3.0.0**), unduh salah satu paket berikut:
    - **Setup Installer Windows** (`*_x64-setup.exe` atau `*.msi`) — disarankan untuk instalasi standar.
    - **Portable Executable** (`jsfs.exe`) — dapat langsung dijalankan tanpa instalasi.
-3. *(Opsional)* Instal [Ollama](https://ollama.com/) jika ingin mengaktifkan fitur **AI Semantic Match Score** secara lokal.
+3. *(Opsional)* Jika ingin memakai validasi LLM tambahan, Anda dapat memilih mode **Cloud AI (Groq / Gemini API Key gratis)** atau **Ollama Lokal** langsung dari tombol status **Match Engine** di header aplikasi.
 
 ---
 
