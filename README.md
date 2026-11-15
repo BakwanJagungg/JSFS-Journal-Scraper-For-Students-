@@ -6,16 +6,16 @@
 
 Aplikasi desktop Windows untuk mencari jurnal SINTA, Garuda, dan internasional Q1-Q4, mengecek biaya publikasi (APC), lalu mencocokkannya dengan draf naskah Anda.
 
-[![Release](https://img.shields.io/badge/Release-v4.3.0-2563eb?style=flat-square)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest)
-[![Platform](https://img.shields.io/badge/Windows-10%2F11%2064--bit-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest)
+[![Release](https://img.shields.io/badge/Release-v4.3.0-2563eb?style=flat-square)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v4.3.0)
+[![Platform](https://img.shields.io/badge/Windows-10%2F11%2064--bit-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v4.3.0)
 [![License: MIT](https://img.shields.io/badge/License-MIT-32d74b?style=flat-square)](LICENSE)
 
-[![Download Installer](https://img.shields.io/badge/Download-Installer_Windows_(Setup.exe)-2563eb?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/JSFS-windows-x64-setup.exe)
-[![Download Portable ZIP](https://img.shields.io/badge/Download-Portable_ZIP_(Tanpa_Instal)-059669?style=for-the-badge&logo=github&logoColor=white)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/JSFS-windows-x64-portable.zip)
+[![Download Installer](https://img.shields.io/badge/Download-Installer_Windows_(Setup.exe)-2563eb?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.3.0/JSFS-windows-x64-setup.exe)
+[![Download Portable ZIP](https://img.shields.io/badge/Download-Portable_ZIP_(Tanpa_Instal)-059669?style=for-the-badge&logo=github&logoColor=white)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.3.0/JSFS-windows-x64-portable.zip)
 
-[Download jsfs.exe (Single File)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/jsfs.exe) •
-[SHA256SUMS.txt](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/SHA256SUMS.txt) •
-[Semua Rilis](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases)
+[Download jsfs.exe (Single File)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.3.0/jsfs.exe) •
+[SHA256SUMS.txt](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.3.0/SHA256SUMS.txt) •
+[Semua Rilis](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v4.3.0)
 
 </div>
 
@@ -23,14 +23,14 @@ Aplikasi desktop Windows untuk mencari jurnal SINTA, Garuda, dan internasional Q
 
 | Pilihan Unduhan | Cocok Untuk | Lokasi Hasil Excel |
 | :--- | :--- | :--- |
-| **[Installer Windows (`JSFS-windows-x64-setup.exe`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/JSFS-windows-x64-setup.exe)** | **Direkomendasikan**: pasang rapi dengan ikon Desktop & Start Menu tanpa hak Admin | `Documents\JSFS Output` |
-| **[Portabel ZIP (`JSFS-windows-x64-portable.zip`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/JSFS-windows-x64-portable.zip)** | Langsung ekstrak dan jalankan dari folder mana saja tanpa instalasi | Folder `output\` di samping `jsfs.exe` |
+| **[Installer Windows (`JSFS-windows-x64-setup.exe`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.3.0/JSFS-windows-x64-setup.exe)** | **Direkomendasikan**: pasang rapi dengan ikon Desktop & Start Menu tanpa hak Admin | `Documents\JSFS Output` |
+| **[Portabel ZIP (`JSFS-windows-x64-portable.zip`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.3.0/JSFS-windows-x64-portable.zip)** | Langsung ekstrak dan jalankan dari folder mana saja tanpa instalasi | Folder `output\` di samping `jsfs.exe` |
 
 1. **Unduh** `JSFS-windows-x64-setup.exe` (lalu pasang seperti aplikasi biasa) atau ekstrak `JSFS-windows-x64-portable.zip`.
 2. **Buka JSFS** (tidak perlu Visual C++ Redistributable maupun WebView2).
 3. **Ketik topik skripsi/penelitian** Anda, lalu klik **Mulai Cari Jurnal**.
 
-**Muncul peringatan Windows SmartScreen?** Ini wajar karena JSFS adalah proyek open-source gratis tanpa sertifikat code signing berbayar. Seluruh kode sumber terbuka dan file rilis dibangun otomatis oleh GitHub Actions. Klik **More info** lalu **Run anyway**, atau klik kanan file > **Properties** > centang **Unblock** > **OK**. Untuk memeriksa keaslian file, cocokkan hasil `Get-FileHash <namafile> -Algorithm SHA256` dengan [SHA256SUMS.txt](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/SHA256SUMS.txt).
+**Muncul peringatan Windows SmartScreen?** Ini wajar karena JSFS adalah proyek open-source gratis tanpa sertifikat code signing berbayar. Seluruh kode sumber terbuka dan file rilis dibangun otomatis oleh GitHub Actions. Klik **More info** lalu **Run anyway**, atau klik kanan file > **Properties** > centang **Unblock** > **OK**. Untuk memeriksa keaslian file, cocokkan hasil `Get-FileHash <namafile> -Algorithm SHA256` dengan [SHA256SUMS.txt](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.3.0/SHA256SUMS.txt).
 
 ## Apa yang Bisa Dilakukan JSFS?
 
