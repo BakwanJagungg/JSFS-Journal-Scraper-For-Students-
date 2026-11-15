@@ -4,7 +4,7 @@
 
 # JSFS — Journal Scraper For Students
 
-**Pure Rust Native Desktop App untuk Pencarian, Audit Akurasi APC, dan Pencocokan Naskah ke Jurnal SINTA & Garuda**
+**Pure Rust Native Desktop App untuk Pencarian, Audit Akurasi APC, dan Pencocokan Naskah ke Jurnal SINTA, Garuda & Internasional Q1–Q4**
 
 [![Release](https://img.shields.io/github/v/release/BakwanJagungg/JSFS-Journal-Scraper-For-Students-?style=flat-square&color=0a84ff)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-32d74b?style=flat-square)](LICENSE)
@@ -13,7 +13,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11%20x64-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases)
 
 [Fitur Utama](#fitur-utama) •
-[Evolusi v3 vs v4](#evolusi-arsitektur-v310-vs-v420) •
+[Evolusi v3 vs v4](#evolusi-arsitektur-v310-vs-v430) •
 [Unduh & Jalankan](#unduh--jalankan-langsung) •
 [Arsitektur](#arsitektur-4-fase) •
 [Build dari Source](#build-dari-source-code)
@@ -24,20 +24,20 @@
 
 ## Ringkasan
 
-**JSFS (Journal Scraper For Students) v4.2.0** adalah aplikasi desktop **100% Pure Native Rust** yang dirender langsung di GPU menggunakan **`eframe` / `egui` (`glow` OpenGL)**. Tanpa *browser wrapper*, tanpa WebView2, dan tanpa dependensi Node.js saat runtime, JSFS memindai direktori **SINTA (S1–S6)** dan **Garuda Kemdikbud**, mengaudit biaya publikasi (APC) secara langsung dari halaman OJS jurnal, mendeteksi keaktifan edisi terbit terbaru, serta mencocokkan naskah `.docx`/`.pdf` secara cerdas.
+**JSFS (Journal Scraper For Students) v4.3.0** adalah aplikasi desktop **100% Pure Native Rust** yang dirender langsung di GPU menggunakan **`eframe` / `egui` (`glow` OpenGL)**. Tanpa *browser wrapper*, tanpa WebView2, dan tanpa dependensi Node.js saat runtime, JSFS memindai direktori nasional **SINTA (S1–S6)** dan **Garuda Kemdikbud** sekaligus jurnal internasional bereputasi (**Q1–Q4** via API resmi **OpenAlex** & **DOAJ Diamond OA** tanpa risiko blokir), mengaudit biaya publikasi (APC) secara langsung dari halaman OJS jurnal, mendeteksi keaktifan edisi terbit terbaru, mendukung antarmuka dwibahasa (**Bahasa Indonesia / English**), serta mencocokkan naskah `.docx`/`.pdf` secara cerdas.
 
 ---
 
-## Evolusi Arsitektur: v3.1.0 vs v4.2.0
+## Evolusi Arsitektur: v3.1.0 vs v4.3.0
 
-| Aspek | v3.1.0 (Tauri + WebView2) | v4.2.0 (Pure Rust Native GPU) |
+| Aspek | v3.1.0 (Tauri + WebView2) | v4.3.0 (Pure Rust Native GPU) |
 | :--- | :--- | :--- |
 | **Rendering Antarmuka** | Edge WebView2 (`HTML` / `CSS` / `JS`) | 100% Pure Rust (`eframe` + `egui` + `glow` OpenGL) |
 | **Model Proses** | Multi-proses IPC (WebView2 + Rust Backend) | **Single Native Binary** tanpa lapisan IPC browser |
 | **Dependensi Runtime** | Memerlukan WebView2 Runtime | **Zero Runtime Dependencies** (cukup Windows 10/11 OpenGL) |
 | **Sistem Desain** | Halaman web tunggal & modal DOM | **Sidebar Navigasi Native Modern** + Tema Dark/Daylight Instan |
-| **Tata Letak Navigasi** | Toolbar + modal terpisah | 5 tampilan terstruktur (`Pencarian`, `Filter Lanjutan`, `Match Engine & AI`, `Riwayat & Ekspor`, `Panduan`) |
-| **Ukuran Binary Standalone** | ~9.2 MB (+ WebView2 runtime host) | **~12.1 MB** lengkap ter-embed UI, ikon & *resource manifest* DPI |
+| **Tata Letak Navigasi** | Toolbar + modal terpisah | 6 tampilan terstruktur (`Pencarian`, `Filter Lanjutan`, `Match Engine & AI`, `Riwayat & Ekspor`, `Pengaturan`, `Panduan`) |
+| **Ukuran Binary Standalone** | ~9.2 MB (+ WebView2 runtime host) | **~12.2 MB** lengkap ter-embed UI, ikon & *resource manifest* DPI |
 
 ---
 
@@ -73,7 +73,7 @@
 Pengguna Windows 10/11 (64-bit) dapat langsung menjalankan JSFS tanpa menginstal Rust atau alat pengembang apa pun:
 
 1. Buka halaman **[GitHub Releases](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases)**.
-2. Pada rilis **v4.2.0**, unduh berkas **`jsfs.exe`** atau arsip **`JSFS-v4.2.0-windows-x64-portable.zip`**.
+2. Pada rilis **v4.3.0**, unduh berkas **`jsfs.exe`** atau arsip **`JSFS-v4.3.0-windows-x64-portable.zip`**.
 3. Letakkan `jsfs.exe` pada folder pilihan Anda (folder `.cache/`, `logs/`, dan `output/` akan dibuat otomatis di direktori kerja yang sama) lalu jalankan.
 
 > **Catatan Windows SmartScreen**: Karena executable sumber terbuka ini belum menandatangani sertifikat komersial (*EV Code Signing*), Windows Defender SmartScreen dapat menampilkan dialog *"Windows protected your PC"*. Klik **More info** -> **Run anyway** untuk melanjutkan, atau bangun langsung dari source code di bawah untuk verifikasi mandiri.
@@ -101,15 +101,15 @@ Dokumentasi teknis lengkap tersedia di **[docs/ARCHITECTURE.md](docs/ARCHITECTUR
 │   ├── icon.ico             # Ikon multi-resolusi aplikasi Windows
 │   └── icon.png             # Aset ikon resolusi tinggi untuk README & jendela
 ├── docs/
-│   ├── ARCHITECTURE.md      # Penjelasan arsitektur Pure Rust v4.2.0
+│   ├── ARCHITECTURE.md      # Penjelasan arsitektur Pure Rust v4.3.0
 │   └── CHANGELOG.md         # Riwayat rilis Keep a Changelog
 ├── src/
 │   ├── ai/                  # Cloud AI (Groq/Gemini/OpenAI-compatible) & Ollama lokal
 │   ├── engine/              # Orkerstrasi pencarian, naskah, AI ops, cache & file (EventSink)
 │   ├── exporter/            # Generator ekspor .xlsx, .md, .csv, .txt
 │   ├── parser/              # Parser APC, bulan terbit, kontak, Focus & Scope, BM25 matcher
-│   ├── scraper/             # Scraper SINTA, Garuda, OJS deep crawler & deduplikasi
-│   ├── ui/                  # Antarmuka Pure Native GPU (theme, sidebar, 5 view & modal)
+│   ├── scraper/             # Scraper SINTA, Garuda, OpenAlex/DOAJ (Q1-Q4), OJS deep crawler
+│   ├── ui/                  # Antarmuka Pure Native GPU (i18n ID/EN, sidebar, 6 view & modal)
 │   ├── cache.rs             # SQLite WAL mode cache (TTL 14 hari)
 │   ├── config.rs            # Konstanta versi & direktori runtime
 │   ├── error.rs             # Tipe error terstruktur (thiserror)
@@ -137,7 +137,7 @@ Dokumentasi teknis lengkap tersedia di **[docs/ARCHITECTURE.md](docs/ARCHITECTUR
 git clone https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-.git
 cd JSFS-Journal-Scraper-For-Students-
 
-# 2. Jalankan seluruh unit test (33 test backend & UI state)
+# 2. Jalankan seluruh unit test (35 test backend & UI state)
 cargo test --locked
 
 # 3. Verifikasi bebas warning dengan Clippy

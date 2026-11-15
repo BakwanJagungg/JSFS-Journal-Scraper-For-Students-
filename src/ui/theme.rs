@@ -116,6 +116,7 @@ pub enum VectorIcon {
     Spark,
     Folder,
     Book,
+    Settings,
     SunMoon,
     BrandLogo,
 }
@@ -248,6 +249,34 @@ pub fn card(ui: &mut Ui, p: &Palette, add_contents: impl FnOnce(&mut Ui)) {
         ui.set_min_width(ui.available_width());
         add_contents(ui);
     });
+}
+
+pub fn card_padded(ui: &mut Ui, p: &Palette, pad: i8, add_contents: impl FnOnce(&mut Ui)) {
+    Frame::new()
+        .fill(p.card_bg)
+        .stroke(Stroke::new(1.0, p.line))
+        .corner_radius(CornerRadius::same(10))
+        .inner_margin(Margin::same(pad))
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            add_contents(ui);
+        });
+}
+
+/// Color pair (foreground, background) for international Q1–Q4 accreditation pills.
+pub fn quartile_pill_colors(p: &Palette, q: &str) -> (Color32, Color32) {
+    match q.to_ascii_uppercase().as_str() {
+        "Q1" => (
+            Color32::from_rgb(0xd9, 0x77, 0x06),
+            Color32::from_rgba_unmultiplied(0xf5, 0x9e, 0x0b, 38),
+        ),
+        "Q2" => (
+            Color32::from_rgb(0x93, 0x33, 0xea),
+            Color32::from_rgba_unmultiplied(0xa8, 0x55, 0xf7, 36),
+        ),
+        "Q3" => (p.accent, p.accent_soft),
+        _ => (p.good, p.good_soft),
+    }
 }
 
 pub fn card_divider(ui: &mut Ui, p: &Palette) {
@@ -438,6 +467,20 @@ pub fn draw_vector_icon(painter: &egui::Painter, rect: Rect, icon: VectorIcon, c
                 ],
                 stroke,
             );
+        }
+        VectorIcon::Settings => {
+            painter.circle_stroke(c, s * 0.22, stroke);
+            for step in 0..6 {
+                let ang = (step as f32) * std::f32::consts::TAU / 6.0;
+                let (sin_a, cos_a) = ang.sin_cos();
+                painter.line_segment(
+                    [
+                        Pos2::new(c.x + cos_a * s * 0.25, c.y + sin_a * s * 0.25),
+                        Pos2::new(c.x + cos_a * s * 0.36, c.y + sin_a * s * 0.36),
+                    ],
+                    stroke,
+                );
+            }
         }
         VectorIcon::SunMoon => {
             painter.circle_stroke(c, s * 0.24, stroke);

@@ -4,7 +4,9 @@
 use crate::engine::file_ops::{format_editor_draft, open_url_with_feedback};
 use crate::engine::{EngineEvent, EventSink};
 use crate::models::UiJournalItem;
-use crate::ui::theme::{accent_button, card, pill_badge, secondary_button, Palette};
+use crate::ui::theme::{
+    accent_button, card, pill_badge, quartile_pill_colors, secondary_button, Palette,
+};
 use egui::{Align, CornerRadius, Frame, Layout, Margin, RichText, ScrollArea, Stroke, Ui};
 
 pub fn extract_whatsapp_url(phone: &str) -> Option<String> {
@@ -62,12 +64,21 @@ pub fn render_detail_modal(
                 ui.set_max_width(540.0);
                 ui.label(RichText::new(&j.nama).size(17.5).strong().color(p.text));
                 ui.horizontal_wrapped(|ui| {
-                    let sinta_lbl = if j.sinta.is_empty() {
-                        "Garuda Non-SINTA".to_string()
+                    if let Some(q) = j
+                        .quartile
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                    {
+                        let (q_fg, q_bg) = quartile_pill_colors(p, q);
+                        pill_badge(ui, &format!("Intl {}", q.to_ascii_uppercase()), q_fg, q_bg);
+                    } else if !j.sinta.is_empty() {
+                        pill_badge(ui, &format!("SINTA {}", j.sinta), p.accent, p.accent_soft);
+                    } else if j.is_international {
+                        pill_badge(ui, "Intl OA", p.good, p.good_soft);
                     } else {
-                        format!("SINTA {}", j.sinta)
-                    };
-                    pill_badge(ui, &sinta_lbl, p.accent, p.accent_soft);
+                        pill_badge(ui, "Garuda Non-SINTA", p.accent, p.accent_soft);
+                    }
 
                     let act_fg = if j.is_dormant {
                         p.bad

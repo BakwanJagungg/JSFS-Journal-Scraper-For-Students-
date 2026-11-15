@@ -563,8 +563,8 @@ mod tests {
             parse_apc_from_context("Publication Fee: USD 50"),
             ApcParsed::Paid {
                 currency: "USD".to_string(),
-                display: "USD 50 (~Rp 875.000)".to_string(),
-                amount_idr: 875_000,
+                display: "USD 50 (~Rp 825.000)".to_string(),
+                amount_idr: 825_000,
                 raw_amount: "50".to_string(),
             }
         );

@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-pub const APP_VERSION: &str = "4.2.0";
-pub const CACHE_VERSION: &str = "4.2.0";
+pub const APP_VERSION: &str = "4.3.0";
+pub const CACHE_VERSION: &str = "4.3.0";
 pub const CACHE_TTL_DAYS: i64 = 14;
 pub const MAX_WORKERS: usize = 32;
 pub const OJS_HARD_TIMEOUT_MS: u64 = 5500;
@@ -29,7 +29,7 @@ pub const DEAD_LINK_TEXT: &str = "Situs tidak dapat diakses";
 pub const TIMEOUT_APC_LABEL: &str = "Cek Web / Timeout";
 pub const APC_UNKNOWN: &str = "Tidak dicantumkan (Cek Web)";
 
-pub const USD_TO_IDR_RATE: i64 = 17_500;
+pub const USD_TO_IDR_RATE: i64 = 16_500;
 pub const APC_SANITY_MIN_IDR: i64 = 50_000;
 pub const APC_SANITY_MAX_IDR: i64 = 15_000_000;
 
@@ -75,6 +75,10 @@ pub fn matcher_config_path() -> PathBuf {
 
 pub fn search_history_path() -> PathBuf {
     cache_dir().join("search_history.json")
+}
+
+pub fn app_settings_path() -> PathBuf {
+    cache_dir().join("app_settings.json")
 }
 
 /// Persisted user preference for JSFS Match Engine (`builtin` | `cloud` | `ollama`).

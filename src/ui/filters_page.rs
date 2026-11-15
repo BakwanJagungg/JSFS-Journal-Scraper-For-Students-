@@ -1,6 +1,7 @@
 //! Advanced search criteria arranged in System-Settings grouped cards.
 
 use crate::engine::{EngineEvent, EventSink};
+use crate::ui::i18n::{t, AppLanguage};
 use crate::ui::state::{FilterSettings, QuickPreset, MONTH_NAMES};
 use crate::ui::theme::{card, card_divider, page_header, secondary_button, toggle_row, Palette};
 use egui::{Align2, CornerRadius, Frame, Margin, RichText, ScrollArea, Sense, Stroke, Ui};
@@ -25,22 +26,19 @@ fn selectable_chip(ui: &mut Ui, p: &Palette, active: bool, text: &str) -> bool {
 pub fn render_filters_page(
     ui: &mut Ui,
     p: &Palette,
+    lang: AppLanguage,
     filters: &mut FilterSettings,
     target_text: &mut String,
     sink: &EventSink,
 ) {
-    page_header(
-        ui,
-        p,
-        "Filter Lanjutan",
-        "Kendalikan akreditasi SINTA, bulan terbit, batas anggaran APC, keaktifan jurnal, dan format ekspor.",
-    );
+    let txt = t(lang);
+    page_header(ui, p, txt.filters_title, txt.filters_subtitle);
 
     ScrollArea::vertical().show(ui, |ui| {
-        // Card 1: SINTA & Portal Sources
+        // Card 1: SINTA, Q1–Q4 & Portal Sources
         card(ui, p, |ui| {
             ui.label(
-                RichText::new("Peringkat SINTA & Portal Sumber")
+                RichText::new(txt.filters_card1)
                     .size(13.5)
                     .strong()
                     .color(p.text),
@@ -56,6 +54,26 @@ pub fn render_filters_page(
                         &format!("SINTA {}", rank + 1),
                     ) {
                         filters.sinta_enabled[rank] = !filters.sinta_enabled[rank];
+                        filters.active_preset = QuickPreset::Custom;
+                    }
+                }
+            });
+
+            ui.add_space(8.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.label(
+                    RichText::new(txt.filters_intl_section)
+                        .size(12.0)
+                        .color(p.muted),
+                );
+                for q_idx in 0..4 {
+                    if selectable_chip(
+                        ui,
+                        p,
+                        filters.quartile_enabled[q_idx],
+                        &format!("Q{}", q_idx + 1),
+                    ) {
+                        filters.quartile_enabled[q_idx] = !filters.quartile_enabled[q_idx];
                         filters.active_preset = QuickPreset::Custom;
                     }
                 }
@@ -95,6 +113,21 @@ pub fn render_filters_page(
                 "Mengambil peringkat akreditasi resmi SINTA 1–6 sebagai prioritas utama.",
             );
             card_divider(ui, p);
+            let mut intl_on = filters.openalex || filters.doaj;
+            if toggle_row(
+                ui,
+                p,
+                &mut intl_on,
+                txt.filters_intl_toggle,
+                txt.filters_intl_hint,
+            )
+            .changed()
+            {
+                filters.openalex = intl_on;
+                filters.doaj = intl_on;
+                filters.active_preset = QuickPreset::Custom;
+            }
+            card_divider(ui, p);
             toggle_row(
                 ui,
                 p,
@@ -110,7 +143,7 @@ pub fn render_filters_page(
         card(ui, p, |ui| {
             ui.horizontal(|ui| {
                 ui.label(
-                    RichText::new("Jadwal Bulan Terbit (1–12)")
+                    RichText::new(txt.filters_months_card)
                         .size(13.5)
                         .strong()
                         .color(p.text),
@@ -160,7 +193,7 @@ pub fn render_filters_page(
         // Card 3: Budget APC & Activity Quality Gate
         card(ui, p, |ui| {
             ui.label(
-                RichText::new("Anggaran APC & Audit Keaktifan")
+                RichText::new(txt.filters_budget_card)
                     .size(13.5)
                     .strong()
                     .color(p.text),
@@ -234,7 +267,7 @@ pub fn render_filters_page(
         // Card 4: AI & Export Formats
         card(ui, p, |ui| {
             ui.label(
-                RichText::new("Validasi Cerdas & Format Ekspor")
+                RichText::new(txt.filters_ai_card)
                     .size(13.5)
                     .strong()
                     .color(p.text),
@@ -265,7 +298,7 @@ pub fn render_filters_page(
                 ui.checkbox(&mut filters.fmt_csv, "CSV (.csv)");
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if secondary_button(ui, p, "Reset Filter Default").clicked() {
+                    if secondary_button(ui, p, txt.filters_reset_btn).clicked() {
                         *filters = FilterSettings::default();
                         *target_text = filters.target_count.to_string();
                         sink.send(EngineEvent::Toast("Filter dikembalikan ke default.".to_string()));

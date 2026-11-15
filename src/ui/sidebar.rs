@@ -1,6 +1,7 @@
 //! Left navigation sidebar with JSFS brand identity, live engine indicator,
 //! grouped colored icon tiles, active filter badges, and instant JSFS Dark / Daylight theme toggle.
 
+use crate::ui::i18n::{t, AppLanguage};
 use crate::ui::theme::{draw_vector_icon, Palette, ThemeMode, VectorIcon};
 use egui::{
     Align, Color32, CornerRadius, Frame, Layout, Margin, Rect, RichText, Sense, Stroke, StrokeKind,
@@ -13,6 +14,7 @@ pub enum NavPage {
     Filters,
     MatchEngine,
     History,
+    Settings,
     Guide,
 }
 
@@ -24,6 +26,7 @@ pub struct SidebarProps<'a> {
     pub result_count: usize,
     pub active_filter_count: usize,
     pub theme_mode: ThemeMode,
+    pub lang: AppLanguage,
 }
 
 pub struct SidebarAction {
@@ -37,6 +40,7 @@ fn tile_color(page: NavPage) -> Color32 {
         NavPage::Filters => Color32::from_rgb(0x5e, 0x5c, 0xe6),
         NavPage::MatchEngine => Color32::from_rgb(0x30, 0xb9, 0x4d),
         NavPage::History => Color32::from_rgb(0xff, 0x9f, 0x0a),
+        NavPage::Settings => Color32::from_rgb(0x64, 0x74, 0x8b),
         NavPage::Guide => Color32::from_rgb(0x32, 0xad, 0xe6),
     }
 }
@@ -47,17 +51,20 @@ fn nav_icon(page: NavPage) -> VectorIcon {
         NavPage::Filters => VectorIcon::Sliders,
         NavPage::MatchEngine => VectorIcon::Spark,
         NavPage::History => VectorIcon::Folder,
+        NavPage::Settings => VectorIcon::Settings,
         NavPage::Guide => VectorIcon::Book,
     }
 }
 
-fn nav_label(page: NavPage) -> &'static str {
+fn nav_label(page: NavPage, lang: AppLanguage) -> &'static str {
+    let txt = t(lang);
     match page {
-        NavPage::Search => "Pencarian Jurnal",
-        NavPage::Filters => "Filter Lanjutan",
-        NavPage::MatchEngine => "Match Engine & AI",
-        NavPage::History => "Riwayat & Ekspor",
-        NavPage::Guide => "Panduan & Tentang",
+        NavPage::Search => txt.nav_search,
+        NavPage::Filters => txt.nav_filters,
+        NavPage::MatchEngine => txt.nav_match,
+        NavPage::History => txt.nav_history,
+        NavPage::Settings => txt.nav_settings,
+        NavPage::Guide => txt.nav_guide,
     }
 }
 
@@ -65,6 +72,7 @@ fn draw_nav_item(
     ui: &mut Ui,
     p: &Palette,
     page: NavPage,
+    lang: AppLanguage,
     active: bool,
     badge: Option<String>,
     dot_color: Option<Color32>,
@@ -114,7 +122,7 @@ fn draw_nav_item(
     ui.painter().text(
         egui::pos2(tile_rect.right() + 9.0, rect.center().y),
         egui::Align2::LEFT_CENTER,
-        nav_label(page),
+        nav_label(page, lang),
         egui::FontId::proportional(13.0),
         text_color,
     );
@@ -194,8 +202,9 @@ pub fn render_sidebar(ui: &mut Ui, p: &Palette, props: SidebarProps<'_>) -> Side
                 };
                 ui.painter().circle_filled(dot_r.center(), 3.6, dot_c);
 
+                let txt = t(props.lang);
                 let short_status = if props.is_searching {
-                    "Mencari..."
+                    txt.status_searching
                 } else {
                     props
                         .engine_label
@@ -232,7 +241,7 @@ pub fn render_sidebar(ui: &mut Ui, p: &Palette, props: SidebarProps<'_>) -> Side
     ];
 
     for (page, badge, dot) in items {
-        if draw_nav_item(ui, p, page, props.current == page, badge, dot) {
+        if draw_nav_item(ui, p, page, props.lang, props.current == page, badge, dot) {
             action.selected = Some(page);
         }
         ui.add_space(2.0);
@@ -254,7 +263,21 @@ pub fn render_sidebar(ui: &mut Ui, p: &Palette, props: SidebarProps<'_>) -> Side
     if draw_nav_item(
         ui,
         p,
+        NavPage::Settings,
+        props.lang,
+        props.current == NavPage::Settings,
+        None,
+        None,
+    ) {
+        action.selected = Some(NavPage::Settings);
+    }
+    ui.add_space(2.0);
+
+    if draw_nav_item(
+        ui,
+        p,
         NavPage::Guide,
+        props.lang,
         props.current == NavPage::Guide,
         None,
         None,
@@ -283,7 +306,11 @@ pub fn render_sidebar(ui: &mut Ui, p: &Palette, props: SidebarProps<'_>) -> Side
                                 .color(p.text),
                         );
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            ui.label(RichText::new("Ubah").size(11.0).color(p.accent));
+                            ui.label(
+                                RichText::new(t(props.lang).theme_change)
+                                    .size(11.0)
+                                    .color(p.accent),
+                            );
                         });
                     })
                     .response

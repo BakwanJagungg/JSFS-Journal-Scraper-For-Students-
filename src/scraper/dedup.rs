@@ -67,6 +67,32 @@ fn is_empty_field(val: &str) -> bool {
 
 fn merge_into(dst: &mut JournalRecord, src: JournalRecord) {
     let src_has_sinta = src.sinta_rank_num().is_some();
+    let src_quartile_rank = src.quartile_rank_num();
+    let src_apc_known = src.apc_category() != "unknown";
+
+    dst.is_international = dst.is_international || src.is_international;
+    if let Some(src_q) = src_quartile_rank {
+        let take_src_q = dst.quartile_rank_num().is_none_or(|dst_q| src_q < dst_q);
+        if take_src_q {
+            dst.quartile = src.quartile;
+        }
+    }
+    if dst.apc_category() == "unknown" && src_apc_known {
+        dst.apc_status = src.apc_status;
+        dst.publication_fee = src.publication_fee;
+        dst.publication_fee_idr = src.publication_fee_idr;
+        dst.fee_currency = src.fee_currency;
+        dst.fee_amount = src.fee_amount;
+        if !src.apc_evidence.is_empty() {
+            dst.apc_evidence = src.apc_evidence;
+        }
+    }
+    if dst.last_issue_year.is_none() && src.last_issue_year.is_some() {
+        dst.last_issue_year = src.last_issue_year;
+        dst.activity_status = src.activity_status;
+        dst.is_dormant = src.is_dormant;
+    }
+
     if is_empty_field(&dst.publisher) && !is_empty_field(&src.publisher) {
         dst.publisher = src.publisher;
     }

@@ -5,13 +5,14 @@ use crate::engine::file_ops::open_url_with_feedback;
 use crate::engine::manuscript::ManuscriptSummary;
 use crate::engine::EventSink;
 use crate::models::UiJournalItem;
+use crate::ui::i18n::{t, AppLanguage};
 use crate::ui::state::{
     activity_badge_label, filtered_sorted_indices, format_duration, ApcFilter, AppState,
     FilterSettings, QuickPreset, SearchProgressView, SortColumn,
 };
 use crate::ui::theme::{
-    accent_button_h, card, danger_button_h, page_header, pill_badge, secondary_button,
-    secondary_button_h, Palette,
+    accent_button_h, card, danger_button_h, page_header, pill_badge, quartile_pill_colors,
+    secondary_button, secondary_button_h, Palette,
 };
 use egui::{
     Align, Align2, CornerRadius, Frame, Layout, Margin, ProgressBar, RichText, ScrollArea, Sense,
@@ -97,6 +98,7 @@ fn render_kpi_strip(ui: &mut Ui, p: &Palette, items: [(&str, usize, egui::Color3
 pub fn render_search_page(
     ui: &mut Ui,
     p: &Palette,
+    lang: AppLanguage,
     keyword: &mut String,
     target_text: &mut String,
     filters: &mut FilterSettings,
@@ -114,12 +116,13 @@ pub fn render_search_page(
     sink: &EventSink,
 ) -> SearchPageAction {
     let mut action = SearchPageAction::None;
+    let txt = t(lang);
 
     ScrollArea::vertical()
         .id_salt("search_page_scroll")
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            page_header(ui, p, "Pencarian Jurnal SINTA & Garuda", "");
+            page_header(ui, p, txt.search_title, "");
 
     // ── Card 1: Hero Search & Quick Presets ─────────────────────────────────
     card(ui, p, |ui| {
@@ -132,13 +135,13 @@ pub fn render_search_page(
                     egui::TextEdit::singleline(keyword)
                         .align(Align2::LEFT_CENTER)
                         .margin(Margin::symmetric(10, 7))
-                        .hint_text("Ketik topik skripsi (mis. sistem informasi, akuntansi, UMKM)..."),
+                        .hint_text(txt.keyword_hint),
                 );
                 if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                     enter_pressed = true;
                 }
 
-                ui.label(RichText::new("Target:").size(13.0).color(p.muted));
+                ui.label(RichText::new(txt.target_label).size(13.0).color(p.muted));
                 let tgt_resp = ui.add_sized(
                     [54.0, 36.0],
                     egui::TextEdit::singleline(target_text)
@@ -153,7 +156,7 @@ pub fn render_search_page(
                     }
                 }
 
-                if secondary_button_h(ui, p, "Unggah Naskah", 36.0).clicked() {
+                if secondary_button_h(ui, p, txt.upload_ms, 36.0).clicked() {
                     if let Some(path) = rfd::FileDialog::new()
                         .add_filter("Dokumen Naskah", &["docx", "pdf"])
                         .pick_file()
@@ -163,17 +166,17 @@ pub fn render_search_page(
                 }
 
                 if is_searching {
-                    if danger_button_h(ui, p, "Hentikan", 36.0).clicked() {
+                    if danger_button_h(ui, p, txt.stop_search, 36.0).clicked() {
                         action = SearchPageAction::StopSearch;
                     }
-                } else if accent_button_h(ui, p, "Mulai Cari Jurnal", 36.0).clicked() || enter_pressed {
+                } else if accent_button_h(ui, p, txt.start_search, 36.0).clicked() || enter_pressed {
                     if let Ok(n) = target_text.trim().parse::<usize>() {
                         filters.clamp_target(n);
                     }
                     action = SearchPageAction::StartSearch;
                 }
 
-                if secondary_button_h(ui, p, "Filter", 36.0).clicked() {
+                if secondary_button_h(ui, p, txt.filter_btn, 36.0).clicked() {
                     action = SearchPageAction::NavigateFilters;
                 }
             });
@@ -188,7 +191,7 @@ pub fn render_search_page(
                     p.good,
                     p.good_soft,
                 );
-                if secondary_button(ui, p, "Hapus Naskah").clicked() {
+                if secondary_button(ui, p, txt.remove_ms).clicked() {
                     action = SearchPageAction::ClearManuscript;
                 }
             });
@@ -197,30 +200,30 @@ pub fn render_search_page(
         ui.add_space(8.0);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
-            ui.label(RichText::new("Preset:").size(12.0).color(p.muted));
+            ui.label(RichText::new(txt.preset_label).size(12.0).color(p.muted));
             let presets = [
                 (
                     QuickPreset::SkripsiS1,
-                    "Target Skripsi S1",
+                    txt.preset_skripsi,
                     "SINTA 3-5, APC <= Rp 1,5 jt",
                     p.accent,
                 ),
                 (
                     QuickPreset::JurnalGratis,
-                    "Jurnal Gratis (Rp 0)",
-                    "Bebas biaya publikasi (APC Rp 0)",
+                    txt.preset_free,
+                    "Bebas biaya publikasi (APC Rp 0 / Diamond OA)",
                     p.good,
                 ),
                 (
                     QuickPreset::TerbitTerdekat,
-                    "Terbit Terdekat",
+                    txt.preset_soon,
                     "Jadwal terbit 1-3 bulan ke depan",
                     p.warn,
                 ),
                 (
                     QuickPreset::ReputasiTinggi,
-                    "Reputasi Tinggi",
-                    "Fokus SINTA 1 & 2 / Nasional A",
+                    txt.preset_high,
+                    "Fokus SINTA 1 & 2 / Q1 & Q2 Internasional",
                     egui::Color32::from_rgb(0xbf, 0x5a, 0xf2),
                 ),
             ];
@@ -269,10 +272,10 @@ pub fn render_search_page(
         ui,
         p,
         [
-            ("Total Jurnal", kpi_total, p.text),
-            ("Gratis Rp 0", kpi_free, p.good),
-            ("Berbayar", kpi_paid, p.warn),
-            ("Terbit 1-3 Bln", kpi_fast, p.accent),
+            (txt.kpi_total, kpi_total, p.text),
+            (txt.kpi_free, kpi_free, p.good),
+            (txt.kpi_paid, kpi_paid, p.warn),
+            (txt.kpi_soon, kpi_fast, p.accent),
         ],
     );
 
@@ -292,9 +295,9 @@ pub fn render_search_page(
                 pill_badge(ui, &rate_txt, p.muted, p.control_bg);
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let log_lbl = if *show_logs {
-                        "Tutup Log"
+                        txt.hide_log
                     } else {
-                        "Log Teknis"
+                        txt.show_log
                     };
                     if secondary_button(ui, p, log_lbl).clicked() {
                         *show_logs = !*show_logs;
@@ -354,9 +357,9 @@ pub fn render_search_page(
                 );
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let log_lbl = if *show_logs {
-                        "Tutup Log"
+                        txt.hide_log
                     } else {
-                        "Log Teknis"
+                        txt.show_log
                     };
                     if secondary_button(ui, p, log_lbl).clicked() {
                         *show_logs = !*show_logs;
@@ -475,10 +478,10 @@ pub fn render_search_page(
 
         // Table Toolbar
         ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new("Hasil Pencarian").size(14.5).strong().color(p.text));
+            ui.label(RichText::new(txt.results_heading).size(14.5).strong().color(p.text));
             pill_badge(
                 ui,
-                &format!("{} / {} jurnal", filtered.len(), results.len()),
+                &format!("{} / {} {}", filtered.len(), results.len(), txt.results_unit),
                 p.accent,
                 p.accent_soft,
             );
@@ -489,7 +492,7 @@ pub fn render_search_page(
                 (p.text, p.control_bg, p.line)
             };
             let bm_btn = egui::Button::new(
-                RichText::new(format!("★ Pilihan ({bm_count})"))
+                RichText::new(format!("★ {} ({bm_count})", txt.shortlisted_btn))
                     .size(12.0)
                     .strong()
                     .color(bm_fg),
@@ -514,7 +517,7 @@ pub fn render_search_page(
                     action = SearchPageAction::OpenExcel;
                 }
                 if ui
-                    .add_enabled_ui(!filtered.is_empty(), |ui| secondary_button(ui, p, "Salin WA"))
+                    .add_enabled_ui(!filtered.is_empty(), |ui| secondary_button(ui, p, txt.copy_wa_btn))
                     .inner
                     .on_hover_text("Salin daftar jurnal tampil ke clipboard (format WhatsApp)")
                     .clicked()
@@ -531,14 +534,14 @@ pub fn render_search_page(
                     .selected_text(match *sort_col {
                         SortColumn::MatchScore => "Urut: Match",
                         SortColumn::Cost => "Urut: Biaya",
-                        SortColumn::Sinta => "Urut: SINTA",
+                        SortColumn::Sinta => "Urut: SINTA / Q",
                         SortColumn::Activity => "Urut: Keaktifan",
                         SortColumn::Title => "Urut: Nama",
                     })
                     .show_ui(ui, |ui| {
                         ui.selectable_value(sort_col, SortColumn::MatchScore, "Match Score");
                         ui.selectable_value(sort_col, SortColumn::Cost, "Biaya (APC)");
-                        ui.selectable_value(sort_col, SortColumn::Sinta, "Peringkat SINTA");
+                        ui.selectable_value(sort_col, SortColumn::Sinta, "Peringkat SINTA / Q1–Q4");
                         ui.selectable_value(sort_col, SortColumn::Activity, "Tahun Edisi Terakhir");
                         ui.selectable_value(sort_col, SortColumn::Title, "Nama Jurnal (A-Z)");
                     });
@@ -555,7 +558,7 @@ pub fn render_search_page(
                 ui.add_sized(
                     [175.0, 26.0],
                     egui::TextEdit::singleline(table_filter)
-                        .hint_text("Filter nama, penerbit, email..."),
+                        .hint_text(txt.filter_table_hint),
                 );
             });
         });
@@ -580,12 +583,12 @@ pub fn render_search_page(
             table
                 .header(28.0, |mut header| {
                     for title in [
-                        "Jurnal & Penerbit",
-                        "SINTA",
-                        "Match",
-                        "Biaya APC",
-                        "Keaktifan & Terbit",
-                        "Aksi",
+                        txt.col_journal,
+                        txt.col_accred,
+                        txt.col_match,
+                        txt.col_apc,
+                        txt.col_activity,
+                        txt.col_action,
                     ] {
                         header.col(|ui| {
                             table_cell(ui, |ui| {
@@ -633,12 +636,26 @@ pub fn render_search_page(
 
                         row.col(|ui| {
                             table_cell(ui, |ui| {
-                                let sinta_txt = if item.sinta.is_empty() {
-                                    "Garuda".to_string()
+                                if let Some(q) = item
+                                    .quartile
+                                    .as_deref()
+                                    .map(str::trim)
+                                    .filter(|s| !s.is_empty())
+                                {
+                                    let (q_fg, q_bg) = quartile_pill_colors(p, q);
+                                    pill_badge(ui, &q.to_ascii_uppercase(), q_fg, q_bg);
+                                } else if !item.sinta.is_empty() {
+                                    pill_badge(
+                                        ui,
+                                        &format!("SINTA {}", item.sinta),
+                                        p.accent,
+                                        p.accent_soft,
+                                    );
+                                } else if item.is_international {
+                                    pill_badge(ui, "Intl OA", p.good, p.good_soft);
                                 } else {
-                                    format!("SINTA {}", item.sinta)
-                                };
-                                pill_badge(ui, &sinta_txt, p.accent, p.accent_soft);
+                                    pill_badge(ui, "Garuda", p.accent, p.accent_soft);
+                                }
                             });
                         });
 

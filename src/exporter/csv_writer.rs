@@ -29,10 +29,7 @@ pub fn write_csv(path: &Path, records: &[JournalRecord]) -> Result<(), JsfsError
     )?;
 
     for (i, r) in records.iter().enumerate() {
-        let sinta = r
-            .sinta_rank_num()
-            .map(|n| format!("SINTA {n}"))
-            .unwrap_or_else(|| "Garuda".to_string());
+        let sinta = r.accreditation_label();
         let url = if r.website_url.starts_with("http") {
             &r.website_url
         } else {

@@ -40,7 +40,15 @@ pub fn select_top_recommendations(
                 score += 12.0;
                 reasons.push("Terbit Terdekat".to_string());
             }
-            if let Some(rank) = r.sinta_rank_num() {
+            if let Some(q) = r.quartile_rank_num() {
+                score += match q {
+                    1 => 12.0,
+                    2 => 10.0,
+                    3 => 7.0,
+                    _ => 5.0,
+                };
+                reasons.push(format!("Internasional Q{q}"));
+            } else if let Some(rank) = r.sinta_rank_num() {
                 score += match rank {
                     1 | 2 => 10.0,
                     3 | 4 => 8.0,
@@ -161,10 +169,7 @@ pub fn write_xlsx(path: &Path, records: &[JournalRecord]) -> Result<(), JsfsErro
     for (idx, r) in records.iter().enumerate() {
         let row = (idx + 1) as u32;
         let base_fmt = if idx % 2 == 0 { &cell_even } else { &cell_odd };
-        let sinta = r
-            .sinta_rank_num()
-            .map(|n| format!("SINTA {n}"))
-            .unwrap_or_else(|| "Garuda".to_string());
+        let sinta = r.accreditation_label();
         let apc_fmt = match r.apc_category() {
             "free" => &free_fmt,
             "paid" => &paid_fmt,
@@ -238,10 +243,7 @@ pub fn write_xlsx(path: &Path, records: &[JournalRecord]) -> Result<(), JsfsErro
     for (idx, rec) in top3.iter().enumerate() {
         let row = (idx + 3) as u32;
         let r = rec.record;
-        let sinta = r
-            .sinta_rank_num()
-            .map(|n| format!("SINTA {n}"))
-            .unwrap_or_else(|| "Garuda".to_string());
+        let sinta = r.accreditation_label();
         let url_str = if r.website_url.starts_with("http") {
             &r.website_url
         } else {
@@ -282,10 +284,7 @@ pub fn write_xlsx(path: &Path, records: &[JournalRecord]) -> Result<(), JsfsErro
     for (idx, r) in records.iter().enumerate() {
         let row = (idx + 1) as u32;
         let base_fmt = if idx % 2 == 0 { &cell_even } else { &cell_odd };
-        let sinta = r
-            .sinta_rank_num()
-            .map(|n| format!("SINTA {n}"))
-            .unwrap_or_else(|| "Garuda".to_string());
+        let sinta = r.accreditation_label();
         let url_str = if r.website_url.starts_with("http") {
             &r.website_url
         } else {

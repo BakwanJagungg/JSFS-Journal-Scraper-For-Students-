@@ -8,7 +8,7 @@ use crate::error::JsfsError;
 use crate::exporter;
 use crate::models::{JournalRecord, ProgressEvent, SearchParams, UiJournalItem};
 use crate::parser::{doc_matcher, month};
-use crate::scraper::{dedup, garuda, ojs_deep, sinta, DomainBreaker};
+use crate::scraper::{dedup, garuda, international, ojs_deep, sinta, DomainBreaker};
 use chrono::{Datelike, Local};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -83,11 +83,23 @@ fn emit_progress(
     }));
 }
 
-fn filter_sinta_tier(
+fn filter_accreditation_tier(
     rec: &JournalRecord,
     allowed_ranks: &[u8],
     include_non_sinta_garuda: bool,
+    allowed_quartiles: &[String],
+    filter_quartiles: bool,
 ) -> bool {
+    if rec.is_international {
+        if !filter_quartiles && allowed_quartiles.is_empty() {
+            return true;
+        }
+        return rec.quartile.as_deref().is_some_and(|q| {
+            allowed_quartiles
+                .iter()
+                .any(|aq| aq.eq_ignore_ascii_case(q))
+        });
+    }
     if allowed_ranks.is_empty() {
         return true;
     }
@@ -112,14 +124,20 @@ fn filter_apc_tier(rec: &JournalRecord, params: &SearchParams) -> bool {
     }
 }
 
-/// Strict post-crawl & post-AI filter gate enforcing `sinta`, `include_non_sinta_garuda`,
+/// Strict post-crawl & post-AI filter gate enforcing `sinta`, `quartiles`, `include_non_sinta_garuda`,
 /// `exclude_dormant`, `only_free`, `min_rp..=max_rp`, `include_na`, and publish months.
 pub fn apply_strict_filters(records: &mut Vec<JournalRecord>, params: &SearchParams) {
     let allowed_ranks = params.normalized_sinta_ranks();
+    let allowed_quartiles = params.normalized_quartiles();
     let selected_months = params.normalized_months();
     records.retain(|r| {
-        filter_sinta_tier(r, &allowed_ranks, params.include_non_sinta_garuda)
-            && (!params.exclude_dormant || !r.is_dormant)
+        filter_accreditation_tier(
+            r,
+            &allowed_ranks,
+            params.include_non_sinta_garuda,
+            &allowed_quartiles,
+            params.filter_quartiles,
+        ) && (!params.exclude_dormant || !r.is_dormant)
             && month::lolos_filter_bulan(
                 &r.publish_month_nums,
                 &selected_months,
@@ -165,6 +183,7 @@ pub fn start_search(
         let started_at = Instant::now();
         let target = params.effective_target();
         let sinta_ranks = params.normalized_sinta_ranks();
+        let allowed_quartiles = params.normalized_quartiles();
         let breaker = Arc::new(DomainBreaker::new());
         let kw_label = keywords.join(", ");
 
@@ -245,10 +264,54 @@ pub fn start_search(
                     if hit_cf {
                         emit_log(
                             &app_c,
-                            "⚠️ SINTA membatasi akses HTTP paralel (Cloudflare); hasil Garuda tetap diproses.",
+                            "⚠️ SINTA membatasi akses HTTP paralel (Cloudflare); hasil Garuda/Internasional tetap diproses.",
                         );
                     }
                     rows
+                });
+            }
+            if params.openalex {
+                let c = client.clone();
+                let kw_c = kw.clone();
+                let cf = cancel_flag.clone();
+                let app_c = app.clone();
+                let rate = params.usd_to_idr;
+                portal_tasks.spawn(async move {
+                    international::scrape_openalex(&c, &kw_c, rate, cf, |d, t, msg| {
+                        emit_progress(
+                            &app_c,
+                            "fase1_portal",
+                            d,
+                            t,
+                            msg,
+                            "Mengakses OpenAlex Q1–Q4 API...",
+                            started_at,
+                            (0, 0, 0, 0),
+                        );
+                    })
+                    .await
+                });
+            }
+            if params.doaj {
+                let c = client.clone();
+                let kw_c = kw.clone();
+                let cf = cancel_flag.clone();
+                let app_c = app.clone();
+                let rate = params.usd_to_idr;
+                portal_tasks.spawn(async move {
+                    international::scrape_doaj(&c, &kw_c, rate, cf, |d, t, msg| {
+                        emit_progress(
+                            &app_c,
+                            "fase1_portal",
+                            d,
+                            t,
+                            msg,
+                            "Mengakses DOAJ Diamond OA API...",
+                            started_at,
+                            (0, 0, 0, 0),
+                        );
+                    })
+                    .await
                 });
             }
         }
@@ -271,11 +334,19 @@ pub fn start_search(
             return;
         }
 
-        // Deduplicate cross-source and apply Filter-Before-Deep on SINTA tier
+        // Deduplicate cross-source and apply Filter-Before-Deep on SINTA / Q1-Q4 tiers
         let deduped = dedup::deduplicate_and_merge(raw_candidates);
         let mut deep_pool: Vec<JournalRecord> = deduped
             .into_iter()
-            .filter(|r| filter_sinta_tier(r, &sinta_ranks, params.include_non_sinta_garuda))
+            .filter(|r| {
+                filter_accreditation_tier(
+                    r,
+                    &sinta_ranks,
+                    params.include_non_sinta_garuda,
+                    &allowed_quartiles,
+                    params.filter_quartiles,
+                )
+            })
             .collect();
         let deep_cap = (target * 2).clamp(40, 1200);
         deep_pool.truncate(deep_cap);
@@ -303,6 +374,9 @@ pub fn start_search(
                     return (idx, rec);
                 };
                 if cf.load(Ordering::Relaxed) {
+                    return (idx, rec);
+                }
+                if rec.is_international && rec.garuda_url.is_empty() && rec.sinta_url.is_empty() {
                     return (idx, rec);
                 }
                 let enriched = ojs_deep::deep_enrich_record(&c, br, db, rec, cf).await;

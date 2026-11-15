@@ -1,4 +1,4 @@
-//! Quick targeted sharing/exporting, search & filter session history, SQLite cache maintenance, and logs.
+//! Quick targeted sharing/exporting, search & filter session history, SQLite cache maintenance, and collapsible logs.
 
 use crate::engine::cache_ops::clear_cache_async;
 use crate::engine::file_ops::{
@@ -7,13 +7,15 @@ use crate::engine::file_ops::{
 };
 use crate::engine::{EngineEvent, EngineState, EventSink};
 use crate::models::UiJournalItem;
+use crate::ui::i18n::{t, AppLanguage};
 use crate::ui::state::{
     select_records_for_scope, ApcFilter, AppState, ExportScope, SearchHistoryEntry, SortColumn,
 };
 use crate::ui::theme::{
-    accent_button, card, card_divider, page_header, pill_badge, secondary_button, Palette,
+    accent_button, card_divider, card_padded, page_header, pill_badge, secondary_button, Palette,
 };
 use egui::{Align, CornerRadius, Frame, Layout, Margin, RichText, ScrollArea, Stroke, Ui, Vec2};
+use std::path::Path;
 use std::sync::Arc;
 
 pub enum HistoryPageAction {
@@ -22,10 +24,28 @@ pub enum HistoryPageAction {
     ApplyHistoryFilter(usize),
 }
 
+fn scope_label_localized(scope: ExportScope, lang: AppLanguage) -> &'static str {
+    match lang {
+        AppLanguage::Id => match scope {
+            ExportScope::All => "Semua Hasil",
+            ExportScope::BookmarkedOnly => "Hanya ★ Pilihan",
+            ExportScope::FreeOnly => "Hanya Gratis (Rp 0)",
+            ExportScope::TableFiltered => "Sesuai Filter Tabel",
+        },
+        AppLanguage::En => match scope {
+            ExportScope::All => "All Results",
+            ExportScope::BookmarkedOnly => "★ Shortlist Only",
+            ExportScope::FreeOnly => "Free Only (Rp 0)",
+            ExportScope::TableFiltered => "Current Table Filter",
+        },
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn render_history_page(
     ui: &mut Ui,
     p: &Palette,
+    lang: AppLanguage,
     results: &[UiJournalItem],
     selected_idx: Option<usize>,
     keyword: &str,
@@ -38,17 +58,14 @@ pub fn render_history_page(
     last_excel_path: Option<&str>,
     cache_count: usize,
     logs: &mut Vec<String>,
+    show_history_logs: &mut bool,
     engine: &Arc<EngineState>,
     sink: &EventSink,
 ) -> HistoryPageAction {
     let mut action = HistoryPageAction::None;
+    let txt = t(lang);
 
-    page_header(
-        ui,
-        p,
-        "Riwayat & Ekspor",
-        "Ekspor selektif, salin email redaksi & WhatsApp, serta muat ulang riwayat sesi & filter.",
-    );
+    page_header(ui, p, txt.history_title, txt.history_subtitle);
 
     ScrollArea::vertical().show(ui, |ui| {
         let scoped = select_records_for_scope(
@@ -62,26 +79,30 @@ pub fn render_history_page(
         );
         let has_scoped = !scoped.is_empty();
 
-        card(ui, p, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(
-                    RichText::new("Berbagi & Ekspor Selektif")
-                        .size(13.5)
-                        .strong()
-                        .color(p.text),
-                );
-                pill_badge(
-                    ui,
-                    &format!("{} jurnal siap ekspor", scoped.len()),
-                    p.accent,
-                    p.accent_soft,
-                );
-            });
+        card_padded(ui, p, 12, |ui| {
+            ui.label(
+                RichText::new(txt.export_card_title)
+                    .size(13.5)
+                    .strong()
+                    .color(p.text),
+            );
             ui.add_space(6.0);
 
+            // Sub-section 1: Data Scope + right-aligned ready badge
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(txt.sub_sec_1).size(11.5).strong().color(p.muted));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    pill_badge(
+                        ui,
+                        &format!("{} {}", scoped.len(), txt.export_ready_suffix),
+                        p.accent,
+                        p.accent_soft,
+                    );
+                });
+            });
+            ui.add_space(4.0);
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
-                ui.label(RichText::new("Cakupan Data:").size(12.0).color(p.muted));
                 for scope in ExportScope::ALL {
                     let active = app_state.export_scope == scope;
                     let (fg, fill, border) = if active {
@@ -89,7 +110,8 @@ pub fn render_history_page(
                     } else {
                         (p.text, p.control_bg, p.line)
                     };
-                    let chip = egui::Button::new(RichText::new(scope.label()).size(11.5).strong().color(fg))
+                    let lbl = scope_label_localized(scope, lang);
+                    let chip = egui::Button::new(RichText::new(lbl).size(11.5).strong().color(fg))
                         .fill(fill)
                         .stroke(Stroke::new(if active { 1.4 } else { 1.0 }, border))
                         .corner_radius(CornerRadius::same(14))
@@ -100,12 +122,18 @@ pub fn render_history_page(
                 }
             });
 
-            ui.add_space(8.0);
+            card_divider(ui, p);
 
+            // Sub-section 2: Save & Open Report Files
+            ui.label(RichText::new(txt.sub_sec_2).size(11.5).strong().color(p.muted));
+            ui.add_space(4.0);
             ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
                 let scope = app_state.export_scope;
+                let scope_lbl = scope_label_localized(scope, lang);
+
                 if ui
-                    .add_enabled_ui(has_scoped, |ui| accent_button(ui, p, "Ekspor Excel (.xlsx)"))
+                    .add_enabled_ui(has_scoped, |ui| accent_button(ui, p, txt.btn_export_xlsx))
                     .inner
                     .clicked()
                 {
@@ -117,12 +145,12 @@ pub fn render_history_page(
                         keyword.to_string(),
                         "xlsx",
                         scope.slug(),
-                        scope.label(),
+                        scope_lbl,
                     );
                 }
 
                 if ui
-                    .add_enabled_ui(has_scoped, |ui| secondary_button(ui, p, "Ekspor Markdown (.md)"))
+                    .add_enabled_ui(has_scoped, |ui| secondary_button(ui, p, txt.btn_export_md))
                     .inner
                     .clicked()
                 {
@@ -134,12 +162,12 @@ pub fn render_history_page(
                         keyword.to_string(),
                         "md",
                         scope.slug(),
-                        scope.label(),
+                        scope_lbl,
                     );
                 }
 
                 if ui
-                    .add_enabled_ui(has_scoped, |ui| secondary_button(ui, p, "Ekspor CSV (.csv)"))
+                    .add_enabled_ui(has_scoped, |ui| secondary_button(ui, p, txt.btn_export_csv))
                     .inner
                     .clicked()
                 {
@@ -151,12 +179,57 @@ pub fn render_history_page(
                         keyword.to_string(),
                         "csv",
                         scope.slug(),
-                        scope.label(),
+                        scope_lbl,
                     );
                 }
 
+                if secondary_button(ui, p, txt.btn_open_last_xlsx).clicked() {
+                    open_excel_async(
+                        engine.clone(),
+                        sink.clone(),
+                        last_excel_path.map(ToString::to_string),
+                    );
+                }
+            });
+
+            if let Some(path) = last_excel_path {
+                let fname = Path::new(path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(path);
+                ui.add_space(4.0);
+                ui.label(
+                    RichText::new(format!("Excel: {fname}"))
+                        .size(11.5)
+                        .color(p.muted),
+                )
+                .on_hover_text(path);
+            }
+
+            card_divider(ui, p);
+
+            // Sub-section 3: Quick Copy to Clipboard (WhatsApp & Email)
+            ui.label(RichText::new(txt.sub_sec_3).size(11.5).strong().color(p.muted));
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
                 if ui
-                    .add_enabled_ui(has_scoped, |ui| secondary_button(ui, p, "Salin Email Redaksi"))
+                    .add_enabled_ui(has_scoped, |ui| secondary_button(ui, p, txt.btn_copy_wa))
+                    .inner
+                    .clicked()
+                {
+                    let text = format_wa_share_from_ui(&scoped);
+                    ui.ctx().copy_text(text);
+                    sink.send(EngineEvent::Toast(format!(
+                        "{} {} ({}) disalin ke clipboard.",
+                        scoped.len(),
+                        txt.results_unit,
+                        scope_label_localized(app_state.export_scope, lang)
+                    )));
+                }
+
+                if ui
+                    .add_enabled_ui(has_scoped, |ui| secondary_button(ui, p, txt.btn_copy_emails))
                     .inner
                     .clicked()
                 {
@@ -168,33 +241,14 @@ pub fn render_history_page(
                     } else {
                         ui.ctx().copy_text(emails);
                         sink.send(EngineEvent::Toast(format!(
-                            "{count} alamat email redaksi ({}) disalin ke clipboard.",
-                            scope.label()
+                            "{count} email redaksi disalin ke clipboard."
                         )));
                     }
-                }
-            });
-
-            ui.add_space(6.0);
-
-            ui.horizontal_wrapped(|ui| {
-                if ui
-                    .add_enabled_ui(has_scoped, |ui| secondary_button(ui, p, "Salin Daftar WA"))
-                    .inner
-                    .clicked()
-                {
-                    let text = format_wa_share_from_ui(&scoped);
-                    ui.ctx().copy_text(text);
-                    sink.send(EngineEvent::Toast(format!(
-                        "Daftar WA untuk {} jurnal ({}) disalin ke clipboard.",
-                        scoped.len(),
-                        app_state.export_scope.label()
-                    )));
                 }
 
                 if ui
                     .add_enabled_ui(!results.is_empty(), |ui| {
-                        secondary_button(ui, p, "Salin Draf Chat Editor")
+                        secondary_button(ui, p, txt.btn_copy_draft)
                     })
                     .inner
                     .clicked()
@@ -210,39 +264,22 @@ pub fn render_history_page(
                         target.nama
                     )));
                 }
-
-                if secondary_button(ui, p, "Buka File Excel Terakhir").clicked() {
-                    open_excel_async(
-                        engine.clone(),
-                        sink.clone(),
-                        last_excel_path.map(ToString::to_string),
-                    );
-                }
             });
-
-            if let Some(path) = last_excel_path {
-                ui.add_space(6.0);
-                ui.label(
-                    RichText::new(format!("Excel terakhir: {path}"))
-                        .size(11.5)
-                        .color(p.muted),
-                );
-            }
         });
 
-        ui.add_space(12.0);
+        ui.add_space(10.0);
 
-        card(ui, p, |ui| {
+        card_padded(ui, p, 12, |ui| {
             ui.horizontal(|ui| {
                 ui.label(
-                    RichText::new("Riwayat Pencarian & Filter")
+                    RichText::new(txt.history_card_title)
                         .size(13.5)
                         .strong()
                         .color(p.text),
                 );
                 pill_badge(
                     ui,
-                    &format!("{} sesi tersimpan", search_history.len()),
+                    &format!("{} {}", search_history.len(), txt.sessions_saved_suffix),
                     p.accent,
                     p.accent_soft,
                 );
@@ -263,7 +300,7 @@ pub fn render_history_page(
                         .fill(p.control_bg)
                         .stroke(Stroke::new(1.0, p.line))
                         .corner_radius(CornerRadius::same(8))
-                        .inner_margin(Margin::symmetric(10, 8))
+                        .inner_margin(Margin::symmetric(10, 7))
                         .show(ui, |ui| {
                             ui.set_min_width(ui.available_width());
                             ui.horizontal(|ui| {
@@ -284,7 +321,7 @@ pub fn render_history_page(
                                 );
                                 pill_badge(
                                     ui,
-                                    &format!("{} jurnal", entry.total_found),
+                                    &format!("{} {}", entry.total_found, txt.results_unit),
                                     p.accent,
                                     p.accent_soft,
                                 );
@@ -296,12 +333,12 @@ pub fn render_history_page(
                                 );
 
                                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                    if secondary_button(ui, p, "Terapkan Filter").clicked() {
+                                    if secondary_button(ui, p, txt.apply_filter_btn).clicked() {
                                         action = HistoryPageAction::ApplyHistoryFilter(idx);
                                     }
                                     if ui
                                         .add_enabled_ui(!entry.records.is_empty(), |ui| {
-                                            accent_button(ui, p, "Muat Hasil")
+                                            accent_button(ui, p, txt.load_results_btn)
                                         })
                                         .inner
                                         .clicked()
@@ -320,11 +357,11 @@ pub fn render_history_page(
             }
         });
 
-        ui.add_space(12.0);
+        ui.add_space(10.0);
 
-        card(ui, p, |ui| {
+        card_padded(ui, p, 12, |ui| {
             ui.label(
-                RichText::new("Folder Output & Cache SQLite")
+                RichText::new(txt.folder_cache_card)
                     .size(13.5)
                     .strong()
                     .color(p.text),
@@ -349,19 +386,33 @@ pub fn render_history_page(
             });
         });
 
-        ui.add_space(12.0);
+        ui.add_space(10.0);
 
-        card(ui, p, |ui| {
+        card_padded(ui, p, 12, |ui| {
             ui.horizontal(|ui| {
                 ui.label(
-                    RichText::new("Log Aktivitas & Diagnostik")
+                    RichText::new(txt.logs_card_title)
                         .size(13.5)
                         .strong()
                         .color(p.text),
                 );
+                pill_badge(
+                    ui,
+                    &format!("{} baris", logs.len()),
+                    p.muted,
+                    p.control_bg,
+                );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if secondary_button(ui, p, "Bersihkan Tampilan Log").clicked() {
+                    if secondary_button(ui, p, "Bersihkan Log").clicked() {
                         logs.clear();
+                    }
+                    let toggle_lbl = if *show_history_logs {
+                        txt.hide_full_log
+                    } else {
+                        txt.show_full_log
+                    };
+                    if secondary_button(ui, p, toggle_lbl).clicked() {
+                        *show_history_logs = !*show_history_logs;
                     }
                 });
             });
@@ -374,26 +425,38 @@ pub fn render_history_page(
                 .inner_margin(Margin::same(10))
                 .show(ui, |ui| {
                     ui.set_min_width(ui.available_width());
-                    ScrollArea::vertical()
-                        .max_height(260.0)
-                        .stick_to_bottom(true)
-                        .show(ui, |ui| {
-                            if logs.is_empty() {
-                                ui.label(
-                                    RichText::new("Belum ada aktivitas scraping di sesi ini.")
-                                        .size(12.0)
-                                        .color(p.muted),
-                                );
-                            } else {
+                    if logs.is_empty() {
+                        ui.label(
+                            RichText::new("Belum ada aktivitas scraping di sesi ini.")
+                                .size(12.0)
+                                .color(p.muted),
+                        );
+                    } else if *show_history_logs {
+                        ScrollArea::vertical()
+                            .max_height(260.0)
+                            .stick_to_bottom(true)
+                            .show(ui, |ui| {
                                 for line in logs.iter() {
                                     ui.label(
                                         RichText::new(line).monospace().size(11.5).color(p.text),
                                     );
                                 }
-                            }
-                        });
+                            });
+                    } else {
+                        let start = logs.len().saturating_sub(5);
+                        for line in &logs[start..] {
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(line).monospace().size(11.5).color(p.text),
+                                )
+                                .truncate(),
+                            );
+                        }
+                    }
                 });
         });
+
+        ui.add_space(24.0);
     });
 
     action

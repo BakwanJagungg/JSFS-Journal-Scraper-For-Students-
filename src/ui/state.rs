@@ -132,6 +132,10 @@ pub struct FilterSettings {
     pub sinta_enabled: [bool; 6],
     pub garuda: bool,
     pub sinta_src: bool,
+    pub openalex: bool,
+    pub doaj: bool,
+    pub quartile_enabled: [bool; 4],
+    pub usd_to_idr: i64,
     pub include_non_sinta_garuda: bool,
     pub months: [bool; 12],
     pub include_unknown_month: bool,
@@ -157,6 +161,10 @@ impl Default for FilterSettings {
             sinta_enabled: [false, false, true, true, true, false], // SINTA 3, 4, 5
             garuda: true,
             sinta_src: true,
+            openalex: true,
+            doaj: true,
+            quartile_enabled: [true; 4],
+            usd_to_idr: crate::config::USD_TO_IDR_RATE,
             include_non_sinta_garuda: false,
             months: [true; 12],
             include_unknown_month: true,
@@ -177,6 +185,18 @@ impl Default for FilterSettings {
 }
 
 impl FilterSettings {
+    pub fn apply_app_settings(&mut self, cfg: &crate::ui::i18n::AppSettings) {
+        self.garuda = cfg.default_garuda;
+        self.sinta_src = cfg.default_sinta;
+        self.openalex = cfg.default_openalex;
+        self.doaj = cfg.default_doaj;
+        self.usd_to_idr = if cfg.usd_to_idr >= 1_000 {
+            cfg.usd_to_idr
+        } else {
+            crate::config::USD_TO_IDR_RATE
+        };
+    }
+
     pub fn clamp_target(&mut self, val: usize) {
         self.target_count = val.clamp(1, crate::config::MAX_TARGET_COUNT);
     }
@@ -263,7 +283,11 @@ impl FilterSettings {
         if self.max_rp > 0 && self.max_rp < 15_000_000 {
             count += 1;
         }
-        if !self.garuda || !self.sinta_src {
+        if !self.garuda || !self.sinta_src || self.openalex || self.doaj {
+            count += 1;
+        }
+        let q_count = self.quartile_enabled.iter().filter(|&&b| b).count();
+        if (self.openalex || self.doaj) && q_count < 4 {
             count += 1;
         }
         if self.include_non_sinta_garuda {
@@ -358,6 +382,13 @@ impl FilterSettings {
         }
 
         let clean_kw = keyword.trim().to_string();
+        let quartiles: Vec<String> = self
+            .quartile_enabled
+            .iter()
+            .enumerate()
+            .filter(|&(_, &on)| on)
+            .map(|(i, _)| format!("Q{}", i + 1))
+            .collect();
         SearchParams {
             keywords: clean_kw
                 .split(',')
@@ -373,6 +404,15 @@ impl FilterSettings {
             ai_model: (!ollama_model.trim().is_empty()).then_some(ollama_model.to_string()),
             garuda: self.garuda,
             sinta_src: self.sinta_src,
+            openalex: self.openalex,
+            doaj: self.doaj,
+            filter_quartiles: self.openalex || self.doaj,
+            quartiles,
+            usd_to_idr: if self.usd_to_idr >= 1_000 {
+                self.usd_to_idr
+            } else {
+                crate::config::USD_TO_IDR_RATE
+            },
             only_free: self.only_free,
             include_na: self.include_na,
             include_unknown: self.include_unknown_month,
@@ -564,9 +604,19 @@ pub fn filtered_sorted_indices(
                 .to_ascii_lowercase()
                 .cmp(&rb.nama.to_ascii_lowercase()),
             SortColumn::Sinta => {
-                let sa = ra.sinta.parse::<u8>().unwrap_or(99);
-                let sb = rb.sinta.parse::<u8>().unwrap_or(99);
-                sa.cmp(&sb)
+                let rank_of = |it: &UiJournalItem| -> u8 {
+                    if let Some(q) = it.quartile.as_deref() {
+                        match q.to_ascii_uppercase().as_str() {
+                            "Q1" => return 1,
+                            "Q2" => return 2,
+                            "Q3" => return 3,
+                            "Q4" => return 4,
+                            _ => {}
+                        }
+                    }
+                    it.sinta.parse::<u8>().unwrap_or(99)
+                };
+                rank_of(ra).cmp(&rank_of(rb))
             }
             SortColumn::Cost => ra.biaya_sort.cmp(&rb.biaya_sort),
             SortColumn::Activity => {

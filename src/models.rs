@@ -53,6 +53,10 @@ pub struct JournalRecord {
     pub is_dormant: bool,
     #[serde(default)]
     pub apc_evidence: String,
+    #[serde(default)]
+    pub quartile: Option<String>,
+    #[serde(default)]
+    pub is_international: bool,
 }
 
 /// Compute human-readable journal activity label and dormancy flag against `current_year`.
@@ -89,6 +93,8 @@ impl JournalRecord {
         if self.publication_fee_idr == Some(0)
             || s.contains("gratis")
             || s.contains("rp 0")
+            || s.contains("diamond oa")
+            || s.contains("$0")
             || s.contains("bebas biaya")
         {
             return "free";
@@ -115,6 +121,34 @@ impl JournalRecord {
             }
         }
         None
+    }
+
+    /// Extract international quartile numeric rank (`Q1` -> 1 .. `Q4` -> 4).
+    pub fn quartile_rank_num(&self) -> Option<u8> {
+        match self.quartile.as_deref().map(str::trim) {
+            Some(q) if q.eq_ignore_ascii_case("Q1") => Some(1),
+            Some(q) if q.eq_ignore_ascii_case("Q2") => Some(2),
+            Some(q) if q.eq_ignore_ascii_case("Q3") => Some(3),
+            Some(q) if q.eq_ignore_ascii_case("Q4") => Some(4),
+            _ => None,
+        }
+    }
+
+    /// Human-readable accreditation label covering Q1–Q4 international quartiles and SINTA 1–6.
+    pub fn accreditation_label(&self) -> String {
+        match (
+            self.sinta_rank_num(),
+            self.quartile
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty()),
+        ) {
+            (Some(s), Some(q)) => format!("SINTA {s} / {}", q.to_ascii_uppercase()),
+            (None, Some(q)) => q.to_ascii_uppercase(),
+            (Some(s), None) => format!("SINTA {s}"),
+            (None, None) if self.is_international => "Intl OA".to_string(),
+            (None, None) => "Garuda".to_string(),
+        }
     }
 
     /// Sort key in IDR for APC column (`0` for free, numeric IDR for paid, `i64::MAX` for unknown).
@@ -167,6 +201,8 @@ pub struct UiJournalItem {
     pub activity_status: String,
     pub is_dormant: bool,
     pub apc_evidence: String,
+    pub quartile: Option<String>,
+    pub is_international: bool,
 }
 
 impl From<&JournalRecord> for UiJournalItem {
@@ -253,6 +289,8 @@ impl From<&JournalRecord> for UiJournalItem {
             },
             is_dormant: r.is_dormant,
             apc_evidence: r.apc_evidence.clone(),
+            quartile: r.quartile.clone(),
+            is_international: r.is_international,
         }
     }
 }
@@ -316,6 +354,8 @@ impl From<&UiJournalItem> for JournalRecord {
             last_issue_year: it.last_issue_year,
             activity_status: it.activity_status.clone(),
             is_dormant: it.is_dormant,
+            quartile: it.quartile.clone(),
+            is_international: it.is_international,
             ..Default::default()
         }
     }
@@ -346,6 +386,10 @@ fn default_max_rp() -> i64 {
     15_000_000
 }
 
+fn default_usd_rate() -> i64 {
+    crate::config::USD_TO_IDR_RATE
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct SearchParams {
     #[serde(default)]
@@ -366,6 +410,16 @@ pub struct SearchParams {
     pub garuda: bool,
     #[serde(default = "default_true")]
     pub sinta_src: bool,
+    #[serde(default)]
+    pub openalex: bool,
+    #[serde(default)]
+    pub doaj: bool,
+    #[serde(default)]
+    pub quartiles: Vec<String>,
+    #[serde(default)]
+    pub filter_quartiles: bool,
+    #[serde(default = "default_usd_rate")]
+    pub usd_to_idr: i64,
     #[serde(default)]
     pub only_free: bool,
     #[serde(default = "default_true")]
@@ -468,6 +522,18 @@ impl SearchParams {
 
     pub fn effective_target(&self) -> usize {
         self.target_count.clamp(1, crate::config::MAX_TARGET_COUNT)
+    }
+
+    pub fn normalized_quartiles(&self) -> Vec<String> {
+        let mut qs = Vec::new();
+        for raw in &self.quartiles {
+            let up = raw.trim().to_ascii_uppercase();
+            if matches!(up.as_str(), "Q1" | "Q2" | "Q3" | "Q4") && !qs.contains(&up) {
+                qs.push(up);
+            }
+        }
+        qs.sort();
+        qs
     }
 }
 

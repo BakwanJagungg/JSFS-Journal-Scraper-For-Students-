@@ -4,8 +4,10 @@ pub mod detail_modal;
 pub mod filters_page;
 pub mod guide_page;
 pub mod history_page;
+pub mod i18n;
 pub mod match_engine_page;
 pub mod search_page;
+pub mod settings_page;
 pub mod sidebar;
 pub mod state;
 pub mod theme;
@@ -19,8 +21,10 @@ use crate::ui::detail_modal::render_detail_modal;
 use crate::ui::filters_page::render_filters_page;
 use crate::ui::guide_page::render_guide_page;
 use crate::ui::history_page::{render_history_page, HistoryPageAction};
+use crate::ui::i18n::{load_app_settings, save_app_settings, t, AppSettings};
 use crate::ui::match_engine_page::render_match_engine_page;
 use crate::ui::search_page::{render_search_page, SearchPageAction};
+use crate::ui::settings_page::render_settings_page;
 use crate::ui::sidebar::{render_sidebar, NavPage, SidebarProps};
 use crate::ui::state::{
     load_search_history, record_search_history, ApcFilter, AppState, FilterSettings,
@@ -58,8 +62,12 @@ pub struct JsfsNativeApp {
     progress: SearchProgressView,
     logs: Vec<String>,
     show_logs: bool,
+    show_history_logs: bool,
     last_excel_path: Option<String>,
     search_history: Vec<SearchHistoryEntry>,
+
+    app_settings: AppSettings,
+    usd_rate_text: String,
 
     ai_status: AiStatusExtended,
     matcher_form: MatcherFormState,
@@ -71,7 +79,12 @@ pub struct JsfsNativeApp {
 impl JsfsNativeApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         load_crisp_fonts(&cc.egui_ctx);
-        let theme_mode = ThemeMode::Dark;
+        let app_settings = load_app_settings();
+        let theme_mode = if app_settings.dark_theme {
+            ThemeMode::Dark
+        } else {
+            ThemeMode::Light
+        };
         apply_theme(&cc.egui_ctx, &Palette::from_mode(theme_mode));
 
         let engine = Arc::new(EngineState::new());
@@ -80,8 +93,10 @@ impl JsfsNativeApp {
         sink.bind_egui_ctx(cc.egui_ctx.clone());
 
         refresh_ai_status_async(engine.clone(), sink.clone());
-        let filters = FilterSettings::default();
+        let mut filters = FilterSettings::default();
+        filters.apply_app_settings(&app_settings);
         let target_text = filters.target_count.to_string();
+        let usd_rate_text = app_settings.usd_to_idr.to_string();
 
         Self {
             engine,
@@ -104,8 +119,11 @@ impl JsfsNativeApp {
             progress: SearchProgressView::default(),
             logs: Vec::new(),
             show_logs: false,
+            show_history_logs: false,
             last_excel_path: None,
             search_history: load_search_history(),
+            app_settings,
+            usd_rate_text,
             ai_status: AiStatusExtended {
                 active_engine_label: "Match Engine: Built-in Smart".to_string(),
                 matcher_mode: "builtin".to_string(),
@@ -268,12 +286,17 @@ impl JsfsNativeApp {
     }
 
     fn trigger_search(&mut self) {
+        let txt = t(self.app_settings.language);
         if self.keyword.trim().is_empty() {
-            self.set_toast("Ketik topik atau kata kunci penelitian terlebih dahulu.");
+            self.set_toast(txt.toast_empty_kw);
             return;
         }
-        if !self.filters.garuda && !self.filters.sinta_src {
-            self.set_toast("Aktifkan minimal satu portal (Garuda / SINTA) di Filter Lanjutan.");
+        if !self.filters.garuda
+            && !self.filters.sinta_src
+            && !self.filters.openalex
+            && !self.filters.doaj
+        {
+            self.set_toast(txt.toast_no_portal);
             return;
         }
         if let Ok(n) = self.target_text.trim().parse::<usize>() {
@@ -341,6 +364,7 @@ impl eframe::App for JsfsNativeApp {
                         result_count: self.results.len(),
                         active_filter_count: self.filters.active_filter_count(),
                         theme_mode: self.theme_mode,
+                        lang: self.app_settings.language,
                     },
                 );
                 if let Some(page) = side_action.selected {
@@ -348,6 +372,8 @@ impl eframe::App for JsfsNativeApp {
                 }
                 if side_action.toggle_theme {
                     self.theme_mode = self.theme_mode.toggled();
+                    self.app_settings.dark_theme = self.theme_mode == ThemeMode::Dark;
+                    let _ = save_app_settings(&self.app_settings);
                     apply_theme(ui.ctx(), &Palette::from_mode(self.theme_mode));
                 }
             });
@@ -364,6 +390,7 @@ impl eframe::App for JsfsNativeApp {
                     let act = render_search_page(
                         ui,
                         &p,
+                        self.app_settings.language,
                         &mut self.keyword,
                         &mut self.target_text,
                         &mut self.filters,
@@ -384,7 +411,7 @@ impl eframe::App for JsfsNativeApp {
                         SearchPageAction::StartSearch => self.trigger_search(),
                         SearchPageAction::StopSearch => {
                             stop_search(&self.engine);
-                            self.set_toast("Menghentikan pencarian...");
+                            self.set_toast(t(self.app_settings.language).toast_stopping);
                         }
                         SearchPageAction::PickManuscript(path) => {
                             load_manuscript_async(self.engine.clone(), self.sink.clone(), path);
@@ -428,6 +455,7 @@ impl eframe::App for JsfsNativeApp {
                     render_filters_page(
                         ui,
                         &p,
+                        self.app_settings.language,
                         &mut self.filters,
                         &mut self.target_text,
                         &self.sink,
@@ -437,6 +465,7 @@ impl eframe::App for JsfsNativeApp {
                     render_match_engine_page(
                         ui,
                         &p,
+                        self.app_settings.language,
                         &mut self.matcher_form,
                         &self.ai_status,
                         &self.engine,
@@ -447,6 +476,7 @@ impl eframe::App for JsfsNativeApp {
                     match render_history_page(
                         ui,
                         &p,
+                        self.app_settings.language,
                         &self.results,
                         self.selected_idx,
                         &self.keyword,
@@ -459,6 +489,7 @@ impl eframe::App for JsfsNativeApp {
                         self.last_excel_path.as_deref(),
                         self.ai_status.cache_count,
                         &mut self.logs,
+                        &mut self.show_history_logs,
                         &self.engine,
                         &self.sink,
                     ) {
@@ -515,8 +546,19 @@ impl eframe::App for JsfsNativeApp {
                         HistoryPageAction::None => {}
                     }
                 }
+                NavPage::Settings => {
+                    render_settings_page(
+                        ui,
+                        &p,
+                        &mut self.app_settings,
+                        &mut self.theme_mode,
+                        &mut self.filters,
+                        &mut self.usd_rate_text,
+                        &self.sink,
+                    );
+                }
                 NavPage::Guide => {
-                    render_guide_page(ui, &p, &self.sink);
+                    render_guide_page(ui, &p, self.app_settings.language, &self.sink);
                 }
             });
 

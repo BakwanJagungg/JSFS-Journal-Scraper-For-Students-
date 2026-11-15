@@ -34,10 +34,7 @@ pub fn write_markdown(
     ];
 
     for (i, r) in records.iter().enumerate() {
-        let sinta = r
-            .sinta_rank_num()
-            .map(|n| format!("S{n}"))
-            .unwrap_or_else(|| "Garuda".to_string());
+        let sinta = r.accreditation_label();
         let apc = if r.apc_status.is_empty() {
             APC_UNKNOWN
         } else {

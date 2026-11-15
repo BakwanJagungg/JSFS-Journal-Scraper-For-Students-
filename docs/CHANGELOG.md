@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.3.0] - 2026-11-15
+
+### Added
+- **Official International Q1–Q4 Discovery via OpenAlex & DOAJ (`src/scraper/international.rs`, `src/models.rs`, `src/engine/search.rs`)**:
+  - Added open REST integrations for **OpenAlex Sources API** (with polite-pool `User-Agent`) and **DOAJ Journals API** with zero Cloudflare blocking.
+  - Added `quartile` (`Q1`–`Q4` mapped from `2yr_mean_citedness`, `h_index`, and DOAJ status), `is_international`, Diamond OA detection (`Gratis (Diamond OA • $0)`), configurable USD-to-IDR conversion (`$150 (~Rp 2,5 jt)`), and color-coded `Q1`–`Q4` badges in the results table, detail modal, and `.xlsx`/`.md`/`.csv` exports.
+- **Settings Page & Bilingual ID/EN UI (`src/ui/i18n.rs`, `src/ui/settings_page.rs`, `src/ui/sidebar.rs`, `src/ui/filters_page.rs`)**:
+  - Added `AppLanguage { Id, En }` live UI localization across sidebar navigation, page headings, search toolbar, filters, history/export controls, and notifications.
+  - Added **Pengaturan / Settings** sidebar view with instant language & theme toggles, default portal toggles (Garuda, SINTA, OpenAlex, DOAJ), custom USD-to-IDR exchange rate (default `16.500`), and automatic persistence in `.cache/app_settings.json`.
+  - Added `Q1`–`Q4` quartile filter pills and the `Portal Internasional (OpenAlex & DOAJ)` toggle in `Filter Lanjutan`.
+
+### Improved
+- **History & Export Layout Redesign (`src/ui/history_page.rs`)**:
+  - Split targeted export controls into 3 clearly labeled vertical sub-sections (`1. Pilih Data...`, `2. Simpan & Buka File Laporan`, `3. Salin Cepat ke Clipboard`), reduced card spacing/padding (`10px` gap / `12px` padding), compacted recent Excel path display with hover tooltip, made the Activity Log card collapsible, and added bottom scroll clearance so no controls clip at window edges.
+
+---
+
 ## [4.2.0] - 2026-11-15
 
 ### Added

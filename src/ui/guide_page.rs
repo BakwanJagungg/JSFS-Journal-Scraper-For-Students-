@@ -3,18 +3,15 @@
 use crate::config::APP_VERSION;
 use crate::engine::file_ops::open_url_with_feedback;
 use crate::engine::EventSink;
+use crate::ui::i18n::{t, AppLanguage};
 use crate::ui::theme::{accent_button, card, card_divider, page_header, pill_badge, Palette};
 use egui::{RichText, ScrollArea, Ui};
 
 const REPO_URL: &str = "https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-";
 
-pub fn render_guide_page(ui: &mut Ui, p: &Palette, sink: &EventSink) {
-    page_header(
-        ui,
-        p,
-        "Panduan & Tentang JSFS",
-        "Panduan ringkas mencari jurnal terakreditasi yang tepat untuk tugas akhir dan publikasi mahasiswa.",
-    );
+pub fn render_guide_page(ui: &mut Ui, p: &Palette, lang: AppLanguage, sink: &EventSink) {
+    let txt = t(lang);
+    page_header(ui, p, txt.guide_title, txt.guide_subtitle);
 
     ScrollArea::vertical().show(ui, |ui| {
         card(ui, p, |ui| {

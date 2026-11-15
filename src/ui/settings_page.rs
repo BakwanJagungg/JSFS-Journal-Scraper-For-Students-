@@ -1,0 +1,278 @@
+//! Application Settings page: instant ID/EN language switcher, theme selector, default portals, and USD-IDR rate.
+
+use crate::engine::{EngineEvent, EventSink};
+use crate::ui::i18n::{save_app_settings, t, AppLanguage, AppSettings};
+use crate::ui::state::{parse_idr_input, FilterSettings};
+use crate::ui::theme::{
+    accent_button, apply_theme, card, card_divider, page_header, secondary_button, toggle_row,
+    Palette, ThemeMode,
+};
+use egui::{Align2, Color32, CornerRadius, Frame, Margin, RichText, ScrollArea, Sense, Stroke, Ui};
+
+fn option_pill(ui: &mut Ui, p: &Palette, active: bool, label: &str) -> bool {
+    let (fg, fill, border) = if active {
+        (Color32::WHITE, p.accent, p.accent)
+    } else {
+        (p.text, p.control_bg, p.line)
+    };
+    let resp = Frame::new()
+        .fill(fill)
+        .stroke(Stroke::new(1.0, border))
+        .corner_radius(CornerRadius::same(7))
+        .inner_margin(Margin::symmetric(12, 6))
+        .show(ui, |ui| {
+            ui.label(RichText::new(label).size(12.5).strong().color(fg));
+        })
+        .response
+        .interact(Sense::click());
+    resp.clicked()
+}
+
+pub fn render_settings_page(
+    ui: &mut Ui,
+    p: &Palette,
+    app_settings: &mut AppSettings,
+    theme_mode: &mut ThemeMode,
+    filters: &mut FilterSettings,
+    usd_rate_text: &mut String,
+    sink: &EventSink,
+) {
+    let txt = t(app_settings.language);
+    page_header(ui, p, txt.settings_title, txt.settings_subtitle);
+
+    ScrollArea::vertical().show(ui, |ui| {
+        // Card 1: Language & Appearance
+        card(ui, p, |ui| {
+            ui.label(
+                RichText::new(txt.settings_lang_card)
+                    .size(13.5)
+                    .strong()
+                    .color(p.text),
+            );
+            card_divider(ui, p);
+
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.set_max_width((ui.available_width() - 260.0).max(160.0));
+                    ui.label(
+                        RichText::new(txt.settings_lang_label)
+                            .size(13.0)
+                            .color(p.text),
+                    );
+                    ui.label(
+                        RichText::new(txt.settings_lang_hint)
+                            .size(11.5)
+                            .color(p.muted),
+                    );
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if option_pill(
+                        ui,
+                        p,
+                        app_settings.language == AppLanguage::En,
+                        "English",
+                    ) && app_settings.language != AppLanguage::En
+                    {
+                        app_settings.language = AppLanguage::En;
+                        let _ = save_app_settings(app_settings);
+                        sink.send(EngineEvent::Toast(
+                            t(app_settings.language).toast_lang_switched.to_string(),
+                        ));
+                    }
+                    if option_pill(
+                        ui,
+                        p,
+                        app_settings.language == AppLanguage::Id,
+                        "Bahasa Indonesia",
+                    ) && app_settings.language != AppLanguage::Id
+                    {
+                        app_settings.language = AppLanguage::Id;
+                        let _ = save_app_settings(app_settings);
+                        sink.send(EngineEvent::Toast(
+                            t(app_settings.language).toast_lang_switched.to_string(),
+                        ));
+                    }
+                });
+            });
+
+            card_divider(ui, p);
+
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.set_max_width((ui.available_width() - 260.0).max(160.0));
+                    ui.label(
+                        RichText::new(txt.settings_theme_label)
+                            .size(13.0)
+                            .color(p.text),
+                    );
+                    ui.label(
+                        RichText::new(txt.settings_theme_hint)
+                            .size(11.5)
+                            .color(p.muted),
+                    );
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if option_pill(ui, p, *theme_mode == ThemeMode::Light, "JSFS Daylight")
+                        && *theme_mode != ThemeMode::Light
+                    {
+                        *theme_mode = ThemeMode::Light;
+                        app_settings.dark_theme = false;
+                        apply_theme(ui.ctx(), &Palette::from_mode(*theme_mode));
+                        let _ = save_app_settings(app_settings);
+                    }
+                    if option_pill(ui, p, *theme_mode == ThemeMode::Dark, "JSFS Dark")
+                        && *theme_mode != ThemeMode::Dark
+                    {
+                        *theme_mode = ThemeMode::Dark;
+                        app_settings.dark_theme = true;
+                        apply_theme(ui.ctx(), &Palette::from_mode(*theme_mode));
+                        let _ = save_app_settings(app_settings);
+                    }
+                });
+            });
+        });
+
+        ui.add_space(12.0);
+
+        // Card 2: Default Portal Sources & Currency Exchange Rate
+        card(ui, p, |ui| {
+            ui.label(
+                RichText::new(txt.settings_portal_card)
+                    .size(13.5)
+                    .strong()
+                    .color(p.text),
+            );
+            card_divider(ui, p);
+
+            if toggle_row(
+                ui,
+                p,
+                &mut app_settings.default_garuda,
+                "Portal Garuda Kemdiktisaintek",
+                if app_settings.language == AppLanguage::En {
+                    "Enable Indonesian national Garuda journal discovery by default."
+                } else {
+                    "Aktifkan pencarian portal jurnal nasional Garuda secara default."
+                },
+            )
+            .changed()
+            {
+                filters.garuda = app_settings.default_garuda;
+            }
+            card_divider(ui, p);
+
+            if toggle_row(
+                ui,
+                p,
+                &mut app_settings.default_sinta,
+                "Portal SINTA Kemdiktisaintek",
+                if app_settings.language == AppLanguage::En {
+                    "Enable official SINTA 1–6 accreditation tiers by default."
+                } else {
+                    "Aktifkan pengambilan peringkat akreditasi SINTA 1–6 secara default."
+                },
+            )
+            .changed()
+            {
+                filters.sinta_src = app_settings.default_sinta;
+            }
+            card_divider(ui, p);
+
+            if toggle_row(
+                ui,
+                p,
+                &mut app_settings.default_openalex,
+                "OpenAlex (Jurnal Internasional Q1–Q4)",
+                if app_settings.language == AppLanguage::En {
+                    "Open REST API for global Q1–Q4 journals, citedness metrics, and APC."
+                } else {
+                    "API terbuka resmi untuk jurnal global Q1–Q4, metrik sitasi, dan APC."
+                },
+            )
+            .changed()
+            {
+                filters.openalex = app_settings.default_openalex;
+            }
+            card_divider(ui, p);
+
+            if toggle_row(
+                ui,
+                p,
+                &mut app_settings.default_doaj,
+                "DOAJ (Diamond OA • Gratis $0)",
+                if app_settings.language == AppLanguage::En {
+                    "Open REST API verifying peer-reviewed zero-APC international journals."
+                } else {
+                    "API resmi Directory of Open Access Journals untuk jurnal internasional gratis ($0)."
+                },
+            )
+            .changed()
+            {
+                filters.doaj = app_settings.default_doaj;
+            }
+
+            card_divider(ui, p);
+
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.set_max_width((ui.available_width() - 180.0).max(160.0));
+                    ui.label(
+                        RichText::new(txt.settings_usd_label)
+                            .size(13.0)
+                            .color(p.text),
+                    );
+                    ui.label(
+                        RichText::new(txt.settings_usd_hint)
+                            .size(11.5)
+                            .color(p.muted),
+                    );
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .add_sized(
+                            [140.0, 32.0],
+                            egui::TextEdit::singleline(usd_rate_text)
+                                .align(Align2::RIGHT_CENTER)
+                                .margin(Margin::symmetric(8, 5)),
+                        )
+                        .changed()
+                    {
+                        let parsed = parse_idr_input(usd_rate_text);
+                        if parsed >= 1_000 {
+                            app_settings.usd_to_idr = parsed;
+                            filters.usd_to_idr = parsed;
+                        }
+                    }
+                });
+            });
+
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                if accent_button(ui, p, txt.settings_save_btn).clicked() {
+                    let parsed = parse_idr_input(usd_rate_text);
+                    if parsed >= 1_000 {
+                        app_settings.usd_to_idr = parsed;
+                    }
+                    let clean = app_settings.clone().normalized();
+                    *app_settings = clean;
+                    *usd_rate_text = app_settings.usd_to_idr.to_string();
+                    filters.apply_app_settings(app_settings);
+                    let _ = save_app_settings(app_settings);
+                    sink.send(EngineEvent::Toast(txt.toast_settings_saved.to_string()));
+                }
+
+                if secondary_button(ui, p, txt.settings_reset_btn).clicked() {
+                    *app_settings = AppSettings::default();
+                    *theme_mode = ThemeMode::Dark;
+                    apply_theme(ui.ctx(), &Palette::from_mode(*theme_mode));
+                    *usd_rate_text = app_settings.usd_to_idr.to_string();
+                    filters.apply_app_settings(app_settings);
+                    let _ = save_app_settings(app_settings);
+                    sink.send(EngineEvent::Toast(txt.toast_settings_reset.to_string()));
+                }
+            });
+        });
+
+        ui.add_space(24.0);
+    });
+}

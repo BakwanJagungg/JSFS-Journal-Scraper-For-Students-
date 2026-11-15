@@ -6,6 +6,7 @@ use crate::engine::ai_ops::{
     save_matcher_config_async, test_cloud_api_async, AiStatusExtended, SaveMatcherConfigInput,
 };
 use crate::engine::{EngineState, EventSink};
+use crate::ui::i18n::{t, AppLanguage};
 use crate::ui::state::MatcherFormState;
 use crate::ui::theme::{
     accent_button, card, card_divider, page_header, pill_badge, secondary_button, Palette,
@@ -72,17 +73,14 @@ fn build_save_input(form: &MatcherFormState) -> SaveMatcherConfigInput {
 pub fn render_match_engine_page(
     ui: &mut Ui,
     p: &Palette,
+    lang: AppLanguage,
     form: &mut MatcherFormState,
     status: &AiStatusExtended,
     engine: &Arc<EngineState>,
     sink: &EventSink,
 ) {
-    page_header(
-        ui,
-        p,
-        "Match Engine & Validasi AI",
-        "Pilih mesin pencocokan topik naskah & validasi Focus-Scope / APC jurnal.",
-    );
+    let txt = t(lang);
+    page_header(ui, p, txt.match_title, txt.match_subtitle);
 
     ScrollArea::vertical().show(ui, |ui| {
         if mode_card(
