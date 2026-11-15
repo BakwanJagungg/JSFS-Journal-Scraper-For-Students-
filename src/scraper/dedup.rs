@@ -137,6 +137,19 @@ fn merge_into(dst: &mut JournalRecord, src: JournalRecord) {
     {
         dst.source_portal = format!("{} + {}", dst.source_portal, src.source_portal);
     }
+    if dst.turnaround_weeks.is_none() && src.turnaround_weeks.is_some() {
+        dst.turnaround_weeks = src.turnaround_weeks;
+        dst.turnaround_label = src.turnaround_label;
+    }
+    if dst.article_languages.is_empty() && !src.article_languages.is_empty() {
+        dst.article_languages = src.article_languages;
+    }
+    if dst.template_url.is_none() && src.template_url.is_some() {
+        dst.template_url = src.template_url;
+    }
+    if dst.risk_warning.is_none() && src.risk_warning.is_some() {
+        dst.risk_warning = src.risk_warning;
+    }
 }
 
 /// Deduplicate raw candidate pool across E-ISSN, P-ISSN, canonical title, and normalized OJS URL.

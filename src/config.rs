@@ -2,7 +2,7 @@ use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-pub const APP_VERSION: &str = "4.3.0";
+pub const APP_VERSION: &str = "4.6.0";
 pub const CACHE_VERSION: &str = "4.3.0";
 pub const CACHE_TTL_DAYS: i64 = 14;
 pub const MAX_WORKERS: usize = 32;
@@ -248,6 +248,10 @@ pub fn search_history_path() -> PathBuf {
 
 pub fn app_settings_path() -> PathBuf {
     cache_dir().join("app_settings.json")
+}
+
+pub fn saved_profiles_path() -> PathBuf {
+    cache_dir().join("saved_profiles.json")
 }
 
 /// Persisted user preference for JSFS Match Engine (`builtin` | `cloud` | `ollama`).

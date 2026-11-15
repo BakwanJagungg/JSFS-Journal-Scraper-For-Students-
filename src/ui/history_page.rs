@@ -6,6 +6,7 @@ use crate::engine::file_ops::{
     open_excel_async, open_logs_folder_async, open_output_folder_async,
 };
 use crate::engine::{EngineEvent, EngineState, EventSink};
+use crate::exporter::templates::generate_dosbing_brief;
 use crate::models::UiJournalItem;
 use crate::ui::i18n::{t, AppLanguage};
 use crate::ui::state::{
@@ -183,6 +184,46 @@ pub fn render_history_page(
                     );
                 }
 
+                if ui
+                    .add_enabled_ui(has_scoped, |ui| {
+                        secondary_button(ui, p, "Ekspor Sitasi (.ris)")
+                    })
+                    .inner
+                    .on_hover_text("Ekspor format RIS untuk Zotero / Mendeley")
+                    .clicked()
+                {
+                    let owned: Vec<UiJournalItem> = scoped.iter().map(|it| (*it).clone()).collect();
+                    export_targeted_async(
+                        engine.clone(),
+                        sink.clone(),
+                        owned,
+                        keyword.to_string(),
+                        "ris",
+                        scope.slug(),
+                        scope_lbl,
+                    );
+                }
+
+                if ui
+                    .add_enabled_ui(has_scoped, |ui| {
+                        secondary_button(ui, p, "Ekspor BibTeX (.bib)")
+                    })
+                    .inner
+                    .on_hover_text("Ekspor format BibTeX untuk LaTeX / Overleaf / Zotero")
+                    .clicked()
+                {
+                    let owned: Vec<UiJournalItem> = scoped.iter().map(|it| (*it).clone()).collect();
+                    export_targeted_async(
+                        engine.clone(),
+                        sink.clone(),
+                        owned,
+                        keyword.to_string(),
+                        "bib",
+                        scope.slug(),
+                        scope_lbl,
+                    );
+                }
+
                 if secondary_button(ui, p, txt.btn_open_last_xlsx).clicked() {
                     open_excel_async(
                         engine.clone(),
@@ -262,6 +303,35 @@ pub fn render_history_page(
                     sink.send(EngineEvent::Toast(format!(
                         "Draf pesan editor untuk '{}' disalin.",
                         target.nama
+                    )));
+                }
+
+                if ui
+                    .add_enabled_ui(!results.is_empty(), |ui| {
+                        secondary_button(ui, p, txt.btn_copy_dosbing)
+                    })
+                    .inner
+                    .clicked()
+                {
+                    let bookmarked_scoped = select_records_for_scope(
+                        results,
+                        ExportScope::BookmarkedOnly,
+                        app_state,
+                        table_filter,
+                        apc_filter,
+                        sort_col,
+                        sort_desc,
+                    );
+                    let target_slice = if !bookmarked_scoped.is_empty() {
+                        bookmarked_scoped
+                    } else {
+                        scoped.clone()
+                    };
+                    let brief = generate_dosbing_brief(&target_slice, lang);
+                    ui.ctx().copy_text(brief);
+                    let shown_n = target_slice.len().min(5);
+                    sink.send(EngineEvent::Toast(format!(
+                        "Ringkasan Konsultasi Dosbing ({shown_n} jurnal) disalin ke clipboard."
                     )));
                 }
             });

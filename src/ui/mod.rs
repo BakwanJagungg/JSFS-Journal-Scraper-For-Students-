@@ -1,5 +1,6 @@
 //! Root native application shell coordinating the navigation sidebar, 5 views, live events, and detail modal.
 
+pub mod compare_modal;
 pub mod detail_modal;
 pub mod filters_page;
 pub mod guide_page;
@@ -16,8 +17,10 @@ use crate::engine::ai_ops::{refresh_ai_status_async, AiStatusExtended};
 use crate::engine::manuscript::{clear_manuscript_async, load_manuscript_async, ManuscriptSummary};
 use crate::engine::search::{start_search, stop_search};
 use crate::engine::{EngineEvent, EngineState, EventSink};
-use crate::models::UiJournalItem;
-use crate::ui::detail_modal::render_detail_modal;
+use crate::models::{reformat_ui_results_currency, DisplayCurrency, UiJournalItem};
+use crate::parser::doc_matcher::apply_cited_counts;
+use crate::ui::compare_modal::{render_compare_modal, CompareModalAction};
+use crate::ui::detail_modal::{render_detail_modal, DetailModalAction};
 use crate::ui::filters_page::render_filters_page;
 use crate::ui::guide_page::render_guide_page;
 use crate::ui::history_page::{render_history_page, HistoryPageAction};
@@ -27,8 +30,8 @@ use crate::ui::search_page::{render_search_page, SearchPageAction};
 use crate::ui::settings_page::render_settings_page;
 use crate::ui::sidebar::{render_sidebar, NavPage, SidebarProps};
 use crate::ui::state::{
-    load_search_history, record_search_history, ApcFilter, AppState, FilterSettings,
-    MatcherFormState, SearchHistoryEntry, SearchProgressView, SortColumn,
+    load_saved_profiles, load_search_history, record_search_history, ApcFilter, AppState,
+    FilterSettings, MatcherFormState, SearchHistoryEntry, SearchProgressView, SortColumn,
 };
 use crate::ui::theme::{apply_theme, load_crisp_fonts, Palette, ThemeMode};
 use egui::{Align2, CentralPanel, CornerRadius, Frame, Margin, Panel, RichText, Stroke, Vec2};
@@ -52,6 +55,7 @@ pub struct JsfsNativeApp {
     results: Vec<UiJournalItem>,
     selected_idx: Option<usize>,
     detail_open_idx: Option<usize>,
+    compare_open: bool,
 
     table_filter: String,
     apc_filter: ApcFilter,
@@ -61,13 +65,13 @@ pub struct JsfsNativeApp {
 
     progress: SearchProgressView,
     logs: Vec<String>,
-    show_logs: bool,
     show_history_logs: bool,
     last_excel_path: Option<String>,
     search_history: Vec<SearchHistoryEntry>,
 
     app_settings: AppSettings,
     usd_rate_text: String,
+    last_currency_sig: (DisplayCurrency, i64),
 
     ai_status: AiStatusExtended,
     matcher_form: MatcherFormState,
@@ -97,7 +101,22 @@ impl JsfsNativeApp {
         filters.apply_app_settings(&app_settings);
         let target_text = filters.target_count.to_string();
         let usd_rate_text = app_settings.usd_to_idr.to_string();
+        let submission_tracks = engine
+            .cache
+            .lock()
+            .ok()
+            .and_then(|g| {
+                g.as_ref()
+                    .and_then(|db| db.load_all_submission_tracks().ok())
+            })
+            .unwrap_or_default();
+        let app_state = AppState {
+            saved_profiles: load_saved_profiles(),
+            submission_tracks,
+            ..Default::default()
+        };
 
+        let last_currency_sig = (app_settings.display_currency, app_settings.usd_to_idr);
         Self {
             engine,
             sink,
@@ -111,19 +130,20 @@ impl JsfsNativeApp {
             results: Vec::new(),
             selected_idx: None,
             detail_open_idx: None,
+            compare_open: false,
             table_filter: String::new(),
             apc_filter: ApcFilter::All,
-            app_state: AppState::default(),
+            app_state,
             sort_col: SortColumn::MatchScore,
             sort_desc: true,
             progress: SearchProgressView::default(),
             logs: Vec::new(),
-            show_logs: false,
             show_history_logs: false,
             last_excel_path: None,
             search_history: load_search_history(),
             app_settings,
             usd_rate_text,
+            last_currency_sig,
             ai_status: AiStatusExtended {
                 active_engine_label: "Match Engine: Built-in Smart".to_string(),
                 matcher_mode: "builtin".to_string(),
@@ -166,7 +186,15 @@ impl JsfsNativeApp {
                         kpi_fast: p.kpi_fast,
                     };
                 }
-                EngineEvent::ResultBatch(batch) => {
+                EngineEvent::ResultBatch(mut batch) => {
+                    reformat_ui_results_currency(
+                        &mut batch,
+                        self.app_settings.display_currency,
+                        self.app_settings.usd_to_idr,
+                    );
+                    if let Some(ref ms) = self.manuscript {
+                        apply_cited_counts(&mut batch, &ms.cited_journals);
+                    }
                     self.results.extend(batch);
                 }
                 EngineEvent::AutosaveDone { path, count } => {
@@ -195,11 +223,19 @@ impl JsfsNativeApp {
                     ));
                 }
                 EngineEvent::SearchComplete {
-                    results,
+                    mut results,
                     excel_path,
                     duration_sec,
                     cancelled,
                 } => {
+                    reformat_ui_results_currency(
+                        &mut results,
+                        self.app_settings.display_currency,
+                        self.app_settings.usd_to_idr,
+                    );
+                    if let Some(ref ms) = self.manuscript {
+                        apply_cited_counts(&mut results, &ms.cited_journals);
+                    }
                     self.results = results;
                     if !excel_path.trim().is_empty() {
                         self.last_excel_path = Some(excel_path);
@@ -253,11 +289,28 @@ impl JsfsNativeApp {
                     self.matcher_form.pull_message = task_message;
                 }
                 EngineEvent::ManuscriptLoaded(Ok(summary)) => {
-                    if self.keyword.trim().is_empty() && !summary.suggested_keyword.is_empty() {
+                    let auto_filled = if self.keyword.trim().is_empty()
+                        && !summary.suggested_keyword.trim().is_empty()
+                    {
                         self.keyword = summary.suggested_keyword.clone();
-                    }
-                    self.logs.push(format!("Naskah dimuat: {}", summary.name));
-                    self.set_toast(format!("Naskah '{}' siap dianalisis!", summary.name));
+                        true
+                    } else {
+                        false
+                    };
+                    self.logs.push(format!(
+                        "Naskah dimuat: {} (Saran keyword: {})",
+                        summary.name, summary.suggested_keyword
+                    ));
+                    let msg = if auto_filled {
+                        format!(
+                            "Naskah '{}' dimuat & kata kunci diisi: {}",
+                            summary.name, summary.suggested_keyword
+                        )
+                    } else {
+                        format!("Naskah '{}' siap dianalisis!", summary.name)
+                    };
+                    self.set_toast(msg);
+                    apply_cited_counts(&mut self.results, &summary.cited_journals);
                     self.manuscript = Some(summary);
                 }
                 EngineEvent::ManuscriptLoaded(Err(err)) => {
@@ -403,8 +456,6 @@ impl eframe::App for JsfsNativeApp {
                         &mut self.apc_filter,
                         &mut self.sort_col,
                         &mut self.sort_desc,
-                        &mut self.show_logs,
-                        &self.logs,
                         &self.sink,
                     );
                     match act {
@@ -418,11 +469,18 @@ impl eframe::App for JsfsNativeApp {
                         }
                         SearchPageAction::ClearManuscript => {
                             self.manuscript = None;
+                            apply_cited_counts(
+                                &mut self.results,
+                                &std::collections::HashMap::new(),
+                            );
                             clear_manuscript_async(self.engine.clone(), self.sink.clone());
                         }
                         SearchPageAction::OpenDetail(idx) => {
                             self.selected_idx = Some(idx);
                             self.detail_open_idx = Some(idx);
+                        }
+                        SearchPageAction::OpenCompare => {
+                            self.compare_open = true;
                         }
                         SearchPageAction::CopyWa(indices) => {
                             let refs: Vec<&UiJournalItem> = indices
@@ -497,6 +555,14 @@ impl eframe::App for JsfsNativeApp {
                             if let Some(entry) = self.search_history.get(idx).cloned() {
                                 self.keyword = entry.keyword.clone();
                                 self.results = entry.records;
+                                reformat_ui_results_currency(
+                                    &mut self.results,
+                                    self.app_settings.display_currency,
+                                    self.app_settings.usd_to_idr,
+                                );
+                                if let Some(ref ms) = self.manuscript {
+                                    apply_cited_counts(&mut self.results, &ms.cited_journals);
+                                }
                                 self.selected_idx = None;
                                 self.detail_open_idx = None;
                                 let kpi_total = self.results.len();
@@ -554,6 +620,7 @@ impl eframe::App for JsfsNativeApp {
                         &mut self.theme_mode,
                         &mut self.filters,
                         &mut self.usd_rate_text,
+                        &self.engine,
                         &self.sink,
                     );
                 }
@@ -562,15 +629,106 @@ impl eframe::App for JsfsNativeApp {
                 }
             });
 
+        let cur_sig = (
+            self.app_settings.display_currency,
+            self.app_settings.usd_to_idr,
+        );
+        if cur_sig != self.last_currency_sig {
+            reformat_ui_results_currency(&mut self.results, cur_sig.0, cur_sig.1);
+            self.last_currency_sig = cur_sig;
+        }
+
         // Journal Detail Modal
         if let Some(idx) = self.detail_open_idx {
-            let item = self.results.get(idx);
-            if render_detail_modal(ui.ctx(), &p, item, &self.keyword, &self.sink) {
-                self.detail_open_idx = None;
+            let item = self.results.get(idx).cloned();
+            match render_detail_modal(
+                ui.ctx(),
+                &p,
+                idx,
+                item.as_ref(),
+                &self.keyword,
+                self.manuscript.as_ref(),
+                &mut self.app_state,
+                &self.sink,
+            ) {
+                DetailModalAction::Close => {
+                    self.detail_open_idx = None;
+                }
+                DetailModalAction::FindSimilar(target_idx) => {
+                    let seed_name = self
+                        .results
+                        .get(target_idx)
+                        .map(|r| r.nama.clone())
+                        .unwrap_or_default();
+                    let ranked = crate::parser::doc_matcher::rank_similar_journals(
+                        target_idx,
+                        &self.results,
+                    );
+                    for (r_idx, sim_sc) in ranked {
+                        if let Some(row) = self.results.get_mut(r_idx) {
+                            row.match_score = sim_sc;
+                            row.kesesuaian_naskah = if sim_sc >= 75.0 {
+                                format!("Mirip '{seed_name}'")
+                            } else {
+                                "Topik Serupa".to_string()
+                            };
+                        }
+                    }
+                    self.sort_col = SortColumn::MatchScore;
+                    self.sort_desc = true;
+                    self.detail_open_idx = None;
+                    self.set_toast(format!(
+                        "Tabel diurutkan berdasarkan kemiripan topik dengan '{seed_name}'."
+                    ));
+                }
+                DetailModalAction::SaveTrack(track) => {
+                    if let Ok(guard) = self.engine.cache.lock() {
+                        if let Some(ref db) = *guard {
+                            let _ = db.upsert_submission_track(&track);
+                        }
+                    }
+                    self.app_state
+                        .submission_tracks
+                        .insert(track.journal_key.clone(), track.clone());
+                    self.set_toast(format!(
+                        "Status pengiriman '{}' disimpan ke SQLite.",
+                        track.status
+                    ));
+                }
+                DetailModalAction::None => {}
             }
         }
 
-        // Floating Toast Notification
+        // Side-by-Side Compare Modal (2..=4 shortlisted journals)
+        if self.compare_open {
+            let compared: Vec<(usize, UiJournalItem)> = self
+                .results
+                .iter()
+                .enumerate()
+                .filter(|(_, r)| self.app_state.is_bookmarked(r))
+                .take(4)
+                .map(|(i, r)| (i, r.clone()))
+                .collect();
+            match render_compare_modal(
+                ui.ctx(),
+                &p,
+                &compared,
+                self.manuscript.as_ref(),
+                self.app_settings.language,
+            ) {
+                CompareModalAction::Close => {
+                    self.compare_open = false;
+                }
+                CompareModalAction::OpenDetail(idx) => {
+                    self.compare_open = false;
+                    self.selected_idx = Some(idx);
+                    self.detail_open_idx = Some(idx);
+                }
+                CompareModalAction::None => {}
+            }
+        }
+
+        // Floating Toast Notification (fixed horizontal banner width so it never wraps vertically)
         if let Some((msg, _)) = &self.toast {
             egui::Area::new(egui::Id::unique("jsfs_toast"))
                 .anchor(Align2::RIGHT_TOP, Vec2::new(-20.0, 16.0))
@@ -582,7 +740,12 @@ impl eframe::App for JsfsNativeApp {
                         .corner_radius(CornerRadius::same(8))
                         .inner_margin(Margin::symmetric(14, 9))
                         .show(ui, |ui| {
-                            ui.label(RichText::new(msg).size(12.5).color(p.text));
+                            ui.set_min_width(280.0);
+                            ui.set_max_width(420.0);
+                            ui.add(
+                                egui::Label::new(RichText::new(msg).size(12.5).color(p.text))
+                                    .wrap(),
+                            );
                         });
                 });
         }

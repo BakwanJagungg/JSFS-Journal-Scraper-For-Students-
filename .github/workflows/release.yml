@@ -39,7 +39,7 @@ jobs:
       - name: Build Windows Installer (Inno Setup)
         shell: pwsh
         run: |
-          $tag = if ($env:GITHUB_REF_NAME -match '^v(.+)$') { $matches[1] } else { '4.3.0' }
+          $tag = if ($env:GITHUB_REF_NAME -match '^v(.+)$') { $matches[1] } else { 'v4.6.0' }
           $iscc = Get-Command iscc -ErrorAction SilentlyContinue
           $isccExe = if ($iscc) { $iscc.Source } else { "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
           if (-not (Test-Path $isccExe)) { throw "Inno Setup compiler (iscc.exe) not found." }

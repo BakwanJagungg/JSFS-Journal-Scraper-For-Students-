@@ -3,6 +3,7 @@
 use crate::engine::{EngineEvent, EngineState, EventSink};
 use crate::error::JsfsError;
 use crate::parser::doc_matcher;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -10,10 +11,18 @@ use std::sync::Arc;
 pub struct ManuscriptSummary {
     pub path: String,
     pub name: String,
+    pub extracted_title: String,
     pub suggested_keyword: String,
+    pub abstract_snippet: String,
     pub char_count: usize,
     pub detected_domain: String,
     pub detected_keywords: Vec<String>,
+    pub word_count: usize,
+    pub imrad_complete: bool,
+    pub estimated_refs: usize,
+    pub summary_badge: String,
+    pub cited_journals: HashMap<String, u32>,
+    pub recommended_topics: Vec<String>,
 }
 
 pub fn load_manuscript_async(engine: Arc<EngineState>, sink: EventSink, path: PathBuf) {
@@ -35,20 +44,31 @@ pub fn load_manuscript_async(engine: Arc<EngineState>, sink: EventSink, path: Pa
 
         match parsed {
             Ok(Ok(meta)) => {
-                let suggested_keyword = meta
-                    .detected_keywords
-                    .iter()
-                    .take(3)
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                let suggested_keyword = if !meta.suggested_keywords.trim().is_empty() {
+                    meta.suggested_keywords.clone()
+                } else {
+                    meta.detected_keywords
+                        .iter()
+                        .take(5)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
                 let summary = ManuscriptSummary {
                     path: display_path,
                     name: meta.filename.clone(),
+                    extracted_title: meta.extracted_title.clone(),
                     suggested_keyword,
+                    abstract_snippet: meta.abstract_snippet.clone(),
                     char_count: meta.char_count,
                     detected_domain: meta.detected_domain.clone(),
                     detected_keywords: meta.detected_keywords.clone(),
+                    word_count: meta.checklist.word_count,
+                    imrad_complete: meta.checklist.imrad_complete,
+                    estimated_refs: meta.checklist.estimated_refs,
+                    summary_badge: meta.checklist.summary_badge.clone(),
+                    cited_journals: meta.cited_journals.clone(),
+                    recommended_topics: meta.recommended_topics.clone(),
                 };
                 {
                     let mut guard = engine.manuscript.write().await;

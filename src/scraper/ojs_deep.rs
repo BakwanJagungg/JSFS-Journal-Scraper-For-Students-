@@ -6,7 +6,7 @@ use crate::config::{
     TIMEOUT_APC_LABEL,
 };
 use crate::models::JournalRecord;
-use crate::parser::{apc, contact, focus, month};
+use crate::parser::{apc, contact, focus, heuristics, month};
 use crate::scraper::dedup::normalize_ojs_root_url;
 use crate::scraper::{safe_fetch_html, sanitize_publisher_name, DomainBreaker};
 use scraper::{Html, Selector};
@@ -213,11 +213,20 @@ fn apply_apc_with_paid_priority(
             amount_idr,
             raw_amount,
         } => {
-            rec.apc_status = display.clone();
-            rec.publication_fee = display;
+            let numeric = (amount_idr > 0).then_some(amount_idr as u64);
+            let clean_disp = crate::models::format_apc_unified(
+                "paid",
+                numeric,
+                &display,
+                crate::models::DisplayCurrency::Idr,
+                crate::config::USD_TO_IDR_RATE,
+            );
+            rec.apc_status = clean_disp.clone();
+            rec.publication_fee = clean_disp;
             rec.fee_currency = currency;
             rec.fee_amount = raw_amount;
             rec.publication_fee_idr = Some(amount_idr);
+            rec.apc_idr_numeric = numeric;
             if !evidence.is_empty() {
                 rec.apc_evidence = evidence;
             }
@@ -235,6 +244,7 @@ fn apply_apc_with_paid_priority(
                 rec.fee_currency = "IDR".to_string();
                 rec.fee_amount = "0".to_string();
                 rec.publication_fee_idr = Some(0);
+                rec.apc_idr_numeric = Some(0);
                 if !evidence.is_empty() {
                     rec.apc_evidence = evidence;
                 }
@@ -271,6 +281,14 @@ fn absorb_page(
     }
 
     let meta = extract_html_meta(html);
+    if rec.risk_warning.is_none() && (!meta.issn.is_empty() || !meta.eissn.is_empty()) {
+        rec.risk_warning = heuristics::evaluate_journal_risk(
+            rec,
+            &plain,
+            (!meta.issn.is_empty()).then_some(meta.issn.as_str()),
+            (!meta.eissn.is_empty()).then_some(meta.eissn.as_str()),
+        );
+    }
     if rec.publisher.trim().is_empty() && !meta.publisher.is_empty() {
         rec.publisher = meta.publisher;
     }
@@ -285,6 +303,26 @@ fn absorb_page(
     }
     if !meta.issue_dates.is_empty() {
         update_max_year(rec, &meta.issue_dates);
+    }
+    if rec.template_url.is_none() {
+        rec.template_url = heuristics::extract_template_url(html, page_url);
+    }
+    if rec.turnaround_weeks.is_none() {
+        if let Some((w, lbl)) = heuristics::extract_turnaround_time(&plain) {
+            rec.turnaround_weeks = Some(w);
+            rec.turnaround_label = lbl;
+        }
+    }
+    if rec.citation_style.is_none() {
+        rec.citation_style = heuristics::extract_citation_style(&plain);
+    }
+    if rec.word_limit.is_none() {
+        rec.word_limit = heuristics::extract_word_limit(&plain);
+    }
+    if let Some(open_flag) = heuristics::extract_submission_open(&plain) {
+        if rec.submission_open.is_none() || !open_flag {
+            rec.submission_open = Some(open_flag);
+        }
     }
 
     if rec.focus_and_scope.trim().is_empty()
@@ -530,6 +568,24 @@ pub async fn deep_enrich_record(
                         let (parsed_agg, ev_agg) = apc::parse_apc_with_evidence(&agg_text);
                         apply_apc_with_paid_priority(&mut rec, parsed_agg, ev_agg);
                     }
+                    if rec.turnaround_weeks.is_none() && !agg_text.trim().is_empty() {
+                        if let Some((w, lbl)) = heuristics::extract_turnaround_time(&agg_text) {
+                            rec.turnaround_weeks = Some(w);
+                            rec.turnaround_label = lbl;
+                        }
+                    }
+                    if rec.article_languages.is_empty() {
+                        rec.article_languages = heuristics::detect_article_languages(
+                            &rec.title,
+                            &rec.focus_and_scope,
+                            &agg_text,
+                            rec.is_international,
+                        );
+                    }
+                    if rec.risk_warning.is_none() {
+                        rec.risk_warning =
+                            heuristics::evaluate_journal_risk(&rec, &agg_text, None, None);
+                    }
 
                     // Resolve publish months & latest issue year from archive when still missing
                     let (mut m_nums, mut m_names, mut sched_str) =
@@ -635,6 +691,17 @@ pub async fn deep_enrich_record(
         || focus::is_boilerplate_noise(&rec.focus_and_scope)
     {
         rec.focus_and_scope = focus::synthesize_focus_scope(&rec.title, &rec.subject_area);
+    }
+    if rec.article_languages.is_empty() {
+        rec.article_languages = heuristics::detect_article_languages(
+            &rec.title,
+            &rec.focus_and_scope,
+            "",
+            rec.is_international,
+        );
+    }
+    if rec.risk_warning.is_none() {
+        rec.risk_warning = heuristics::evaluate_journal_risk(&rec, "", None, None);
     }
     rec.refresh_activity_status(broken_archive, month::current_local_year());
 

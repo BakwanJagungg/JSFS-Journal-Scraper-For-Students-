@@ -1,5 +1,6 @@
 //! Bilingual ID / EN localization dictionary and persisted `.cache/app_settings.json` preferences.
 
+pub use crate::models::DisplayCurrency;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -36,6 +37,7 @@ pub struct AppSettings {
     pub default_openalex: bool,
     pub default_doaj: bool,
     pub usd_to_idr: i64,
+    pub display_currency: DisplayCurrency,
 }
 
 impl Default for AppSettings {
@@ -48,6 +50,7 @@ impl Default for AppSettings {
             default_openalex: true,
             default_doaj: true,
             usd_to_idr: crate::config::USD_TO_IDR_RATE,
+            display_currency: DisplayCurrency::Idr,
         }
     }
 }
@@ -118,8 +121,6 @@ pub struct Texts {
     pub kpi_free: &'static str,
     pub kpi_paid: &'static str,
     pub kpi_soon: &'static str,
-    pub show_log: &'static str,
-    pub hide_log: &'static str,
     pub results_heading: &'static str,
     pub results_unit: &'static str,
     pub shortlisted_btn: &'static str,
@@ -159,6 +160,7 @@ pub struct Texts {
     pub btn_copy_wa: &'static str,
     pub btn_copy_emails: &'static str,
     pub btn_copy_draft: &'static str,
+    pub btn_copy_dosbing: &'static str,
     pub history_card_title: &'static str,
     pub sessions_saved_suffix: &'static str,
     pub load_results_btn: &'static str,
@@ -177,6 +179,8 @@ pub struct Texts {
     pub settings_theme_label: &'static str,
     pub settings_theme_hint: &'static str,
     pub settings_portal_card: &'static str,
+    pub settings_currency_label: &'static str,
+    pub settings_currency_hint: &'static str,
     pub settings_usd_label: &'static str,
     pub settings_usd_hint: &'static str,
     pub settings_save_btn: &'static str,
@@ -224,8 +228,6 @@ const ID_TEXTS: Texts = Texts {
     kpi_free: "Gratis Rp 0",
     kpi_paid: "Berbayar",
     kpi_soon: "Terbit 1-3 Bln",
-    show_log: "Log Teknis",
-    hide_log: "Tutup Log",
     results_heading: "Hasil Pencarian",
     results_unit: "jurnal",
     shortlisted_btn: "Pilihan",
@@ -266,6 +268,7 @@ const ID_TEXTS: Texts = Texts {
     btn_copy_wa: "Salin Daftar WA",
     btn_copy_emails: "Salin Email Redaksi",
     btn_copy_draft: "Salin Draf Chat Editor",
+    btn_copy_dosbing: "Salin Ringkasan Dosbing",
     history_card_title: "Riwayat Pencarian & Filter",
     sessions_saved_suffix: "sesi tersimpan",
     load_results_btn: "Muat Hasil",
@@ -285,6 +288,9 @@ const ID_TEXTS: Texts = Texts {
     settings_theme_label: "Tema Aplikasi",
     settings_theme_hint: "Pilih mode gelap (JSFS Dark) atau terang kontras tinggi (JSFS Daylight).",
     settings_portal_card: "Sumber Portal Default & Kurs Mata Uang",
+    settings_currency_label: "Mata Uang Biaya APC",
+    settings_currency_hint:
+        "Seragamkan tampilan biaya APC di tabel & ekspor dalam Rupiah (IDR) atau Dollar (USD).",
     settings_usd_label: "Kurs Konversi 1 USD ke IDR",
     settings_usd_hint: "Dipakai untuk mengestimasi biaya APC jurnal internasional (default Rp 16.500).",
     settings_save_btn: "Simpan Pengaturan",
@@ -331,8 +337,6 @@ const EN_TEXTS: Texts = Texts {
     kpi_free: "Free (Rp 0)",
     kpi_paid: "Paid APC",
     kpi_soon: "Next 1-3 Mo",
-    show_log: "Technical Log",
-    hide_log: "Hide Log",
     results_heading: "Search Results",
     results_unit: "journals",
     shortlisted_btn: "Shortlist",
@@ -373,6 +377,7 @@ const EN_TEXTS: Texts = Texts {
     btn_copy_wa: "Copy WA List",
     btn_copy_emails: "Copy Editorial Emails",
     btn_copy_draft: "Copy Editor Inquiry Draft",
+    btn_copy_dosbing: "Copy Supervisor Brief",
     history_card_title: "Search & Filter History",
     sessions_saved_suffix: "saved sessions",
     load_results_btn: "Load Results",
@@ -392,6 +397,9 @@ const EN_TEXTS: Texts = Texts {
     settings_theme_label: "Application Theme",
     settings_theme_hint: "Choose dark mode (JSFS Dark) or high-contrast daylight (JSFS Daylight).",
     settings_portal_card: "Default Portal Sources & Currency Rate",
+    settings_currency_label: "APC Display Currency",
+    settings_currency_hint:
+        "Unify all APC fees across the table & exports in either Rupiah (IDR) or Dollar (USD).",
     settings_usd_label: "1 USD to IDR Exchange Rate",
     settings_usd_hint:
         "Used to estimate Rupiah cost for international APC journals (default Rp 16,500).",
@@ -444,6 +452,7 @@ mod tests {
             default_openalex: true,
             default_doaj: false,
             usd_to_idr: 16_800,
+            display_currency: DisplayCurrency::Usd,
         };
         save_app_settings_to(&path, &cfg).unwrap();
         let loaded = load_app_settings_from(&path);

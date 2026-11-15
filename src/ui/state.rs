@@ -2,7 +2,7 @@
 
 use crate::engine::ai_ops::AiStatusExtended;
 use crate::engine::manuscript::ManuscriptSummary;
-use crate::models::{SearchParams, UiJournalItem};
+use crate::models::{DisplayCurrency, SearchParams, UiJournalItem};
 use chrono::{Datelike, Local};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -49,6 +49,12 @@ pub struct AppState {
     pub bookmarked_ids: HashSet<String>,
     pub only_bookmarked: bool,
     pub export_scope: ExportScope,
+    pub saved_profiles: Vec<SavedSearchProfile>,
+    pub new_profile_name: String,
+    pub submission_tracks: std::collections::HashMap<String, crate::cache::SubmissionTrack>,
+    pub active_track_edit: crate::cache::SubmissionTrack,
+    pub similar_seed_name: Option<String>,
+    pub update_check_status: Option<String>,
 }
 
 impl AppState {
@@ -136,6 +142,7 @@ pub struct FilterSettings {
     pub doaj: bool,
     pub quartile_enabled: [bool; 4],
     pub usd_to_idr: i64,
+    pub display_currency: DisplayCurrency,
     pub include_non_sinta_garuda: bool,
     pub months: [bool; 12],
     pub include_unknown_month: bool,
@@ -146,6 +153,9 @@ pub struct FilterSettings {
     pub only_free: bool,
     pub include_na: bool,
     pub exclude_dormant: bool,
+    pub offline_mode: bool,
+    pub max_turnaround_weeks: u16,
+    pub target_deadline_month: u8,
     pub match_enabled: bool,
     pub use_ai: bool,
     pub fmt_xlsx: bool,
@@ -165,6 +175,7 @@ impl Default for FilterSettings {
             doaj: true,
             quartile_enabled: [true; 4],
             usd_to_idr: crate::config::USD_TO_IDR_RATE,
+            display_currency: DisplayCurrency::Idr,
             include_non_sinta_garuda: false,
             months: [true; 12],
             include_unknown_month: true,
@@ -175,6 +186,9 @@ impl Default for FilterSettings {
             only_free: false,
             include_na: true,
             exclude_dormant: true,
+            offline_mode: false,
+            max_turnaround_weeks: 0,
+            target_deadline_month: 0,
             match_enabled: true,
             use_ai: true,
             fmt_xlsx: true,
@@ -195,6 +209,7 @@ impl FilterSettings {
         } else {
             crate::config::USD_TO_IDR_RATE
         };
+        self.display_currency = cfg.display_currency;
     }
 
     pub fn clamp_target(&mut self, val: usize) {
@@ -294,6 +309,12 @@ impl FilterSettings {
             count += 1;
         }
         if !self.exclude_dormant {
+            count += 1;
+        }
+        if self.offline_mode {
+            count += 1;
+        }
+        if self.max_turnaround_weeks > 0 || (1..=12).contains(&self.target_deadline_month) {
             count += 1;
         }
         count
@@ -413,6 +434,7 @@ impl FilterSettings {
             } else {
                 crate::config::USD_TO_IDR_RATE
             },
+            display_currency: self.display_currency,
             only_free: self.only_free,
             include_na: self.include_na,
             include_unknown: self.include_unknown_month,
@@ -421,6 +443,12 @@ impl FilterSettings {
             match_enabled: self.match_enabled,
             include_non_sinta_garuda: self.include_non_sinta_garuda,
             exclude_dormant: self.exclude_dormant,
+            offline_mode: self.offline_mode,
+            max_turnaround_weeks: (self.max_turnaround_weeks > 0)
+                .then_some(self.max_turnaround_weeks),
+            target_deadline_month: (1..=12)
+                .contains(&self.target_deadline_month)
+                .then_some(self.target_deadline_month),
             formats,
         }
     }
@@ -717,6 +745,74 @@ pub fn record_search_history(
     let _ = save_search_history_to(&crate::config::search_history_path(), history);
 }
 
+/// Saved search profile (keyword + filter snapshot) for 1-click reuse (Feature #11).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SavedSearchProfile {
+    pub name: String,
+    pub keyword: String,
+    pub filters: FilterSettings,
+}
+
+pub const MAX_SAVED_PROFILES: usize = 12;
+
+pub fn load_saved_profiles_from(path: &Path) -> Vec<SavedSearchProfile> {
+    if let Ok(raw) = std::fs::read_to_string(path) {
+        if let Ok(mut items) = serde_json::from_str::<Vec<SavedSearchProfile>>(&raw) {
+            items.truncate(MAX_SAVED_PROFILES);
+            return items;
+        }
+    }
+    Vec::new()
+}
+
+pub fn save_saved_profiles_to(path: &Path, profiles: &[SavedSearchProfile]) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let slice = if profiles.len() > MAX_SAVED_PROFILES {
+        &profiles[..MAX_SAVED_PROFILES]
+    } else {
+        profiles
+    };
+    let json = serde_json::to_string_pretty(slice)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    std::fs::write(path, json)
+}
+
+pub fn load_saved_profiles() -> Vec<SavedSearchProfile> {
+    load_saved_profiles_from(&crate::config::saved_profiles_path())
+}
+
+pub fn upsert_saved_profile(
+    profiles: &mut Vec<SavedSearchProfile>,
+    name: &str,
+    keyword: &str,
+    filters: &FilterSettings,
+) {
+    let clean_name = name.trim();
+    if clean_name.is_empty() {
+        return;
+    }
+    if let Some(existing) = profiles
+        .iter_mut()
+        .find(|p| p.name.eq_ignore_ascii_case(clean_name))
+    {
+        existing.keyword = keyword.trim().to_string();
+        existing.filters = filters.clone();
+    } else {
+        profiles.insert(
+            0,
+            SavedSearchProfile {
+                name: clean_name.to_string(),
+                keyword: keyword.trim().to_string(),
+                filters: filters.clone(),
+            },
+        );
+        profiles.truncate(MAX_SAVED_PROFILES);
+    }
+}
+
 pub fn select_records_for_scope<'a>(
     results: &'a [UiJournalItem],
     scope: ExportScope,
@@ -958,5 +1054,23 @@ mod tests {
         assert_eq!(loaded[0].free_count, 1);
         assert_eq!(loaded[0].records.len(), 2);
         let _ = std::fs::remove_file(&tmp);
+
+        let prof_tmp = std::env::temp_dir().join("jsfs_test_profiles_v440.json");
+        let _ = std::fs::remove_file(&prof_tmp);
+        let mut profiles = Vec::new();
+        upsert_saved_profile(&mut profiles, "Skripsi AI", "machine learning", &fs);
+        upsert_saved_profile(
+            &mut profiles,
+            "Skripsi AI",
+            "deep learning, computer vision",
+            &fs,
+        );
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(profiles[0].keyword, "deep learning, computer vision");
+        save_saved_profiles_to(&prof_tmp, &profiles).unwrap();
+        let loaded_prof = load_saved_profiles_from(&prof_tmp);
+        assert_eq!(loaded_prof.len(), 1);
+        assert_eq!(loaded_prof[0].name, "Skripsi AI");
+        let _ = std::fs::remove_file(&prof_tmp);
     }
 }

@@ -1,7 +1,7 @@
 //! Manuscript parser (.docx / .pdf) and Bilingual BM25 + Academic Synonym Match Scorer.
 
 use crate::error::JsfsError;
-use crate::models::{JournalRecord, ManuscriptMeta};
+use crate::models::{FitStatus, JournalRecord, ManuscriptMeta, PreSubmitChecklist, UiJournalItem};
 use once_cell::sync::Lazy;
 use quick_xml::events::Event;
 use quick_xml::Reader;
@@ -11,6 +11,58 @@ use std::io::{Cursor, Read};
 use zip::ZipArchive;
 
 static RE_TOKEN: Lazy<Regex> = Lazy::new(|| Regex::new(r"[a-zA-Z0-9]{2,}").expect("valid regex"));
+static RE_EXPLICIT_KEYWORDS: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?im)(?:kata\s*kunci|key\s*words?)\s*[:=\-]\s*([^\r\n]{3,240})")
+        .expect("valid regex")
+});
+
+/// Generic high-frequency hub words that receive lower IDF rarity weight in matching.
+const GENERIC_HUB_TERMS: &[&str] = &[
+    "sistem",
+    "system",
+    "systems",
+    "informasi",
+    "information",
+    "ilmu",
+    "science",
+    "sciences",
+    "teknologi",
+    "technology",
+    "manajemen",
+    "management",
+    "pendidikan",
+    "education",
+    "ekonomi",
+    "economics",
+    "bisnis",
+    "business",
+    "sosial",
+    "social",
+    "data",
+    "digital",
+    "komputer",
+    "computer",
+    "media",
+    "model",
+    "aplikasi",
+    "application",
+    "nasional",
+    "national",
+    "international",
+    "indonesia",
+];
+
+fn term_idf_weight(token: &str) -> f64 {
+    if GENERIC_HUB_TERMS.contains(&token) {
+        0.62
+    } else if token.len() >= 8 || token.contains("ecommerce") || token.contains("fintech") {
+        1.45
+    } else if token.len() >= 5 {
+        1.20
+    } else {
+        1.00
+    }
+}
 
 const STOPWORDS: &[&str] = &[
     "the",
@@ -761,6 +813,184 @@ pub fn extract_keywords_and_domain(text: &str, top_n: usize) -> (Vec<String>, St
     (top_kws, best_domain)
 }
 
+/// Extract manuscript title, explicit `Kata Kunci:`/`Keywords:`, and Top-6 TF-IDF fallback phrases.
+pub fn extract_manuscript_title_and_keywords(text: &str) -> (String, String, Vec<String>) {
+    let head: String = text.chars().take(5500).collect();
+
+    // 1) Title extraction: first clean non-boilerplate line in top 12 lines
+    let mut extracted_title = String::new();
+    for line in head.lines().take(15) {
+        let trimmed = line.trim();
+        let low = trimmed.to_ascii_lowercase();
+        let word_cnt = trimmed.split_whitespace().count();
+        if trimmed.len() >= 12
+            && trimmed.len() <= 180
+            && word_cnt >= 3
+            && !low.starts_with("issn")
+            && !low.starts_with("e-issn")
+            && !low.starts_with("vol.")
+            && !low.starts_with("volume")
+            && !low.starts_with("abstract")
+            && !low.starts_with("abstrak")
+            && !low.starts_with("kata kunci")
+            && !low.starts_with("keyword")
+            && !low.starts_with("http")
+            && !low.starts_with("doi")
+        {
+            extracted_title = trimmed.to_string();
+            break;
+        }
+    }
+
+    // 2) Explicit Keywords line extraction (`Kata Kunci:` / `Keywords:`)
+    let mut explicit_terms: Vec<String> = Vec::new();
+    let stop: HashSet<&str> = STOPWORDS.iter().copied().collect();
+    if let Some(cap) = RE_EXPLICIT_KEYWORDS.captures(&head) {
+        let mut raw_kw_line = cap.get(1).map(|m| m.as_str()).unwrap_or("").to_string();
+        for stopper in [
+            "1. pendahuluan",
+            "pendahuluan",
+            "1. introduction",
+            "introduction",
+            "abstract",
+            "abstrak",
+            "latar belakang",
+        ] {
+            if let Some(pos) = raw_kw_line.to_ascii_lowercase().find(stopper) {
+                raw_kw_line.truncate(pos);
+            }
+        }
+        for part in raw_kw_line.split([',', ';', '|', '•']) {
+            let clean = part
+                .trim_matches(|c: char| !c.is_alphanumeric() && c != '-' && c != ' ')
+                .trim();
+            let low = clean.to_ascii_lowercase();
+            let words: Vec<&str> = clean.split_whitespace().collect();
+            if clean.len() >= 2
+                && !words.is_empty()
+                && words.len() <= 4
+                && !stop.contains(low.as_str())
+                && !clean.chars().all(|c| c.is_ascii_digit())
+                && !explicit_terms
+                    .iter()
+                    .any(|x: &String| x.eq_ignore_ascii_case(clean))
+            {
+                explicit_terms.push(clean.to_string());
+                if explicit_terms.len() >= 6 {
+                    break;
+                }
+            }
+        }
+    }
+
+    if !explicit_terms.is_empty() {
+        let joined = explicit_terms.join(", ");
+        let mut tokens = Vec::new();
+        for term in &explicit_terms {
+            for t in tokenize_clean(term) {
+                if !tokens.contains(&t) {
+                    tokens.push(t);
+                }
+            }
+        }
+        return (extracted_title, joined, tokens);
+    }
+
+    // 3) TF-IDF / Academic Phrase fallback from Title + Abstract (or top 3500 chars)
+    let low_head = head.to_ascii_lowercase();
+    let abstract_slice = if let Some(abs_start) = low_head
+        .find("abstrak")
+        .or_else(|| low_head.find("abstract"))
+    {
+        let tail = &head[abs_start..];
+        let end = tail
+            .to_ascii_lowercase()
+            .find("pendahuluan")
+            .or_else(|| tail.to_ascii_lowercase().find("introduction"))
+            .unwrap_or_else(|| tail.len().min(2800));
+        format!("{extracted_title} {}", &tail[..end])
+    } else {
+        format!(
+            "{extracted_title} {}",
+            head.chars().take(2800).collect::<String>()
+        )
+    };
+
+    let mut phrase_scores: HashMap<String, f64> = HashMap::new();
+    let extra_filler = [
+        "penulis",
+        "author",
+        "authors",
+        "universitas",
+        "university",
+        "fakultas",
+        "program",
+        "studi",
+        "mahasiswa",
+        "tahun",
+        "year",
+        "metodologi",
+        "pembahasan",
+        "kesimpulan",
+        "conclusion",
+        "keyword",
+        "keywords",
+        "kunci",
+        "kata",
+        "introduction",
+    ];
+    let title_toks: HashSet<String> = tokenize_clean(&extracted_title).into_iter().collect();
+    let toks: Vec<String> = tokenize_clean(&abstract_slice)
+        .into_iter()
+        .filter(|t| t.len() >= 3 && !extra_filler.contains(&t.as_str()))
+        .collect();
+
+    for t in &toks {
+        let mut w = term_idf_weight(t);
+        if title_toks.contains(t) {
+            w *= 1.6;
+        }
+        *phrase_scores.entry(t.clone()).or_insert(0.0) += w;
+    }
+    for win in toks.windows(2) {
+        if win[0] != win[1] {
+            let bigram = format!("{} {}", win[0], win[1]);
+            let mut w = 0.85 * (term_idf_weight(&win[0]) + term_idf_weight(&win[1]));
+            if title_toks.contains(&win[0]) && title_toks.contains(&win[1]) {
+                w *= 1.75;
+            }
+            *phrase_scores.entry(bigram).or_insert(0.0) += w;
+        }
+    }
+
+    let mut scored: Vec<(String, f64)> = phrase_scores.into_iter().collect();
+    scored.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+    let mut chosen: Vec<String> = Vec::new();
+    for (cand, _) in scored {
+        let redundant = chosen.iter().any(|existing| {
+            existing.contains(&cand) || (cand.contains(existing.as_str()) && cand.contains(' '))
+        });
+        if !redundant {
+            chosen.push(cand);
+            if chosen.len() >= 6 {
+                break;
+            }
+        }
+    }
+
+    let joined = chosen.join(", ");
+    let mut flat_tokens = Vec::new();
+    for c in &chosen {
+        for t in tokenize_clean(c) {
+            if !flat_tokens.contains(&t) {
+                flat_tokens.push(t);
+            }
+        }
+    }
+    (extracted_title, joined, flat_tokens)
+}
+
 pub fn build_manuscript_meta(filename: &str, bytes: &[u8]) -> Result<ManuscriptMeta, JsfsError> {
     let low = filename.to_ascii_lowercase();
     let extracted_text = if low.ends_with(".docx") {
@@ -774,7 +1004,28 @@ pub fn build_manuscript_meta(filename: &str, bytes: &[u8]) -> Result<ManuscriptM
     };
 
     let char_count = extracted_text.chars().count();
-    let (detected_keywords, detected_domain) = extract_keywords_and_domain(&extracted_text, 14);
+    let (extracted_title, suggested_keywords, priority_kws) =
+        extract_manuscript_title_and_keywords(&extracted_text);
+    let (freq_kws, detected_domain) = extract_keywords_and_domain(&extracted_text, 14);
+    let mut detected_keywords = priority_kws;
+    for kw in freq_kws {
+        if !detected_keywords.contains(&kw) {
+            detected_keywords.push(kw);
+        }
+        if detected_keywords.len() >= 14 {
+            break;
+        }
+    }
+    let checklist = analyze_manuscript_checklist(&extracted_text);
+    let abstract_snippet = extract_abstract_snippet(&extracted_text);
+    let cited_journals = extract_cited_journals(&extracted_text);
+    let recommended_topics = extract_recommended_topics(
+        &extracted_title,
+        &suggested_keywords,
+        &abstract_snippet,
+        &detected_keywords,
+        7,
+    );
 
     Ok(ManuscriptMeta {
         filename: filename.to_string(),
@@ -782,7 +1033,517 @@ pub fn build_manuscript_meta(filename: &str, bytes: &[u8]) -> Result<ManuscriptM
         extracted_text: extracted_text.chars().take(12_000).collect(),
         detected_keywords,
         detected_domain,
+        extracted_title,
+        suggested_keywords,
+        abstract_snippet,
+        checklist,
+        cited_journals,
+        recommended_topics,
     })
+}
+
+fn push_topic_chip(
+    topics: &mut Vec<String>,
+    stop: &HashSet<&str>,
+    raw: &str,
+    max_topics: usize,
+) -> bool {
+    if topics.len() >= max_topics {
+        return true;
+    }
+    let cleaned = raw
+        .trim()
+        .trim_matches(|c: char| !c.is_alphanumeric() && c != '-' && c != ' ')
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase();
+    let word_cnt = cleaned.split_whitespace().count();
+    if (1..=2).contains(&word_cnt)
+        && cleaned.chars().count() >= 3
+        && !stop.contains(cleaned.as_str())
+        && !topics.iter().any(|t| t == &cleaned)
+    {
+        topics.push(cleaned);
+    }
+    topics.len() >= max_topics
+}
+
+/// Build 5–7 concise clickable topic chips (1–2 words) from title, explicit keywords, and abstract.
+pub fn extract_recommended_topics(
+    extracted_title: &str,
+    suggested_keywords: &str,
+    abstract_snippet: &str,
+    detected_keywords: &[String],
+    max_topics: usize,
+) -> Vec<String> {
+    let mut topics: Vec<String> = Vec::new();
+    let stop: HashSet<&'static str> = STOPWORDS.iter().copied().collect();
+
+    // 1. Prioritize explicit/TF-IDF suggested phrases (keep 1-2 word phrases whole, split >=3 words)
+    for part in suggested_keywords.split([',', ';', '|', '•']) {
+        let clean_part = part.trim();
+        let wcnt = clean_part.split_whitespace().count();
+        if (1..=2).contains(&wcnt) {
+            if push_topic_chip(&mut topics, &stop, clean_part, max_topics) {
+                return topics;
+            }
+        } else if wcnt >= 3 {
+            let toks = tokenize_clean(clean_part);
+            for w in toks.windows(2) {
+                let b = format!("{} {}", w[0], w[1]);
+                if push_topic_chip(&mut topics, &stop, &b, max_topics) {
+                    return topics;
+                }
+            }
+            for t in toks {
+                if push_topic_chip(&mut topics, &stop, &t, max_topics) {
+                    return topics;
+                }
+            }
+        }
+    }
+
+    // 2. Supplement with high-value bigrams/unigrams from Title + Abstract + detected_keywords
+    let title_abs = format!("{extracted_title} {abstract_snippet}");
+    let toks = tokenize_clean(&title_abs);
+    let mut scored: Vec<(String, f64)> = Vec::new();
+    for win in toks.windows(2) {
+        if win[0] != win[1] && !stop.contains(win[0].as_str()) && !stop.contains(win[1].as_str()) {
+            let bg = format!("{} {}", win[0], win[1]);
+            let sc = term_idf_weight(&win[0]) + term_idf_weight(&win[1]);
+            scored.push((bg, sc));
+        }
+    }
+    scored.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    for (bg, _) in scored {
+        if push_topic_chip(&mut topics, &stop, &bg, max_topics) {
+            return topics;
+        }
+    }
+
+    for kw in detected_keywords {
+        if push_topic_chip(&mut topics, &stop, kw, max_topics) {
+            break;
+        }
+    }
+
+    topics
+}
+
+/// Evaluate manuscript word length against a journal's `(min_words, max_words)` requirement.
+pub fn check_manuscript_word_fit(
+    manuscript_words: u32,
+    word_limit: Option<(u32, u32)>,
+) -> Option<FitStatus> {
+    if manuscript_words == 0 {
+        return None;
+    }
+    let (min_w, max_w) = word_limit?;
+    if min_w > 0 && manuscript_words < min_w {
+        Some(FitStatus::TerlaluPendek)
+    } else if max_w > 0 && manuscript_words > max_w {
+        Some(FitStatus::MelebihiBatas)
+    } else {
+        Some(FitStatus::Sesuai)
+    }
+}
+
+fn truncate_clean_words(raw: &str, max_chars: usize) -> String {
+    let clean: String = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    if clean.chars().count() <= max_chars {
+        return clean;
+    }
+    let mut out = String::new();
+    for ch in clean.chars().take(max_chars) {
+        out.push(ch);
+    }
+    if let Some(pos) = out.rfind(' ') {
+        if pos > max_chars / 2 {
+            out.truncate(pos);
+        }
+    }
+    out.push_str("...");
+    out
+}
+
+/// Extract a clean 1-2 sentence abstract snippet for auto-filling cover letters & inquiry emails.
+pub fn extract_abstract_snippet(text: &str) -> String {
+    static RE_ABS_START: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"(?im)^\s*(?:abstract|abstrak)\b[:\-\s]*").expect("valid regex"));
+    static RE_ABS_END: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(
+            r"(?im)^\s*(?:kata\s*kunci|key\s*words?|pendahuluan|introduction|background|1\.\s)",
+        )
+        .expect("valid regex")
+    });
+
+    if let Some(m) = RE_ABS_START.find(text) {
+        let rest = &text[m.end()..];
+        let mut end = rest.len().min(1200);
+        while end > 0 && !rest.is_char_boundary(end) {
+            end -= 1;
+        }
+        let window = &rest[..end];
+        let slice = if let Some(stop) = RE_ABS_END.find(window) {
+            &window[..stop.start()]
+        } else {
+            window
+        };
+        let snippet = truncate_clean_words(slice, 240);
+        if !snippet.is_empty() {
+            return snippet;
+        }
+    }
+
+    let fallback: String = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.len() > 25)
+        .skip(1)
+        .take(4)
+        .collect::<Vec<_>>()
+        .join(" ");
+    truncate_clean_words(&fallback, 240)
+}
+
+fn normalize_venue_key(raw: &str) -> String {
+    let lower = raw.to_ascii_lowercase();
+    let mut out = String::with_capacity(lower.len());
+    let mut prev_space = true;
+    for ch in lower.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch);
+            prev_space = false;
+        } else if !prev_space {
+            out.push(' ');
+            prev_space = true;
+        }
+    }
+    out.trim().to_string()
+}
+
+fn normalize_issn_token(raw: &str) -> Option<String> {
+    let clean: String = raw
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect::<String>()
+        .to_ascii_uppercase();
+    if clean.len() == 8 && clean[..7].chars().all(|c| c.is_ascii_digit()) {
+        Some(format!("{}-{}", &clean[..4], &clean[4..]))
+    } else {
+        None
+    }
+}
+
+fn strip_venue_tail(raw: &str) -> &str {
+    static RE_VOL_TAIL: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"(?i)(?:,\s*(?:vol\.?|no\.?|issue|hal\.?|pp\.?|\d)|\s*\(\d|\s+\d{1,3}\s*\(|\s+doi\s*:|\s+https?://)").expect("valid regex")
+    });
+    let trimmed = raw
+        .trim()
+        .trim_matches(|c: char| matches!(c, ',' | '.' | ';' | ':' | '"' | '“' | '”' | '\''));
+    if let Some(m) = RE_VOL_TAIL.find(trimmed) {
+        trimmed[..m.start()]
+            .trim()
+            .trim_matches(|c: char| matches!(c, ',' | '.' | ';' | ':' | '-'))
+    } else {
+        trimmed
+    }
+}
+
+/// Extract cited journal names and ISSNs from the manuscript's bibliography / References section.
+pub fn extract_cited_journals(text: &str) -> HashMap<String, u32> {
+    static RE_REF_HEADER: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(
+            r"(?im)^\s*(?:\d+(?:\.\d+)?\s+)?(?:daftar\s*pustaka|referensi|references|bibliography|pustaka\s*acuan)\s*:?\s*$",
+        )
+        .expect("valid regex")
+    });
+    static RE_ISSN_IN_REF: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"(?i)\b(\d{4}[-–]\d{3}[\dXx])\b").expect("valid regex"));
+    static RE_ENTRY_START: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"^(?:\[\d{1,3}\]|\d{1,3}\.\s+[A-Z]|[A-Z][A-Za-z'\-]{1,28},\s+[A-Z])")
+            .expect("valid regex")
+    });
+    static RE_QUOTED_TITLE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r#"[“"]([^”"\r\n]{8,220})[”"][,\.]?\s*([^.\r\n]{5,120})"#).expect("valid regex")
+    });
+    static RE_APA_AFTER_YEAR: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"(?:\(\s*(?:19|20)\d{2}[a-z]?\s*\)\.?|\b(?:19|20)\d{2}\.)\s*[^.\r\n]{8,220}\.\s*([^.\r\n]{5,120})")
+            .expect("valid regex")
+    });
+    static RE_VENUE_PHRASE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"(?i)\b((?:jurnal|journal|prosiding|proceedings|buletin|majalah|transactions\s+on|ieee)\s+[^.;\r\n]{3,95})")
+            .expect("valid regex")
+    });
+
+    let mut header_match_start = None;
+    for m in RE_REF_HEADER.find_iter(text) {
+        header_match_start = Some(m.end());
+    }
+    let ref_slice = if let Some(start) = header_match_start {
+        &text[start..]
+    } else if text.len() <= 4_500 {
+        text
+    } else {
+        return HashMap::new();
+    };
+
+    // Merge wrapped lines into logical bibliography entries.
+    let mut entries: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    for raw_line in ref_slice.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() {
+            if !cur.trim().is_empty() {
+                entries.push(std::mem::take(&mut cur));
+            }
+            continue;
+        }
+        if RE_ENTRY_START.is_match(line) && !cur.trim().is_empty() {
+            entries.push(std::mem::take(&mut cur));
+        }
+        if !cur.is_empty() {
+            cur.push(' ');
+        }
+        cur.push_str(line);
+    }
+    if !cur.trim().is_empty() {
+        entries.push(cur);
+    }
+
+    let mut counts: HashMap<String, u32> = HashMap::new();
+    for entry in entries {
+        let mut entry_keys: HashSet<String> = HashSet::new();
+
+        for cap in RE_ISSN_IN_REF.captures_iter(&entry) {
+            if let Some(m) = cap.get(1) {
+                if let Some(issn) = normalize_issn_token(m.as_str()) {
+                    entry_keys.insert(issn);
+                }
+            }
+        }
+        if let Some(cap) = RE_QUOTED_TITLE.captures(&entry) {
+            if let Some(v) = cap.get(2) {
+                let norm = normalize_venue_key(strip_venue_tail(v.as_str()));
+                if norm.len() >= 6 && norm.split_whitespace().count() >= 2 {
+                    entry_keys.insert(norm);
+                }
+            }
+        }
+        if let Some(cap) = RE_APA_AFTER_YEAR.captures(&entry) {
+            if let Some(v) = cap.get(1) {
+                let norm = normalize_venue_key(strip_venue_tail(v.as_str()));
+                if norm.len() >= 6 && norm.split_whitespace().count() >= 2 {
+                    entry_keys.insert(norm);
+                }
+            }
+        }
+        for cap in RE_VENUE_PHRASE.captures_iter(&entry) {
+            if let Some(v) = cap.get(1) {
+                let norm = normalize_venue_key(strip_venue_tail(v.as_str()));
+                if norm.len() >= 6 && norm.split_whitespace().count() >= 2 {
+                    entry_keys.insert(norm);
+                }
+            }
+        }
+
+        for k in entry_keys {
+            *counts.entry(k).or_insert(0) += 1;
+        }
+    }
+
+    counts
+}
+
+/// Count how many times a journal appears in `cited_journals` by ISSN/eISSN or normalized title.
+pub fn count_journal_citations(
+    cited_journals: &HashMap<String, u32>,
+    title: &str,
+    issn: &str,
+    eissn: &str,
+) -> u32 {
+    if cited_journals.is_empty() {
+        return 0;
+    }
+    let mut best = 0u32;
+    for raw_issn in [issn, eissn] {
+        if let Some(norm) = normalize_issn_token(raw_issn) {
+            if let Some(&cnt) = cited_journals.get(&norm) {
+                best = best.max(cnt);
+            }
+        }
+    }
+
+    let full_norm = normalize_venue_key(title);
+    if !full_norm.is_empty() {
+        if let Some(&cnt) = cited_journals.get(&full_norm) {
+            best = best.max(cnt);
+        }
+    }
+
+    // Also match title without trailing parenthetical acronym, e.g. "Jurnal X (JX)" -> "jurnal x".
+    let before_paren = title.split('(').next().unwrap_or(title);
+    let base_norm = normalize_venue_key(before_paren);
+    if base_norm.len() >= 8 && base_norm.split_whitespace().count() >= 2 {
+        if let Some(&cnt) = cited_journals.get(&base_norm) {
+            best = best.max(cnt);
+        }
+    }
+
+    best
+}
+
+/// Populate `cited_count` across in-memory search results from the loaded manuscript's bibliography.
+pub fn apply_cited_counts(items: &mut [UiJournalItem], cited_journals: &HashMap<String, u32>) {
+    for item in items.iter_mut() {
+        item.cited_count =
+            count_journal_citations(cited_journals, &item.nama, &item.issn, &item.eissn);
+    }
+}
+
+/// Analyze manuscript text for IMRAD structure, word count, and reference count (Feature #10).
+pub fn analyze_manuscript_checklist(text: &str) -> PreSubmitChecklist {
+    let word_count = text.split_whitespace().count();
+    let low = text.to_ascii_lowercase();
+
+    let has_abstract = low.contains("abstrak") || low.contains("abstract");
+    let has_keywords =
+        low.contains("kata kunci") || low.contains("keywords") || low.contains("keyword:");
+    let has_intro = low.contains("pendahuluan")
+        || low.contains("introduction")
+        || low.contains("latar belakang");
+    let has_method = low.contains("metode")
+        || low.contains("metodologi")
+        || low.contains("method")
+        || low.contains("materials and methods");
+    let has_results = low.contains("hasil")
+        || low.contains("pembahasan")
+        || low.contains("results")
+        || low.contains("discussion");
+    let has_references = low.contains("daftar pustaka")
+        || low.contains("referensi")
+        || low.contains("references")
+        || low.contains("bibliography");
+
+    // Estimate reference count from bibliography tail or DOI/year patterns
+    let ref_tail = if let Some(idx) = low
+        .rfind("daftar pustaka")
+        .or_else(|| low.rfind("references"))
+        .or_else(|| low.rfind("referensi"))
+    {
+        &low[idx..]
+    } else {
+        let start = low.len().saturating_sub(low.len() / 4);
+        &low[start..]
+    };
+    let doi_hits = ref_tail.matches("doi.org").count() + ref_tail.matches("10.").count() / 2;
+    let bracket_hits = (1..=60)
+        .filter(|n| ref_tail.contains(&format!("[{n}]")))
+        .count();
+    let year_hits = (2015..=2026)
+        .map(|yr| {
+            ref_tail.matches(&format!("({yr})")).count()
+                + ref_tail.matches(&format!(" {yr}.")).count()
+        })
+        .sum::<usize>();
+    let estimated_refs = doi_hits.max(bracket_hits).max(year_hits).min(150);
+
+    let imrad_complete = has_abstract && has_intro && has_method && has_results && has_references;
+    let mut missing = Vec::new();
+    if !has_abstract {
+        missing.push("Abstrak");
+    }
+    if !has_intro {
+        missing.push("Pendahuluan");
+    }
+    if !has_method {
+        missing.push("Metode");
+    }
+    if !has_results {
+        missing.push("Hasil");
+    }
+    if !has_references {
+        missing.push("Daftar Pustaka");
+    }
+
+    let imrad_str = if imrad_complete {
+        "IMRAD Lengkap".to_string()
+    } else {
+        format!("Belum: {}", missing.join(", "))
+    };
+    let ref_str = if estimated_refs > 0 {
+        format!(" • ~{estimated_refs} ref")
+    } else {
+        String::new()
+    };
+    let summary_badge = format!("{word_count} kata • {imrad_str}{ref_str}");
+
+    PreSubmitChecklist {
+        word_count,
+        has_abstract,
+        has_keywords,
+        has_intro,
+        has_method,
+        has_results,
+        has_references,
+        estimated_refs,
+        imrad_complete,
+        summary_badge,
+    }
+}
+
+/// Rank journals in `items` by BM25 similarity to the journal at `target_idx` (Feature #4 — Lookalike Finder).
+/// Returns `(item_index, similarity_score)` sorted descending, with the target journal first (`100.0`).
+pub fn rank_similar_journals(target_idx: usize, items: &[UiJournalItem]) -> Vec<(usize, f64)> {
+    let Some(target) = items.get(target_idx) else {
+        return Vec::new();
+    };
+    let seed_text = format!("{} {}", target.nama, target.focus_scope);
+    let (mut top_kws, domain) = extract_keywords_and_domain(&seed_text, 10);
+    if top_kws.is_empty() {
+        for tok in tokenize_clean(&target.nama) {
+            if !top_kws.contains(&tok) {
+                top_kws.push(tok);
+            }
+        }
+    }
+    let synthetic_ms = ManuscriptMeta {
+        filename: target.nama.clone(),
+        char_count: seed_text.len(),
+        extracted_text: seed_text,
+        detected_keywords: top_kws.clone(),
+        detected_domain: domain,
+        extracted_title: target.nama.clone(),
+        suggested_keywords: String::new(),
+        abstract_snippet: String::new(),
+        checklist: PreSubmitChecklist::default(),
+        cited_journals: HashMap::new(),
+        recommended_topics: Vec::new(),
+    };
+
+    let mut ranked: Vec<(usize, f64)> = items
+        .iter()
+        .enumerate()
+        .map(|(idx, item)| {
+            if idx == target_idx {
+                return (idx, 100.0);
+            }
+            let rec = JournalRecord {
+                title: item.nama.clone(),
+                subject_area: item.sumber.clone(),
+                focus_and_scope: item.focus_scope.clone(),
+                ..Default::default()
+            };
+            let (sc, _, _) =
+                compute_match_score(&rec, &top_kws[..top_kws.len().min(5)], Some(&synthetic_ms));
+            (idx, sc)
+        })
+        .collect();
+
+    ranked.sort_by(|a, b| b.1.total_cmp(&a.1));
+    ranked
 }
 
 /// Lookup bilingual synonyms for a given token across `BILINGUAL_SYNONYM_GROUPS`.
@@ -848,37 +1609,51 @@ fn field_term_hit(
     (0, None)
 }
 
-/// Compute Bilingual BM25 + Field-Weighted + Academic Synonym match score (`0.0..=100.0`).
+/// Compute discriminative Bilingual BM25 + Field-Weighted (Title 3.0x, Scope 2.0x, Subject 1.5x)
+/// + IDF Rarity Weighting + Exact Phrase Bonus match score (`15.0..=96.0`).
 pub fn compute_match_score(
     record: &JournalRecord,
     search_keywords: &[String],
     manuscript: Option<&ManuscriptMeta>,
 ) -> (f64, String, Vec<String>) {
-    // Weighted query terms: (token, weight)
+    // Weighted query terms: (token, base_weight * idf_rarity_weight)
     let mut query_weighted: Vec<(String, f64)> = Vec::new();
     let mut raw_phrases: Vec<String> = Vec::new();
     let mut seen_terms: HashSet<String> = HashSet::new();
 
     for kw in search_keywords {
         let low_kw = kw.trim().to_ascii_lowercase();
-        if low_kw.contains(' ') && low_kw.len() >= 5 {
+        if (low_kw.contains(' ') || low_kw.contains('-')) && low_kw.len() >= 5 {
             raw_phrases.push(low_kw.clone());
+            if low_kw.contains("e-commerce") {
+                raw_phrases.push("ecommerce".to_string());
+            }
         }
         for part in tokenize_clean(&low_kw) {
             if seen_terms.insert(part.clone()) {
-                query_weighted.push((part, 1.45));
+                query_weighted.push((part.clone(), 1.60 * term_idf_weight(&part)));
             }
         }
     }
 
     if let Some(ms) = manuscript {
+        if !ms.suggested_keywords.trim().is_empty() {
+            for kw_phrase in ms.suggested_keywords.split(',') {
+                let lp = kw_phrase.trim().to_ascii_lowercase();
+                if (lp.contains(' ') || lp.contains('-'))
+                    && lp.len() >= 5
+                    && !raw_phrases.contains(&lp)
+                {
+                    raw_phrases.push(lp);
+                }
+            }
+        }
         let total_ms = ms.detected_keywords.len().max(1) as f64;
-        for (rank, kw) in ms.detected_keywords.iter().take(12).enumerate() {
+        for (rank, kw) in ms.detected_keywords.iter().take(10).enumerate() {
             let clean = kw.trim().to_ascii_lowercase();
             if seen_terms.insert(clean.clone()) {
-                // Rank-decay TF-IDF proxy weight: top manuscript terms carry higher importance
-                let w = 1.15 - (rank as f64 / total_ms) * 0.55;
-                query_weighted.push((clean, w));
+                let rank_decay = 1.05 - (rank as f64 / total_ms) * 0.55;
+                query_weighted.push((clean.clone(), rank_decay * term_idf_weight(&clean)));
             }
         }
         let ms_low: String = ms
@@ -889,8 +1664,12 @@ pub fn compute_match_score(
             .to_ascii_lowercase();
         for &(id_p, en_p) in BILINGUAL_PHRASE_PAIRS {
             if ms_low.contains(id_p) || ms_low.contains(en_p) {
-                raw_phrases.push(id_p.to_string());
-                raw_phrases.push(en_p.to_string());
+                if !raw_phrases.iter().any(|p| p == id_p) {
+                    raw_phrases.push(id_p.to_string());
+                }
+                if !raw_phrases.iter().any(|p| p == en_p) {
+                    raw_phrases.push(en_p.to_string());
+                }
             }
         }
     }
@@ -909,7 +1688,9 @@ pub fn compute_match_score(
     let (scope_tf, scope_len) = term_freq_map(&scope_low);
 
     let mut raw_bm25 = 0.0f64;
-    let mut max_possible = 0.0f64;
+    let mut ideal_multi_field_max = 0.0f64;
+    let mut total_query_weight = 0.0f64;
+    let mut covered_weight = 0.0f64;
 
     let mut title_matched = Vec::new();
     let mut scope_matched = Vec::new();
@@ -918,13 +1699,18 @@ pub fn compute_match_score(
 
     for (qt, q_weight) in &query_weighted {
         let syns = synonyms_for_token(qt);
-        // Ideal single-occurrence saturated BM25 ceiling per term
-        max_possible += q_weight * 2.2;
+        total_query_weight += *q_weight;
+        // Balanced denominator across Title (3.0x) + Focus & Scope (2.0x) + Subject (1.5x)
+        // prevents premature clamping/saturation on 84%.
+        ideal_multi_field_max += q_weight * 6.2;
+
+        let mut best_cov_factor = 0.0f64;
 
         let (t_cnt, t_syn) = field_term_hit(qt, &syns, &title_tf, &title_low);
         if t_cnt > 0 {
             let mult = if t_syn.is_some() { 0.85 } else { 1.0 };
-            raw_bm25 += q_weight * mult * 2.4 * bm25_tf(t_cnt, title_len, 6.0);
+            raw_bm25 += q_weight * mult * 3.0 * bm25_tf(t_cnt, title_len, 6.0);
+            best_cov_factor = best_cov_factor.max(1.0 * mult);
             if !title_matched.contains(qt) {
                 title_matched.push(qt.clone());
             }
@@ -936,10 +1722,27 @@ pub fn compute_match_score(
             }
         }
 
+        let (f_cnt, f_syn) = field_term_hit(qt, &syns, &scope_tf, &scope_low);
+        if f_cnt > 0 {
+            let mult = if f_syn.is_some() { 0.85 } else { 1.0 };
+            raw_bm25 += q_weight * mult * 2.0 * bm25_tf(f_cnt, scope_len, 45.0);
+            best_cov_factor = best_cov_factor.max(0.88 * mult);
+            if !scope_matched.contains(qt) {
+                scope_matched.push(qt.clone());
+            }
+            if let Some(s) = f_syn {
+                let pair = format!("{qt} ↔ {s}");
+                if !synonym_pairs.contains(&pair) {
+                    synonym_pairs.push(pair);
+                }
+            }
+        }
+
         let (s_cnt, s_syn) = field_term_hit(qt, &syns, &subj_tf, &subj_low);
         if s_cnt > 0 {
             let mult = if s_syn.is_some() { 0.85 } else { 1.0 };
-            raw_bm25 += q_weight * mult * 1.8 * bm25_tf(s_cnt, subj_len, 8.0);
+            raw_bm25 += q_weight * mult * 1.5 * bm25_tf(s_cnt, subj_len, 8.0);
+            best_cov_factor = best_cov_factor.max(0.70 * mult);
             if !subj_matched.contains(qt) {
                 subj_matched.push(qt.clone());
             }
@@ -951,41 +1754,26 @@ pub fn compute_match_score(
             }
         }
 
-        let (f_cnt, f_syn) = field_term_hit(qt, &syns, &scope_tf, &scope_low);
-        if f_cnt > 0 {
-            let mult = if f_syn.is_some() { 0.85 } else { 1.0 };
-            raw_bm25 += q_weight * mult * 2.0 * bm25_tf(f_cnt, scope_len, 45.0);
-            if !scope_matched.contains(qt) {
-                scope_matched.push(qt.clone());
-            }
-            if let Some(s) = f_syn {
-                let pair = format!("{qt} ↔ {s}");
-                if !synonym_pairs.contains(&pair) {
-                    synonym_pairs.push(pair);
-                }
-            }
-        }
+        covered_weight += q_weight * best_cov_factor;
     }
 
-    // Cross-lingual multi-word phrase matching bonus
+    // Exact multi-word phrase & cross-lingual phrase bonus (differentiates Title vs Scope hits)
     let mut phrase_bonus = 0.0f64;
-    let mut matched_phrases: Vec<String> = Vec::new();
     for phrase in &raw_phrases {
-        if all_text.contains(phrase.as_str()) {
-            phrase_bonus += 9.0;
-            if !matched_phrases.contains(phrase) {
-                matched_phrases.push(phrase.clone());
-            }
+        if title_low.contains(phrase.as_str()) {
+            phrase_bonus += 8.0;
+        } else if scope_low.contains(phrase.as_str()) || subj_low.contains(phrase.as_str()) {
+            phrase_bonus += 4.5;
         }
         for &(id_p, en_p) in BILINGUAL_PHRASE_PAIRS {
             if phrase == id_p && all_text.contains(en_p) {
-                phrase_bonus += 8.0;
+                phrase_bonus += if title_low.contains(en_p) { 6.0 } else { 3.5 };
                 let lbl = format!("{id_p} ↔ {en_p}");
                 if !synonym_pairs.contains(&lbl) {
                     synonym_pairs.push(lbl);
                 }
             } else if phrase == en_p && all_text.contains(id_p) {
-                phrase_bonus += 8.0;
+                phrase_bonus += if title_low.contains(id_p) { 6.0 } else { 3.5 };
                 let lbl = format!("{en_p} ↔ {id_p}");
                 if !synonym_pairs.contains(&lbl) {
                     synonym_pairs.push(lbl);
@@ -994,10 +1782,10 @@ pub fn compute_match_score(
         }
     }
 
-    // Normalize BM25 coverage + non-linear saturation for intuitive 15..99 scale
-    let ratio = (raw_bm25 / max_possible.max(1.0)).clamp(0.0, 2.5);
-    let bm25_component = 68.0 * (1.0 - (-1.45 * ratio).exp());
-    let mut score = 18.0 + bm25_component + phrase_bonus.min(18.0);
+    let coverage_ratio = (covered_weight / total_query_weight.max(0.01)).clamp(0.0, 1.0);
+    let field_intensity = (raw_bm25 / ideal_multi_field_max.max(0.01)).clamp(0.0, 1.0);
+    let mut score =
+        20.0 + 36.0 * coverage_ratio + 26.0 * field_intensity.powf(0.82) + phrase_bonus.min(14.0);
 
     let mut reasons = Vec::new();
     if !title_matched.is_empty() {
@@ -1043,7 +1831,7 @@ pub fn compute_match_score(
                 .find(|(d, _)| *d == ms.detected_domain)
                 .is_some_and(|(_, terms)| terms.iter().any(|t| all_text.contains(t)))
         {
-            score += 9.0;
+            score += 4.0;
             reasons.push(format!("Rumpun keilmuan selaras: {}", ms.detected_domain));
         }
     }
@@ -1053,7 +1841,7 @@ pub fn compute_match_score(
         score = score.min(34.0);
     }
 
-    let clamped = score.clamp(15.0, 99.0);
+    let clamped = score.clamp(15.0, 96.0);
     let label = if clamped >= 75.0 {
         "Sangat Sesuai"
     } else if clamped >= 55.0 {
@@ -1153,5 +1941,205 @@ mod tests {
             match_reasons.iter().any(|r| r.contains("ID–EN")),
             "expected ID-EN synonym rationale, got {match_reasons:?}"
         );
+    }
+
+    #[test]
+    fn test_manuscript_checklist_and_rank_similar_journals() {
+        let sample_paper = "Abstrak: Penelitian ini membahas machine learning. Kata Kunci: AI, Data. \
+            1. Pendahuluan Latar belakang masalah. 2. Metode Penelitian eksperimen. \
+            3. Hasil dan Pembahasan Akurasi mencapai 95%. Daftar Pustaka [1] Smith (2023) [2] Budi (2024) [3] Ani (2025).";
+        let cl = analyze_manuscript_checklist(sample_paper);
+        assert!(cl.imrad_complete);
+        assert!(
+            cl.has_abstract
+                && cl.has_keywords
+                && cl.has_intro
+                && cl.has_method
+                && cl.has_results
+                && cl.has_references
+        );
+        assert!(cl.estimated_refs >= 3);
+        assert!(cl.summary_badge.contains("IMRAD Lengkap"));
+
+        let items = vec![
+            UiJournalItem {
+                nama: "Jurnal Rekayasa Perangkat Lunak dan AI".to_string(),
+                focus_scope:
+                    "Software engineering, machine learning, deep learning, neural network"
+                        .to_string(),
+                ..Default::default()
+            },
+            UiJournalItem {
+                nama: "Jurnal Peternakan Sapi Perah".to_string(),
+                focus_scope: "Nutrisi ternak, pakan hijauan, produksi susu sapi".to_string(),
+                ..Default::default()
+            },
+            UiJournalItem {
+                nama: "Journal of Intelligent Systems and Machine Learning".to_string(),
+                focus_scope: "Artificial intelligence, deep learning, software engineering"
+                    .to_string(),
+                ..Default::default()
+            },
+        ];
+        let ranked = rank_similar_journals(0, &items);
+        assert_eq!(ranked[0].0, 0);
+        assert_eq!(
+            ranked[1].0, 2,
+            "AI journal should rank closer than dairy farming journal"
+        );
+    }
+
+    #[test]
+    fn test_extract_manuscript_keywords_and_suggestions() {
+        let with_explicit_kw = "Implementasi Random Forest untuk Klasifikasi Sentimen Konsumen\n\n\
+            Abstrak: Penelitian ini mengevaluasi algoritma random forest pada ulasan produk e-commerce.\n\
+            Kata Kunci: random forest, analisis sentimen, klasifikasi teks, e-commerce\n\n\
+            1. Pendahuluan";
+        let (title1, kw1, _) = extract_manuscript_title_and_keywords(with_explicit_kw);
+        assert!(
+            title1.contains("Implementasi Random Forest"),
+            "unexpected extracted title: {title1}"
+        );
+        assert!(
+            kw1.to_lowercase().contains("random forest")
+                && kw1.to_lowercase().contains("analisis sentimen"),
+            "expected explicit keywords to be extracted, got: {kw1}"
+        );
+
+        let without_explicit_kw = "Optimasi Convolutional Neural Network untuk Deteksi Penyakit Daun Padi\n\n\
+            Abstract: This study optimizes convolutional neural network models for rice leaf disease classification \
+            using transfer learning and image augmentation on field datasets.\n\
+            1. Introduction";
+        let (title2, kw2, _) = extract_manuscript_title_and_keywords(without_explicit_kw);
+        assert!(
+            title2.contains("Convolutional Neural Network"),
+            "unexpected fallback title: {title2}"
+        );
+        let lower_kw2 = kw2.to_lowercase();
+        assert!(
+            !lower_kw2.is_empty()
+                && (lower_kw2.contains("neural")
+                    || lower_kw2.contains("rice")
+                    || lower_kw2.contains("disease")),
+            "expected fallback TF-IDF/bigram keywords from abstract, got: {kw2}"
+        );
+    }
+
+    #[test]
+    fn test_discriminative_match_scoring_not_uniform() {
+        let keywords = vec![
+            "machine learning".to_string(),
+            "sentiment analysis".to_string(),
+            "classification".to_string(),
+        ];
+
+        let exact_title_and_scope = JournalRecord {
+            title: "Journal of Machine Learning and Sentiment Analysis".to_string(),
+            subject_area: "Computer Science, Artificial Intelligence".to_string(),
+            focus_and_scope: "Publishes machine learning, sentiment analysis, and text classification algorithms.".to_string(),
+            ..Default::default()
+        };
+
+        let scope_only_partial = JournalRecord {
+            title: "Jurnal Teknologi dan Sistem Informasi".to_string(),
+            subject_area: "Information Systems".to_string(),
+            focus_and_scope: "Covers enterprise systems, software engineering, and occasional classification studies.".to_string(),
+            ..Default::default()
+        };
+
+        let generic_hub_only = JournalRecord {
+            title: "Jurnal Penelitian Multidisiplin Nusantara".to_string(),
+            subject_area: "Multidisciplinary".to_string(),
+            focus_and_scope:
+                "Artikel penelitian ilmu komputer, manajemen, pendidikan, dan teknologi informasi."
+                    .to_string(),
+            ..Default::default()
+        };
+
+        let (s_exact, _, _) = compute_match_score(&exact_title_and_scope, &keywords, None);
+        let (s_partial, _, _) = compute_match_score(&scope_only_partial, &keywords, None);
+        let (s_generic, _, _) = compute_match_score(&generic_hub_only, &keywords, None);
+
+        assert!(
+            (75.0..=96.0).contains(&s_exact),
+            "expected strong exact journal in 75..=96, got {s_exact}"
+        );
+        assert!(
+            s_exact > s_partial + 12.0,
+            "expected clear gap between exact ({s_exact}) and partial ({s_partial})"
+        );
+        assert!(
+            s_partial > s_generic,
+            "expected partial ({s_partial}) > generic/unmatched ({s_generic})"
+        );
+    }
+
+    #[test]
+    fn test_check_manuscript_word_fit() {
+        assert_eq!(
+            check_manuscript_word_fit(5200, Some((4000, 7000))),
+            Some(FitStatus::Sesuai)
+        );
+        assert_eq!(
+            check_manuscript_word_fit(2800, Some((4000, 7000))),
+            Some(FitStatus::TerlaluPendek)
+        );
+        assert_eq!(
+            check_manuscript_word_fit(8100, Some((4000, 7000))),
+            Some(FitStatus::MelebihiBatas)
+        );
+        assert_eq!(
+            check_manuscript_word_fit(4500, Some((0, 6000))),
+            Some(FitStatus::Sesuai)
+        );
+        assert_eq!(check_manuscript_word_fit(0, Some((4000, 7000))), None);
+        assert_eq!(check_manuscript_word_fit(4500, None), None);
+    }
+
+    #[test]
+    fn test_cite_to_target_extraction_and_matching() {
+        let manuscript_text = "\
+Judul Artikel: Klasifikasi Sentimen Berbasis IndoBERT\n\
+Abstrak\n\
+Penelitian ini mengklasifikasikan sentimen ulasan mahasiswa menggunakan model IndoBERT dengan akurasi tinggi.\n\
+Kata Kunci: sentimen, indobert\n\
+\n\
+Daftar Pustaka\n\
+[1] A. Budi, \"Analisis Sentimen Akademik,\" Jurnal Sistem Informasi Indonesia, vol. 8, no. 2, pp. 11-20, 2023. ISSN 2548-1234.\n\
+[2] R. Sari (2024). Evaluasi Deep Learning pada Data Kampus. Jurnal Sistem Informasi Indonesia, 9(1), 55-64.\n\
+[3] T. Putra (2022). Optimasi Neural Network. IEEE Access, 10, 12345-12355.\n";
+
+        let snippet = extract_abstract_snippet(manuscript_text);
+        assert!(snippet.contains("mengklasifikasikan sentimen ulasan mahasiswa"));
+
+        let cited = extract_cited_journals(manuscript_text);
+        let cnt1 = count_journal_citations(
+            &cited,
+            "Jurnal Sistem Informasi Indonesia (JSII)",
+            "2548-1234",
+            "",
+        );
+        assert_eq!(cnt1, 2);
+
+        let cnt2 = count_journal_citations(&cited, "IEEE Access", "", "");
+        assert_eq!(cnt2, 1);
+
+        let cnt3 = count_journal_citations(&cited, "Jurnal Pendidikan Biologi", "9999-0000", "");
+        assert_eq!(cnt3, 0);
+    }
+
+    #[test]
+    fn test_extract_recommended_topics_short_chips() {
+        let topics = extract_recommended_topics(
+            "Pengaruh Live Streaming E-Commerce terhadap Perilaku Konsumen Gen Z",
+            "bisnis, e-commerce, live streaming, commerce, perilaku konsumen, gen z",
+            "Penelitian ini mengkaji transaksi live streaming pada platform e-commerce.",
+            &[],
+            7,
+        );
+        assert!((5..=7).contains(&topics.len()), "got {:?}", topics);
+        assert!(topics.iter().all(|t| t.split_whitespace().count() <= 2));
+        assert!(topics.contains(&"e-commerce".to_string()));
+        assert!(topics.contains(&"live streaming".to_string()));
     }
 }

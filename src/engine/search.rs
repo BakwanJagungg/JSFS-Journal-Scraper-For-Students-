@@ -125,12 +125,53 @@ fn filter_apc_tier(rec: &JournalRecord, params: &SearchParams) -> bool {
 }
 
 /// Strict post-crawl & post-AI filter gate enforcing `sinta`, `quartiles`, `include_non_sinta_garuda`,
-/// `exclude_dormant`, `only_free`, `min_rp..=max_rp`, `include_na`, and publish months.
+/// `exclude_dormant`, `only_free`, `min_rp..=max_rp`, `include_na`, publish months, and turnaround/deadline (Feature #8).
 pub fn apply_strict_filters(records: &mut Vec<JournalRecord>, params: &SearchParams) {
     let allowed_ranks = params.normalized_sinta_ranks();
     let allowed_quartiles = params.normalized_quartiles();
     let selected_months = params.normalized_months();
+    let cur_month = Local::now().month() as u8;
+    let deadline_window: Option<(Vec<u8>, u16)> = params
+        .target_deadline_month
+        .filter(|&m| (1..=12).contains(&m))
+        .map(|target_m| {
+            let mut valid_months = Vec::new();
+            let mut m = cur_month;
+            let mut steps = 0u16;
+            loop {
+                valid_months.push(m);
+                steps += 1;
+                if m == target_m || steps >= 12 {
+                    break;
+                }
+                m = (m % 12) + 1;
+            }
+            (valid_months, steps * 4)
+        });
+
     records.retain(|r| {
+        let ok_turnaround = match params.max_turnaround_weeks.filter(|&w| w > 0) {
+            Some(max_w) => match r.turnaround_weeks {
+                Some(w) => w <= max_w,
+                None => params.include_unknown,
+            },
+            None => true,
+        };
+        let ok_deadline = match &deadline_window {
+            Some((window_months, max_weeks_until_deadline)) => {
+                let month_ok = month::lolos_filter_bulan(
+                    &r.publish_month_nums,
+                    window_months,
+                    params.include_unknown,
+                );
+                let turnaround_ok = r
+                    .turnaround_weeks
+                    .is_none_or(|w| w <= *max_weeks_until_deadline);
+                month_ok && turnaround_ok
+            }
+            None => true,
+        };
+
         filter_accreditation_tier(
             r,
             &allowed_ranks,
@@ -144,6 +185,8 @@ pub fn apply_strict_filters(records: &mut Vec<JournalRecord>, params: &SearchPar
                 params.include_unknown,
             )
             && filter_apc_tier(r, params)
+            && ok_turnaround
+            && ok_deadline
     });
 }
 
@@ -194,258 +237,309 @@ pub fn start_search(
             *ex_w = None;
         }
 
-        emit_log(
-            &app,
-            format!("Fase 1: Menjelajahi portal untuk '{kw_label}' (Target: {target} jurnal)..."),
-        );
-        emit_progress(
-            &app,
-            "fase1_portal",
-            0,
-            0,
-            &format!("Menghubungi SINTA & Garuda untuk '{kw_label}'..."),
-            "Menjelajahi halaman portal SINTA & Garuda...",
-            started_at,
-            (0, 0, 0, 0),
-        );
-
-        // PHASE 1: Portal Scraping (Garuda + SINTA concurrent per keyword)
-        let pool_target = (target * 2).clamp(40, 1500);
-        let mut raw_candidates: Vec<JournalRecord> = Vec::new();
-        let mut portal_tasks = JoinSet::new();
-
-        for kw in &keywords {
-            if params.garuda {
-                let c = client.clone();
-                let br = breaker.clone();
-                let kw_c = kw.clone();
-                let sr = sinta_ranks.clone();
-                let cf = cancel_flag.clone();
-                let app_c = app.clone();
-                portal_tasks.spawn(async move {
-                    garuda::scrape_garuda(&c, br, &kw_c, &sr, pool_target, cf, move |d, t, msg| {
-                        emit_progress(
-                            &app_c,
-                            "fase1_portal",
-                            d,
-                            t,
-                            msg,
-                            "Menjelajahi Portal Garuda...",
-                            started_at,
-                            (0, 0, 0, 0),
-                        );
+        let enriched_list: Vec<JournalRecord> = if params.offline_mode {
+            emit_log(
+                &app,
+                format!("⚡ Mode Offline Aktif: Mencari '{kw_label}' langsung dari cache SQLite lokal (<50 ms)..."),
+            );
+            let cached_rows = cache
+                .lock()
+                .ok()
+                .and_then(|g| {
+                    g.as_ref().and_then(|db| {
+                        db.search_cached_journals(&kw_label, (target * 3).clamp(60, 1500))
+                            .ok()
                     })
-                    .await
-                });
-            }
-            if params.sinta_src {
-                let c = client.clone();
-                let br = breaker.clone();
-                let kw_c = kw.clone();
-                let sr = sinta_ranks.clone();
-                let cf = cancel_flag.clone();
-                let app_c = app.clone();
-                portal_tasks.spawn(async move {
-                    let app_cb = app_c.clone();
-                    let (rows, hit_cf) =
-                        sinta::scrape_sinta(&c, br, &kw_c, &sr, pool_target, cf, move |d, t, msg| {
-                            emit_progress(
-                                &app_cb,
-                                "fase1_portal",
-                                d,
-                                t,
-                                msg,
-                                "Menjelajahi Portal SINTA...",
-                                started_at,
-                                (0, 0, 0, 0),
-                            );
-                        })
-                        .await;
-                    if hit_cf {
-                        emit_log(
-                            &app_c,
-                            "⚠️ SINTA membatasi akses HTTP paralel (Cloudflare); hasil Garuda/Internasional tetap diproses.",
-                        );
-                    }
-                    rows
-                });
-            }
-            if params.openalex {
-                let c = client.clone();
-                let kw_c = kw.clone();
-                let cf = cancel_flag.clone();
-                let app_c = app.clone();
-                let rate = params.usd_to_idr;
-                portal_tasks.spawn(async move {
-                    international::scrape_openalex(&c, &kw_c, rate, cf, |d, t, msg| {
-                        emit_progress(
-                            &app_c,
-                            "fase1_portal",
-                            d,
-                            t,
-                            msg,
-                            "Mengakses OpenAlex Q1–Q4 API...",
-                            started_at,
-                            (0, 0, 0, 0),
-                        );
-                    })
-                    .await
-                });
-            }
-            if params.doaj {
-                let c = client.clone();
-                let kw_c = kw.clone();
-                let cf = cancel_flag.clone();
-                let app_c = app.clone();
-                let rate = params.usd_to_idr;
-                portal_tasks.spawn(async move {
-                    international::scrape_doaj(&c, &kw_c, rate, cf, |d, t, msg| {
-                        emit_progress(
-                            &app_c,
-                            "fase1_portal",
-                            d,
-                            t,
-                            msg,
-                            "Mengakses DOAJ Diamond OA API...",
-                            started_at,
-                            (0, 0, 0, 0),
-                        );
-                    })
-                    .await
-                });
-            }
-        }
-
-        while let Some(joined) = portal_tasks.join_next().await {
-            if let Ok(rows) = joined {
-                raw_candidates.extend(rows);
-            }
-        }
-
-        if cancel_flag.load(Ordering::Relaxed) {
-            emit_log(&app, "Pencarian dihentikan oleh pengguna.");
-            app.send(EngineEvent::SearchComplete {
-                results: vec![],
-                excel_path: String::new(),
-                duration_sec: started_at.elapsed().as_secs_f64(),
-                cancelled: true,
-            });
-            is_running.store(false, Ordering::SeqCst);
-            return;
-        }
-
-        // Deduplicate cross-source and apply Filter-Before-Deep on SINTA / Q1-Q4 tiers
-        let deduped = dedup::deduplicate_and_merge(raw_candidates);
-        let mut deep_pool: Vec<JournalRecord> = deduped
-            .into_iter()
-            .filter(|r| {
-                filter_accreditation_tier(
-                    r,
-                    &sinta_ranks,
-                    params.include_non_sinta_garuda,
-                    &allowed_quartiles,
-                    params.filter_quartiles,
-                )
-            })
-            .collect();
-        let deep_cap = (target * 2).clamp(40, 1200);
-        deep_pool.truncate(deep_cap);
-
-        emit_log(
-            &app,
-            format!(
-                "Fase 2: Deep Crawl OJS ({} jurnal kandidat setelah deduplikasi & pre-filter SINTA)...",
-                deep_pool.len()
-            ),
-        );
-
-        // PHASE 2: Concurrent OJS Deep Crawl (CPU-adaptive semaphore) + Auto-Save
-        let total_deep = deep_pool.len();
-        let sem = Arc::new(Semaphore::new(effective_max_workers()));
-        let mut deep_set = JoinSet::new();
-        for (idx, rec) in deep_pool.into_iter().enumerate() {
-            let c = client.clone();
-            let br = breaker.clone();
-            let db = cache.clone();
-            let sem_c = sem.clone();
-            let cf = cancel_flag.clone();
-            deep_set.spawn(async move {
-                let Ok(_permit) = sem_c.acquire().await else {
-                    return (idx, rec);
-                };
-                if cf.load(Ordering::Relaxed) {
-                    return (idx, rec);
-                }
-                if rec.is_international && rec.garuda_url.is_empty() && rec.sinta_url.is_empty() {
-                    return (idx, rec);
-                }
-                let enriched = ojs_deep::deep_enrich_record(&c, br, db, rec, cf).await;
-                (idx, enriched)
-            });
-        }
-
-        let mut enriched_list: Vec<JournalRecord> = Vec::with_capacity(total_deep);
-        let mut pending_batch: Vec<UiJournalItem> = Vec::new();
-        while let Some(joined) = deep_set.join_next().await {
-            if let Ok((_idx, mut rec)) = joined {
-                // Preliminary match score for live UI streaming
+                })
+                .unwrap_or_default();
+            let total_cached = cached_rows.len();
+            let mut out = Vec::with_capacity(total_cached);
+            let mut batch = Vec::with_capacity(total_cached);
+            let ms_ref = manuscript_guard.read().await;
+            for mut rec in cached_rows {
                 if params.match_enabled {
-                    let ms_ref = manuscript_guard.read().await;
                     let (sc, lbl, rsn) =
                         doc_matcher::compute_match_score(&rec, &keywords, ms_ref.as_ref());
                     rec.match_score = sc;
                     rec.match_label = lbl;
                     rec.match_reasons = rsn;
                 }
-                let done_now = enriched_list.len() + 1;
-                pending_batch.push(UiJournalItem::from(&rec));
-                let title_snap = rec.title.clone();
-                enriched_list.push(rec);
+                rec.apply_display_currency(params.display_currency, params.usd_to_idr);
+                batch.push(UiJournalItem::from(&rec));
+                out.push(rec);
+            }
+            drop(ms_ref);
+            if !batch.is_empty() {
+                app.send(EngineEvent::ResultBatch(batch));
+            }
+            let kpi = compute_kpi(&out);
+            emit_progress(
+                &app,
+                "fase2_deep",
+                total_cached,
+                total_cached.max(1),
+                &format!("{total_cached} jurnal dari cache lokal"),
+                &format!("Mode Offline: {total_cached} jurnal dimuat dari cache SQLite."),
+                started_at,
+                kpi,
+            );
+            out
+        } else {
+            emit_log(
+                &app,
+                format!("Fase 1: Menjelajahi portal untuk '{kw_label}' (Target: {target} jurnal)..."),
+            );
+            emit_progress(
+                &app,
+                "fase1_portal",
+                0,
+                0,
+                &format!("Menghubungi SINTA & Garuda untuk '{kw_label}'..."),
+                "Menjelajahi halaman portal SINTA & Garuda...",
+                started_at,
+                (0, 0, 0, 0),
+            );
 
-                let kpi = compute_kpi(&enriched_list);
-                emit_progress(
-                    &app,
-                    "fase2_deep",
-                    done_now,
-                    total_deep,
-                    &title_snap,
-                    &format!("Memeriksa biaya & jadwal ({done_now}/{total_deep} jurnal)..."),
-                    started_at,
-                    kpi,
-                );
+            // PHASE 1: Portal Scraping (Garuda + SINTA concurrent per keyword)
+            let pool_target = (target * 2).clamp(40, 1500);
+            let mut raw_candidates: Vec<JournalRecord> = Vec::new();
+            let mut portal_tasks = JoinSet::new();
 
-                if pending_batch.len() >= 10 || done_now == total_deep {
-                    app.send(EngineEvent::ResultBatch(std::mem::take(&mut pending_batch)));
-                }
-
-                // Incremental auto-save every 50 enriched records
-                if done_now.is_multiple_of(AUTOSAVE_INTERVAL_ITEMS) && !enriched_list.is_empty() {
-                    let snap = enriched_list.clone();
-                    let kw_s = kw_label.clone();
-                    let fmts = params.formats.clone();
-                    let app_s = app.clone();
-                    let ex_s = last_excel_path.clone();
-                    tokio::spawn(async move {
-                        if let Ok(Ok(bundle)) = tokio::task::spawn_blocking(move || {
-                            exporter::write_all_exports_sync(&snap, &kw_s, &fmts, true)
+            for kw in &keywords {
+                if params.garuda {
+                    let c = client.clone();
+                    let br = breaker.clone();
+                    let kw_c = kw.clone();
+                    let sr = sinta_ranks.clone();
+                    let cf = cancel_flag.clone();
+                    let app_c = app.clone();
+                    portal_tasks.spawn(async move {
+                        garuda::scrape_garuda(&c, br, &kw_c, &sr, pool_target, cf, move |d, t, msg| {
+                            emit_progress(
+                                &app_c,
+                                "fase1_portal",
+                                d,
+                                t,
+                                msg,
+                                "Menjelajahi Portal Garuda...",
+                                started_at,
+                                (0, 0, 0, 0),
+                            );
                         })
                         .await
-                        {
-                            if let Some(p) = bundle.excel_path {
-                                let mut w = ex_s.write().await;
-                                if w.is_none() {
-                                    *w = Some(p.clone());
-                                }
-                                app_s.send(EngineEvent::AutosaveDone {
-                                    path: p,
-                                    count: done_now,
-                                });
-                            }
+                    });
+                }
+                if params.sinta_src {
+                    let c = client.clone();
+                    let br = breaker.clone();
+                    let kw_c = kw.clone();
+                    let sr = sinta_ranks.clone();
+                    let cf = cancel_flag.clone();
+                    let app_c = app.clone();
+                    portal_tasks.spawn(async move {
+                        let app_cb = app_c.clone();
+                        let (rows, hit_cf) =
+                            sinta::scrape_sinta(&c, br, &kw_c, &sr, pool_target, cf, move |d, t, msg| {
+                                emit_progress(
+                                    &app_cb,
+                                    "fase1_portal",
+                                    d,
+                                    t,
+                                    msg,
+                                    "Menjelajahi Portal SINTA...",
+                                    started_at,
+                                    (0, 0, 0, 0),
+                                );
+                            })
+                            .await;
+                        if hit_cf {
+                            emit_log(
+                                &app_c,
+                                "⚠️ SINTA membatasi akses HTTP paralel (Cloudflare); hasil Garuda/Internasional tetap diproses.",
+                            );
                         }
+                        rows
+                    });
+                }
+                if params.openalex {
+                    let c = client.clone();
+                    let kw_c = kw.clone();
+                    let cf = cancel_flag.clone();
+                    let app_c = app.clone();
+                    let rate = params.usd_to_idr;
+                    portal_tasks.spawn(async move {
+                        international::scrape_openalex(&c, &kw_c, rate, cf, |d, t, msg| {
+                            emit_progress(
+                                &app_c,
+                                "fase1_portal",
+                                d,
+                                t,
+                                msg,
+                                "Mengakses OpenAlex Q1–Q4 API...",
+                                started_at,
+                                (0, 0, 0, 0),
+                            );
+                        })
+                        .await
+                    });
+                }
+                if params.doaj {
+                    let c = client.clone();
+                    let kw_c = kw.clone();
+                    let cf = cancel_flag.clone();
+                    let app_c = app.clone();
+                    let rate = params.usd_to_idr;
+                    portal_tasks.spawn(async move {
+                        international::scrape_doaj(&c, &kw_c, rate, cf, |d, t, msg| {
+                            emit_progress(
+                                &app_c,
+                                "fase1_portal",
+                                d,
+                                t,
+                                msg,
+                                "Mengakses DOAJ Diamond OA API...",
+                                started_at,
+                                (0, 0, 0, 0),
+                            );
+                        })
+                        .await
                     });
                 }
             }
-        }
+
+            while let Some(joined) = portal_tasks.join_next().await {
+                if let Ok(rows) = joined {
+                    raw_candidates.extend(rows);
+                }
+            }
+
+            if cancel_flag.load(Ordering::Relaxed) {
+                emit_log(&app, "Pencarian dihentikan oleh pengguna.");
+                app.send(EngineEvent::SearchComplete {
+                    results: vec![],
+                    excel_path: String::new(),
+                    duration_sec: started_at.elapsed().as_secs_f64(),
+                    cancelled: true,
+                });
+                is_running.store(false, Ordering::SeqCst);
+                return;
+            }
+
+            // Deduplicate cross-source and apply Filter-Before-Deep on SINTA / Q1-Q4 tiers
+            let deduped = dedup::deduplicate_and_merge(raw_candidates);
+            let mut deep_pool: Vec<JournalRecord> = deduped
+                .into_iter()
+                .filter(|r| {
+                    filter_accreditation_tier(
+                        r,
+                        &sinta_ranks,
+                        params.include_non_sinta_garuda,
+                        &allowed_quartiles,
+                        params.filter_quartiles,
+                    )
+                })
+                .collect();
+            let deep_cap = (target * 2).clamp(40, 1200);
+            deep_pool.truncate(deep_cap);
+
+            emit_log(
+                &app,
+                format!(
+                    "Fase 2: Deep Crawl OJS ({} jurnal kandidat setelah deduplikasi & pre-filter SINTA)...",
+                    deep_pool.len()
+                ),
+            );
+
+            // PHASE 2: Concurrent OJS Deep Crawl (CPU-adaptive semaphore) + Auto-Save
+            let total_deep = deep_pool.len();
+            let sem = Arc::new(Semaphore::new(effective_max_workers()));
+            let mut deep_set = JoinSet::new();
+            for (idx, rec) in deep_pool.into_iter().enumerate() {
+                let c = client.clone();
+                let br = breaker.clone();
+                let db = cache.clone();
+                let sem_c = sem.clone();
+                let cf = cancel_flag.clone();
+                deep_set.spawn(async move {
+                    let Ok(_permit) = sem_c.acquire().await else {
+                        return (idx, rec);
+                    };
+                    if cf.load(Ordering::Relaxed) {
+                        return (idx, rec);
+                    }
+                    if rec.is_international && rec.garuda_url.is_empty() && rec.sinta_url.is_empty() {
+                        return (idx, rec);
+                    };
+                    let enriched = ojs_deep::deep_enrich_record(&c, br, db, rec, cf).await;
+                    (idx, enriched)
+                });
+            }
+
+            let mut enriched: Vec<JournalRecord> = Vec::with_capacity(total_deep);
+            let mut pending_batch: Vec<UiJournalItem> = Vec::new();
+            while let Some(joined) = deep_set.join_next().await {
+                if let Ok((_idx, mut rec)) = joined {
+                    // Preliminary match score for live UI streaming
+                    if params.match_enabled {
+                        let ms_ref = manuscript_guard.read().await;
+                        let (sc, lbl, rsn) =
+                            doc_matcher::compute_match_score(&rec, &keywords, ms_ref.as_ref());
+                        rec.match_score = sc;
+                        rec.match_label = lbl;
+                        rec.match_reasons = rsn;
+                    }
+                    let done_now = enriched.len() + 1;
+                    rec.apply_display_currency(params.display_currency, params.usd_to_idr);
+                    pending_batch.push(UiJournalItem::from(&rec));
+                    let title_snap = rec.title.clone();
+                    enriched.push(rec);
+
+                    let kpi = compute_kpi(&enriched);
+                    emit_progress(
+                        &app,
+                        "fase2_deep",
+                        done_now,
+                        total_deep,
+                        &title_snap,
+                        &format!("Memeriksa biaya & jadwal ({done_now}/{total_deep} jurnal)..."),
+                        started_at,
+                        kpi,
+                    );
+
+                    if pending_batch.len() >= 10 || done_now == total_deep {
+                        app.send(EngineEvent::ResultBatch(std::mem::take(&mut pending_batch)));
+                    }
+
+                    // Incremental auto-save every 50 enriched records
+                    if done_now.is_multiple_of(AUTOSAVE_INTERVAL_ITEMS) && !enriched.is_empty() {
+                        let snap = enriched.clone();
+                        let kw_s = kw_label.clone();
+                        let fmts = params.formats.clone();
+                        let app_s = app.clone();
+                        let ex_s = last_excel_path.clone();
+                        tokio::spawn(async move {
+                            if let Ok(Ok(bundle)) = tokio::task::spawn_blocking(move || {
+                                exporter::write_all_exports_sync(&snap, &kw_s, &fmts, true)
+                            })
+                            .await
+                            {
+                                if let Some(p) = bundle.excel_path {
+                                    let mut w = ex_s.write().await;
+                                    if w.is_none() {
+                                        *w = Some(p.clone());
+                                    }
+                                    app_s.send(EngineEvent::AutosaveDone {
+                                        path: p,
+                                        count: done_now,
+                                    });
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+            enriched
+        };
 
         if cancel_flag.load(Ordering::Relaxed) {
             let ui_partial: Vec<UiJournalItem> =
@@ -479,7 +573,11 @@ pub fn start_search(
 
         // PHASE 3: Multi-Provider Match & Selective AI Enrichment
         let active_matcher = matcher_cfg_guard.read().await.clone();
-        if params.use_ai && !survivors.is_empty() && !cancel_flag.load(Ordering::Relaxed) {
+        if params.use_ai
+            && !params.offline_mode
+            && !survivors.is_empty()
+            && !cancel_flag.load(Ordering::Relaxed)
+        {
             let kpi = compute_kpi(&survivors);
             match active_matcher.normalized_mode() {
                 "cloud" => {
@@ -587,6 +685,9 @@ pub fn start_search(
                 .then_with(|| a.biaya_sort_idr().cmp(&b.biaya_sort_idr()))
         });
         survivors.truncate(target);
+        for rec in &mut survivors {
+            rec.apply_display_currency(params.display_currency, params.usd_to_idr);
+        }
 
         // PHASE 4: Sync-Offloaded Exports (.xlsx, .md, .csv, _LIST.txt)
         let kpi_final = compute_kpi(&survivors);

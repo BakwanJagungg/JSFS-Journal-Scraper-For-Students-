@@ -114,6 +114,8 @@ pub fn format_wa_share_from_ui(items: &[&UiJournalItem]) -> String {
                 format!("Sinta {}", it.sinta)
             },
             apc_status: it.apc_label.clone(),
+            publication_fee_idr: it.resolved_apc_idr_numeric().map(|v| v as i64),
+            apc_idr_numeric: it.resolved_apc_idr_numeric(),
             publish_schedule: it.jadwal_terbit.clone(),
             next_issue_estimate: it.terbit_terdekat.clone(),
             email: it.email.clone(),

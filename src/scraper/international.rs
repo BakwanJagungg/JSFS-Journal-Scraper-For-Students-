@@ -1,7 +1,8 @@
 //! International Q1–Q4 journal search via open REST APIs (OpenAlex & DOAJ) without Cloudflare blocks.
 
 use crate::config::{APC_UNKNOWN, CACHE_VERSION, INFO_NOT_FOUND, USD_TO_IDR_RATE};
-use crate::models::{format_idr_short, JournalRecord};
+use crate::models::{format_apc_unified, format_idr_short, DisplayCurrency, JournalRecord};
+use crate::parser::heuristics;
 use crate::scraper::sanitize_publisher_name;
 use chrono::Datelike;
 use serde_json::Value;
@@ -29,35 +30,11 @@ pub fn compute_quartile(mean_citedness_2yr: f64, h_index: u64, in_doaj: bool) ->
     }
 }
 
-/// Format USD fee with compact Rupiah equivalent (e.g. `$150 (~Rp 2,5 jt)`).
-pub fn format_usd_with_idr(usd: i64, usd_to_idr: i64) -> String {
-    let rate = if usd_to_idr > 0 {
-        usd_to_idr
-    } else {
-        USD_TO_IDR_RATE
-    };
-    let idr = usd.saturating_mul(rate);
-    if idr >= 1_000_000 {
-        let tenths = (idr + 50_000) / 100_000;
-        let jt = tenths / 10;
-        let dec = tenths % 10;
-        if dec > 0 {
-            format!("${usd} (~Rp {jt},{dec} jt)")
-        } else {
-            format!("${usd} (~Rp {jt} jt)")
-        }
-    } else if idr >= 1_000 {
-        let rb = (idr + 500) / 1_000;
-        format!("${usd} (~Rp {rb} rb)")
-    } else {
-        format!("${usd} (~{})", format_idr_short(idr))
-    }
-}
-
 fn assign_diamond_free(rec: &mut JournalRecord, evidence: &str) {
-    rec.apc_status = "Gratis (Diamond OA • $0)".to_string();
+    rec.apc_status = format_apc_unified("free", Some(0), "", DisplayCurrency::Idr, USD_TO_IDR_RATE);
     rec.publication_fee = rec.apc_status.clone();
     rec.publication_fee_idr = Some(0);
+    rec.apc_idr_numeric = Some(0);
     rec.fee_currency = "USD".to_string();
     rec.fee_amount = "0".to_string();
     rec.apc_evidence = evidence.to_string();
@@ -70,9 +47,10 @@ fn assign_paid_usd(rec: &mut JournalRecord, usd: i64, usd_to_idr: i64, source_na
         USD_TO_IDR_RATE
     };
     let idr = usd.saturating_mul(rate);
-    rec.apc_status = format_usd_with_idr(usd, rate);
-    rec.publication_fee = rec.apc_status.clone();
+    rec.apc_idr_numeric = (idr > 0).then_some(idr as u64);
     rec.publication_fee_idr = Some(idr);
+    rec.apc_status = format_idr_short(idr);
+    rec.publication_fee = rec.apc_status.clone();
     rec.fee_currency = "USD".to_string();
     rec.fee_amount = usd.to_string();
     rec.apc_evidence = format!("{source_name}: USD {usd} (kurs Rp {rate})");
@@ -236,6 +214,9 @@ pub fn parse_openalex_response(raw: &str, usd_to_idr: i64) -> Vec<JournalRecord>
             ..Default::default()
         };
         rec.refresh_activity_status(false, current_year);
+        rec.article_languages =
+            heuristics::detect_article_languages(&rec.title, &rec.focus_and_scope, "", true);
+        rec.risk_warning = heuristics::evaluate_journal_risk(&rec, "", None, None);
 
         match item.get("apc_usd").and_then(json_number_as_i64) {
             Some(0) => assign_diamond_free(&mut rec, "OpenAlex verified: apc_usd = 0 (Diamond OA)"),
@@ -376,6 +357,9 @@ pub fn parse_doaj_response(raw: &str, usd_to_idr: i64) -> Vec<JournalRecord> {
             ..Default::default()
         };
         rec.refresh_activity_status(false, current_year);
+        rec.article_languages =
+            heuristics::detect_article_languages(&rec.title, &rec.focus_and_scope, "", true);
+        rec.risk_warning = heuristics::evaluate_journal_risk(&rec, "", None, None);
 
         let apc_obj = bib.get("apc");
         let has_apc = apc_obj
@@ -410,6 +394,7 @@ pub fn parse_doaj_response(raw: &str, usd_to_idr: i64) -> Vec<JournalRecord> {
                                 rec.apc_status = format_idr_short(price);
                                 rec.publication_fee = rec.apc_status.clone();
                                 rec.publication_fee_idr = Some(price);
+                                rec.apc_idr_numeric = (price > 0).then_some(price as u64);
                                 rec.fee_currency = "IDR".to_string();
                                 rec.fee_amount = price.to_string();
                                 rec.apc_evidence = format!("DOAJ APC: IDR {price}");
@@ -427,6 +412,37 @@ pub fn parse_doaj_response(raw: &str, usd_to_idr: i64) -> Vec<JournalRecord> {
             None => {
                 rec.apc_status = APC_UNKNOWN.to_string();
                 rec.publication_fee = APC_UNKNOWN.to_string();
+            }
+        }
+
+        if let Some(weeks) = bib
+            .get("publication_time_weeks")
+            .and_then(json_number_as_i64)
+            .and_then(|w| u16::try_from(w).ok())
+            .filter(|&w| (1..=104).contains(&w))
+        {
+            rec.turnaround_weeks = Some(weeks);
+            rec.turnaround_label = heuristics::format_turnaround_label(weeks);
+        }
+        if let Some(langs) = bib.get("language").and_then(|v| v.as_array()) {
+            let mut has_id = false;
+            let mut has_en = false;
+            for l in langs {
+                if let Some(code) = l.as_str() {
+                    let up = code.trim().to_ascii_uppercase();
+                    if up == "ID" || up == "IND" || up == "IN" {
+                        has_id = true;
+                    } else if up == "EN" || up == "ENG" {
+                        has_en = true;
+                    }
+                }
+            }
+            if has_id && has_en {
+                rec.article_languages = "ID & EN".to_string();
+            } else if has_id {
+                rec.article_languages = "ID".to_string();
+            } else if has_en {
+                rec.article_languages = "EN".to_string();
             }
         }
 
@@ -565,13 +581,15 @@ mod tests {
         assert_eq!(oa_recs.len(), 2);
         assert_eq!(oa_recs[0].quartile.as_deref(), Some("Q1"));
         assert!(oa_recs[0].is_international);
-        assert_eq!(oa_recs[0].apc_status, "Gratis (Diamond OA • $0)");
+        assert_eq!(oa_recs[0].apc_status, "Gratis (Rp 0)");
         assert_eq!(oa_recs[0].apc_category(), "free");
         assert_eq!(oa_recs[0].publication_fee_idr, Some(0));
+        assert_eq!(oa_recs[0].apc_idr_numeric, Some(0));
 
         assert_eq!(oa_recs[1].quartile.as_deref(), Some("Q3"));
-        assert_eq!(oa_recs[1].apc_status, "$150 (~Rp 2,5 jt)");
+        assert_eq!(oa_recs[1].apc_status, "Rp 2.475.000");
         assert_eq!(oa_recs[1].publication_fee_idr, Some(2_475_000));
+        assert_eq!(oa_recs[1].apc_idr_numeric, Some(2_475_000));
         assert_eq!(oa_recs[1].apc_category(), "paid");
 
         let doaj_json = r#"{
@@ -594,7 +612,8 @@ mod tests {
         assert_eq!(doaj_recs.len(), 1);
         assert_eq!(doaj_recs[0].quartile.as_deref(), Some("Q4"));
         assert!(doaj_recs[0].is_international);
-        assert_eq!(doaj_recs[0].apc_status, "Gratis (Diamond OA • $0)");
+        assert_eq!(doaj_recs[0].apc_status, "Gratis (Rp 0)");
         assert_eq!(doaj_recs[0].publication_fee_idr, Some(0));
+        assert_eq!(doaj_recs[0].apc_idr_numeric, Some(0));
     }
 }

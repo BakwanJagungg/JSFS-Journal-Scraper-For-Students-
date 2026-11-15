@@ -186,6 +186,56 @@ pub fn render_filters_page(
                 "Sertakan jurnal yang jadwal bulannya belum terdata",
                 "Tetap tampilkan kandidat potensial bila OJS tidak menulis nama bulan secara eksplisit.",
             );
+            card_divider(ui, p);
+
+            // Feature #8: Target Sidang / Wisuda & Batas Review
+            ui.horizontal_wrapped(|ui| {
+                ui.label(
+                    RichText::new("🎓 Target Bulan Sidang / Wisuda:")
+                        .size(12.5)
+                        .strong()
+                        .color(p.text),
+                );
+                egui::ComboBox::from_id_salt("target_deadline_month_combo")
+                    .selected_text(if (1..=12).contains(&filters.target_deadline_month) {
+                        MONTH_NAMES[(filters.target_deadline_month - 1) as usize]
+                    } else {
+                        "Tanpa Batas Bulan"
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut filters.target_deadline_month,
+                            0,
+                            "Tanpa Batas Bulan",
+                        );
+                        for (m_idx, &m_name) in MONTH_NAMES.iter().enumerate() {
+                            ui.selectable_value(
+                                &mut filters.target_deadline_month,
+                                (m_idx + 1) as u8,
+                                m_name,
+                            );
+                        }
+                    });
+
+                ui.add_space(12.0);
+                ui.label(
+                    RichText::new("⏱ Maks. Kecepatan Review:")
+                        .size(12.5)
+                        .strong()
+                        .color(p.text),
+                );
+                for (weeks, lbl) in [
+                    (0u16, "Semua"),
+                    (6, "<= 6 mgg"),
+                    (12, "<= 3 bln"),
+                    (24, "<= 6 bln"),
+                ] {
+                    if selectable_chip(ui, p, filters.max_turnaround_weeks == weeks, lbl) {
+                        filters.max_turnaround_weeks = weeks;
+                        filters.active_preset = QuickPreset::Custom;
+                    }
+                }
+            });
         });
 
         ui.add_space(12.0);
@@ -288,6 +338,14 @@ pub fn render_filters_page(
                 &mut filters.use_ai,
                 "Aktifkan Pengayaan Match Engine / AI",
                 "Mengikuti mode terpilih di halaman Match Engine & AI (Built-in / Cloud / Ollama).",
+            );
+            card_divider(ui, p);
+            toggle_row(
+                ui,
+                p,
+                &mut filters.offline_mode,
+                "⚡ Mode Offline Instan (Cari dari Cache SQLite Lokal)",
+                "Melewati koneksi internet & langsung mencari jurnal yang sudah tersimpan di cache lokal (<50 ms).",
             );
             card_divider(ui, p);
 

@@ -2,7 +2,7 @@
 //! historical/OA-reader/submission-fee guards, and Regular > Fast-Track > Free priority.
 
 use crate::config::{APC_SANITY_MAX_IDR, APC_SANITY_MIN_IDR, APC_UNKNOWN, USD_TO_IDR_RATE};
-use crate::models::format_idr_short;
+use crate::models::{format_apc_unified, format_idr_short, DisplayCurrency};
 use crate::parser::focus::sanitize_html_text;
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -521,9 +521,25 @@ fn ceil_char_boundary(s: &str, mut idx: usize) -> usize {
 }
 
 pub fn apc_display_or_unknown(parsed: &ApcParsed) -> String {
+    apc_display_for_currency(parsed, DisplayCurrency::Idr, USD_TO_IDR_RATE)
+}
+
+/// Format parsed APC cleanly in a single selected currency (`Idr` or `Usd`).
+pub fn apc_display_for_currency(
+    parsed: &ApcParsed,
+    currency: DisplayCurrency,
+    usd_to_idr: i64,
+) -> String {
     match parsed {
-        ApcParsed::Free => "Gratis (Rp 0)".to_string(),
-        ApcParsed::Paid { display, .. } => display.clone(),
+        ApcParsed::Free => format_apc_unified("free", Some(0), "", currency, usd_to_idr),
+        ApcParsed::Paid {
+            amount_idr,
+            display,
+            ..
+        } => {
+            let numeric = (*amount_idr > 0).then_some(*amount_idr as u64);
+            format_apc_unified("paid", numeric, display, currency, usd_to_idr)
+        }
         ApcParsed::Unknown => APC_UNKNOWN.to_string(),
     }
 }
@@ -626,5 +642,71 @@ mod tests {
                 raw_amount: "400000".to_string(),
             }
         );
+    }
+
+    #[test]
+    fn test_unified_currency_idr_and_usd_conversion() {
+        use crate::models::{reformat_ui_results_currency, JournalRecord, UiJournalItem};
+
+        let free_parsed = ApcParsed::Free;
+        assert_eq!(
+            apc_display_for_currency(&free_parsed, DisplayCurrency::Idr, 16_500),
+            "Gratis (Rp 0)"
+        );
+        assert_eq!(
+            apc_display_for_currency(&free_parsed, DisplayCurrency::Usd, 16_500),
+            "Free ($0)"
+        );
+
+        let paid_500k = ApcParsed::Paid {
+            currency: "IDR".to_string(),
+            display: "Rp 500.000".to_string(),
+            amount_idr: 500_000,
+            raw_amount: "500000".to_string(),
+        };
+        assert_eq!(
+            apc_display_for_currency(&paid_500k, DisplayCurrency::Idr, 16_500),
+            "Rp 500.000"
+        );
+        assert_eq!(
+            apc_display_for_currency(&paid_500k, DisplayCurrency::Usd, 16_500),
+            "$30"
+        );
+
+        // Verify round-trip IDR -> USD -> IDR preserves exact apc_idr_numeric precision
+        let mut items = vec![
+            UiJournalItem::from(&JournalRecord {
+                title: "Jurnal Nasional Berbayar".to_string(),
+                apc_status: "Rp 500.000".to_string(),
+                publication_fee_idr: Some(500_000),
+                apc_idr_numeric: Some(500_000),
+                ..Default::default()
+            }),
+            UiJournalItem::from(&JournalRecord {
+                title: "OpenAlex Journal".to_string(),
+                apc_status: "Rp 2.475.000".to_string(),
+                publication_fee_idr: Some(2_475_000),
+                apc_idr_numeric: Some(2_475_000),
+                ..Default::default()
+            }),
+            UiJournalItem::from(&JournalRecord {
+                title: "Diamond OA Free".to_string(),
+                apc_status: "Gratis (Rp 0)".to_string(),
+                publication_fee_idr: Some(0),
+                apc_idr_numeric: Some(0),
+                ..Default::default()
+            }),
+        ];
+
+        reformat_ui_results_currency(&mut items, DisplayCurrency::Usd, 16_500);
+        assert_eq!(items[0].apc_label, "$30");
+        assert_eq!(items[1].apc_label, "$150");
+        assert_eq!(items[2].apc_label, "Free ($0)");
+        assert_eq!(items[0].apc_idr_numeric, Some(500_000));
+
+        reformat_ui_results_currency(&mut items, DisplayCurrency::Idr, 16_500);
+        assert_eq!(items[0].apc_label, "Rp 500.000");
+        assert_eq!(items[1].apc_label, "Rp 2.475.000");
+        assert_eq!(items[2].apc_label, "Gratis (Rp 0)");
     }
 }

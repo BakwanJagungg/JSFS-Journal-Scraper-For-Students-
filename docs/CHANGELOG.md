@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.6.0] - 2026-11-15
+
+### Added
+- **Multi-Topic Manuscript Chips (`src/models.rs`, `src/engine/manuscript.rs`, `src/parser/doc_matcher.rs`, `src/ui/search_page.rs`)**:
+  - Added `recommended_topics: Vec<String>` extracted via `extract_recommended_topics` (and helper `push_topic_chip`) into clickable short 1–2 word topic chips alongside a **Gunakan Semua Topik / Use All Topics** action.
+- **Submission Status (CFP), Follow-Up Editor & Graduation Target Lead-Time (`src/parser/heuristics.rs`, `src/scraper/ojs_deep.rs`, `src/exporter/templates.rs`, `src/ui/detail_modal.rs`)**:
+  - Added `submission_open: Option<bool>` detected via `extract_submission_open` inside `ojs_deep::absorb_page`, surfaced as `Open Submit / CFP` or `Registrasi Tutup` badges and rows in `detail_modal.rs`.
+  - Added `generate_followup_email` in `templates.rs` with one-click **Follow-Up (ID)** and **Follow-Up (EN)** copy actions in the Submission Tracker, plus **Saran Target Wisuda** lead-time guidance.
+
+### Improved
+- **Anti-Overflow Home Header & Dynamic Table Width (`src/ui/search_page.rs`)**:
+  - Constrained KPI strip (`render_kpi_strip`) and card widths to `ui.available_width()`, switched Baris 1 to flexible `right_to_left` layout, moved **Preset** and saved **Profil** controls into compact dropdowns (`ComboBox`), and sized the primary table column dynamically (`col0_w = (table_w - fixed_w).max(220.0)`) so all 6 table columns stay visible without right-edge clipping.
+
+---
+
+## [4.5.0] - 2026-11-15
+
+### Added
+- **Author Guidelines, Pre-Flight Fit Check & Cite-to-Target (`src/parser/heuristics.rs`, `src/parser/doc_matcher.rs`, `src/scraper/ojs_deep.rs`, `src/models.rs`)**:
+  - Extracted journal citation style (`APA`, `IEEE`, `Chicago`, `Vancouver`, `Harvard`, `MLA`) and manuscript word-count limits (`word_limit`) directly from crawled OJS pages without extra HTTP requests.
+  - Added `check_manuscript_word_fit` (`FitStatus`) to validate uploaded manuscript length against each journal's requirements, plus Cite-to-Target matching against bibliography references.
+- **Auto-Fill Submission Templates (`src/exporter/templates.rs`, `src/ui/detail_modal.rs`)**:
+  - Added one-click generators for formal **Cover Letters**, **Pre-Submission Inquiry Emails**, and supervisor briefs (**Dosbing Brief**) auto-filled from loaded manuscript metadata.
+- **Side-by-Side Shortlist Compare Modal (`src/ui/compare_modal.rs`, `src/ui/search_page.rs`)**:
+  - Added an interactive comparison modal (`2..=4` ★ shortlisted journals) comparing accreditation tier, APC, match score, turnaround speed, activity year, citation style, word limit, and submission fit side-by-side.
+
+---
+
+## [4.4.2] - 2026-11-15
+
+### Added
+- **Unified Single Currency Display IDR / USD (`src/ui/i18n.rs`, `src/ui/settings_page.rs`, `src/parser/apc.rs`, `src/ui/search_page.rs`)**:
+  - Added `DisplayCurrency { Id/Idr, Usd }` in `AppSettings` (defaulting to IDR) with live switching in **Settings** and unified IDR/USD conversion across the results table, detail modal, and exports.
+
+### Improved
+- **Clean Toolbar & Fixed-Width Table Columns (`src/ui/search_page.rs`, `src/ui/mod.rs`)**:
+  - Hid verbose technical log bar clutter from the main search workspace and stabilized table column sizing.
+
+---
+
+## [4.4.1] - 2026-11-15
+
+### Improved
+- **Table Row Height, APC Badge Labels & Toast Clarity (`src/ui/search_page.rs`, `src/ui/mod.rs`)**:
+  - Raised `TableBuilder` row height and vertical cell spacing so two-line journal/schedule text never clips at the bottom, shortened the free Diamond OA label to `"Gratis (Diamond $0)"`, simplified the top preset strip, and refined toast notifications.
+  - Enhanced smart manuscript keyword extraction for cleaner initial search topic suggestions.
+
+---
+
+## [4.4.0] - 2026-11-15
+
+### Added
+- **Research Productivity Suite (Zero-Bloat / On-Demand)**:
+  - **Turnaround & Risk Heuristics (`src/parser/heuristics.rs`, `src/scraper/ojs_deep.rs`)**: Added review turnaround estimation (`turnaround_weeks` / `turnaround_label`), article language & template URL detection, and predatory/hijacked journal risk evaluation (`evaluate_journal_risk`).
+  - **Zotero & Mendeley Citation Exporter (`src/exporter/citation.rs`, `src/ui/history_page.rs`)**: Added standard RIS (`.ris`) and BibTeX (`.bib`) export (`format_ris` and BibTeX formatter).
+  - **Submission Tracker, Search Profiles & Cache Offline Browser (`src/cache.rs`, `src/ui/state.rs`, `src/ui/detail_modal.rs`, `src/ui/history_page.rs`)**: Added local submission status tracking (`Belum Dikirim` -> `Submitted` -> `Review` -> `Accepted`), reusable search + filter profiles, and instant offline browsing of cached journals (`search_cached_journals`).
+
+---
+
 ## [4.3.0] - 2026-11-15
 
 ### Added

@@ -262,18 +262,16 @@ pub async fn run_selective_enrichment<F, P, Fut>(
                                 if p == 0 {
                                     records[idx].apc_status = "Gratis (Rp 0)".to_string();
                                     records[idx].publication_fee_idr = Some(0);
+                                    records[idx].apc_idr_numeric = Some(0);
                                     records[idx].fee_currency = "IDR".to_string();
                                     records[idx].fee_amount = "0".to_string();
                                 } else {
                                     let idr = if cur == "USD" { p * USD_TO_IDR_RATE } else { p };
                                     records[idx].publication_fee_idr = Some(idr);
+                                    records[idx].apc_idr_numeric = (idr > 0).then_some(idr as u64);
                                     records[idx].fee_currency = cur.clone();
                                     records[idx].fee_amount = p.to_string();
-                                    records[idx].apc_status = if cur == "USD" {
-                                        format!("USD {p} (~{})", format_idr_short(idr))
-                                    } else {
-                                        format_idr_short(idr)
-                                    };
+                                    records[idx].apc_status = format_idr_short(idr);
                                 }
                             }
                         }

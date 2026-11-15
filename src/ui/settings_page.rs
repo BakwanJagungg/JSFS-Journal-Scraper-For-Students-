@@ -1,13 +1,17 @@
 //! Application Settings page: instant ID/EN language switcher, theme selector, default portals, and USD-IDR rate.
 
-use crate::engine::{EngineEvent, EventSink};
-use crate::ui::i18n::{save_app_settings, t, AppLanguage, AppSettings};
+use crate::config::APP_VERSION;
+use crate::engine::file_ops::open_url_with_feedback;
+use crate::engine::{EngineEvent, EngineState, EventSink};
+use crate::ui::i18n::{save_app_settings, t, AppLanguage, AppSettings, DisplayCurrency};
 use crate::ui::state::{parse_idr_input, FilterSettings};
 use crate::ui::theme::{
-    accent_button, apply_theme, card, card_divider, page_header, secondary_button, toggle_row,
-    Palette, ThemeMode,
+    accent_button, apply_theme, card, card_divider, page_header, pill_badge, secondary_button,
+    toggle_row, Palette, ThemeMode,
 };
 use egui::{Align2, Color32, CornerRadius, Frame, Margin, RichText, ScrollArea, Sense, Stroke, Ui};
+use std::sync::Arc;
+use std::time::Duration;
 
 fn option_pill(ui: &mut Ui, p: &Palette, active: bool, label: &str) -> bool {
     let (fg, fill, border) = if active {
@@ -28,6 +32,7 @@ fn option_pill(ui: &mut Ui, p: &Palette, active: bool, label: &str) -> bool {
     resp.clicked()
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn render_settings_page(
     ui: &mut Ui,
     p: &Palette,
@@ -35,6 +40,7 @@ pub fn render_settings_page(
     theme_mode: &mut ThemeMode,
     filters: &mut FilterSettings,
     usd_rate_text: &mut String,
+    engine: &Arc<EngineState>,
     sink: &EventSink,
 ) {
     let txt = t(app_settings.language);
@@ -215,6 +221,58 @@ pub fn render_settings_page(
 
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
+                    ui.set_max_width((ui.available_width() - 260.0).max(160.0));
+                    ui.label(
+                        RichText::new(txt.settings_currency_label)
+                            .size(13.0)
+                            .color(p.text),
+                    );
+                    ui.label(
+                        RichText::new(txt.settings_currency_hint)
+                            .size(11.5)
+                            .color(p.muted),
+                    );
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if option_pill(
+                        ui,
+                        p,
+                        app_settings.display_currency == DisplayCurrency::Usd,
+                        "Dollar (USD)",
+                    ) && app_settings.display_currency != DisplayCurrency::Usd
+                    {
+                        app_settings.display_currency = DisplayCurrency::Usd;
+                        filters.display_currency = DisplayCurrency::Usd;
+                        let _ = save_app_settings(app_settings);
+                        sink.send(EngineEvent::Toast(if app_settings.language == AppLanguage::En {
+                            "APC display currency switched to Dollar (USD).".to_string()
+                        } else {
+                            "Mata uang biaya APC diubah ke Dollar (USD).".to_string()
+                        }));
+                    }
+                    if option_pill(
+                        ui,
+                        p,
+                        app_settings.display_currency == DisplayCurrency::Idr,
+                        "Rupiah (IDR)",
+                    ) && app_settings.display_currency != DisplayCurrency::Idr
+                    {
+                        app_settings.display_currency = DisplayCurrency::Idr;
+                        filters.display_currency = DisplayCurrency::Idr;
+                        let _ = save_app_settings(app_settings);
+                        sink.send(EngineEvent::Toast(if app_settings.language == AppLanguage::En {
+                            "APC display currency switched to Rupiah (IDR).".to_string()
+                        } else {
+                            "Mata uang biaya APC diubah ke Rupiah (IDR).".to_string()
+                        }));
+                    }
+                });
+            });
+
+            card_divider(ui, p);
+
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
                     ui.set_max_width((ui.available_width() - 180.0).max(160.0));
                     ui.label(
                         RichText::new(txt.settings_usd_label)
@@ -269,6 +327,88 @@ pub fn render_settings_page(
                     filters.apply_app_settings(app_settings);
                     let _ = save_app_settings(app_settings);
                     sink.send(EngineEvent::Toast(txt.toast_settings_reset.to_string()));
+                }
+            });
+        });
+
+        ui.add_space(12.0);
+
+        // Card 3: Version & Manual On-Demand GitHub Update Checker (Feature #12)
+        card(ui, p, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(if app_settings.language == AppLanguage::En {
+                        "Version & Manual Update Check"
+                    } else {
+                        "Versi Aplikasi & Cek Pembaruan Manual"
+                    })
+                    .size(13.5)
+                    .strong()
+                    .color(p.text),
+                );
+                pill_badge(ui, &format!("v{APP_VERSION}"), p.accent, p.accent_soft);
+            });
+            card_divider(ui, p);
+
+            ui.horizontal_wrapped(|ui| {
+                if secondary_button(
+                    ui,
+                    p,
+                    if app_settings.language == AppLanguage::En {
+                        "Check Latest Version (GitHub)"
+                    } else {
+                        "Cek Versi Terbaru (GitHub)"
+                    },
+                )
+                .on_hover_text(
+                    "Pemeriksaan 1x saat diklik (timeout 3 detik, tanpa proses latar belakang)",
+                )
+                .clicked()
+                {
+                    let client = engine.http_client.clone();
+                    let sink_c = sink.clone();
+                    engine.runtime.spawn(async move {
+                        let url = "https://api.github.com/repos/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest";
+                        let resp = client
+                            .get(url)
+                            .header("Accept", "application/vnd.github+json")
+                            .timeout(Duration::from_secs(3))
+                            .send()
+                            .await;
+                        match resp {
+                            Ok(r) if r.status().is_success() => {
+                                if let Ok(val) = r.json::<serde_json::Value>().await {
+                                    let latest_tag = val
+                                        .get("tag_name")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("")
+                                        .trim_start_matches('v')
+                                        .to_string();
+                                    if !latest_tag.is_empty() && latest_tag != APP_VERSION {
+                                        sink_c.send(EngineEvent::Toast(format!(
+                                            "Versi baru v{latest_tag} tersedia di GitHub Releases (saat ini v{APP_VERSION})."
+                                        )));
+                                    } else {
+                                        sink_c.send(EngineEvent::Toast(format!(
+                                            "✅ Anda sudah menggunakan versi terbaru (v{APP_VERSION})."
+                                        )));
+                                    }
+                                }
+                            }
+                            _ => {
+                                sink_c.send(EngineEvent::Toast(format!(
+                                    "Versi aktif: v{APP_VERSION} (gagal menghubungi GitHub API dalam 3 dtk)."
+                                )));
+                            }
+                        }
+                    });
+                }
+
+                if secondary_button(ui, p, "Buka Halaman GitHub Releases").clicked() {
+                    open_url_with_feedback(
+                        "https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases",
+                        sink,
+                    );
                 }
             });
         });

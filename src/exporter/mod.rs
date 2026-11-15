@@ -1,6 +1,8 @@
+pub mod citation;
 pub mod csv_writer;
 pub mod list_txt;
 pub mod markdown;
+pub mod templates;
 pub mod xlsx;
 
 use crate::config::output_dir;
@@ -102,6 +104,8 @@ pub fn write_single_export_sync(
         "xlsx" => xlsx::write_xlsx(&path, records)?,
         "md" => markdown::write_markdown(&path, records, keyword)?,
         "csv" => csv_writer::write_csv(&path, records)?,
+        "ris" => citation::write_ris(&path, records)?,
+        "bib" => citation::write_bibtex(&path, records)?,
         other => {
             return Err(JsfsError::InvalidInput(format!(
                 "Format ekspor tidak didukung: .{other}"

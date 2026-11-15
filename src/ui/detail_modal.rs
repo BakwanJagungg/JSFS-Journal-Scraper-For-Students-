@@ -1,13 +1,37 @@
 //! Native modal inspector showing complete journal accuracy evidence, activity year, Focus & Scope,
 //! Editor contact links (Email / WhatsApp), and 1-click OJS open or WA inquiry draft copy.
 
+use crate::cache::SubmissionTrack;
 use crate::engine::file_ops::{format_editor_draft, open_url_with_feedback};
+use crate::engine::manuscript::ManuscriptSummary;
 use crate::engine::{EngineEvent, EventSink};
-use crate::models::UiJournalItem;
+use crate::exporter::templates::{
+    generate_cover_letter, generate_editor_inquiry_email, generate_followup_email,
+};
+use crate::models::{FitStatus, UiJournalItem};
+use crate::parser::doc_matcher::check_manuscript_word_fit;
+use crate::ui::state::AppState;
 use crate::ui::theme::{
     accent_button, card, pill_badge, quartile_pill_colors, secondary_button, Palette,
 };
 use egui::{Align, CornerRadius, Frame, Layout, Margin, RichText, ScrollArea, Stroke, Ui};
+
+pub enum DetailModalAction {
+    None,
+    Close,
+    FindSimilar(usize),
+    SaveTrack(SubmissionTrack),
+}
+
+pub const SUBMISSION_STATUS_OPTIONS: [&str; 7] = [
+    "Belum Dikirim",
+    "Draft Siap",
+    "Submitted",
+    "Under Review",
+    "Revision",
+    "Accepted",
+    "Rejected",
+];
 
 pub fn extract_whatsapp_url(phone: &str) -> Option<String> {
     let digits: String = phone.chars().filter(|c| c.is_ascii_digit()).collect();
@@ -42,20 +66,40 @@ fn info_kv(ui: &mut Ui, p: &Palette, label: &str, value: &str) {
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn render_detail_modal(
     ctx: &egui::Context,
     p: &Palette,
+    item_idx: usize,
     item: Option<&UiJournalItem>,
     keyword: &str,
+    manuscript: Option<&ManuscriptSummary>,
+    app_state: &mut AppState,
     sink: &EventSink,
-) -> bool {
+) -> DetailModalAction {
     let Some(j) = item else {
-        return false;
+        return DetailModalAction::Close;
     };
 
+    let canonical_key = SubmissionTrack::canonical_key(&j.url, &j.nama);
+    if app_state.active_track_edit.journal_key != canonical_key {
+        app_state.active_track_edit = app_state
+            .submission_tracks
+            .get(&canonical_key)
+            .cloned()
+            .unwrap_or_else(|| SubmissionTrack {
+                journal_key: canonical_key.clone(),
+                status: "Belum Dikirim".to_string(),
+                submitted_date: String::new(),
+                notes: String::new(),
+                updated_at: String::new(),
+            });
+    }
+
+    let mut action = DetailModalAction::None;
     let mut close_requested = false;
     let modal_resp = egui::Modal::new(egui::Id::unique("journal_detail_modal")).show(ctx, |ui| {
-        ui.set_width(640.0_f32.min(ctx.content_rect().width() - 48.0));
+        ui.set_width(660.0_f32.min(ctx.content_rect().width() - 48.0));
         ui.set_max_height(ctx.content_rect().height() - 64.0);
 
         // Header
@@ -96,9 +140,42 @@ pub fn render_detail_modal(
                     };
                     pill_badge(ui, &j.activity_status, act_fg, act_bg);
 
+                    if !j.turnaround_label.trim().is_empty() {
+                        pill_badge(
+                            ui,
+                            &format!("Review {}", j.turnaround_label),
+                            p.accent,
+                            p.accent_soft,
+                        );
+                    }
+                    if !j.article_languages.trim().is_empty() {
+                        pill_badge(
+                            ui,
+                            &format!("Bahasa: {}", j.article_languages),
+                            p.muted,
+                            p.control_bg,
+                        );
+                    }
+
                     let match_lbl =
                         format!("Match {:.0}% • {}", j.match_score, j.kesesuaian_naskah);
                     pill_badge(ui, &match_lbl, p.good, p.good_soft);
+
+                    if j.cited_count > 0 {
+                        pill_badge(
+                            ui,
+                            &format!("Dikutip {}x di Naskah", j.cited_count),
+                            p.accent,
+                            p.accent_soft,
+                        );
+                    }
+                    if let Some(open) = j.submission_open {
+                        if open {
+                            pill_badge(ui, "Open Submit / CFP", p.good, p.good_soft);
+                        } else {
+                            pill_badge(ui, "Registrasi Tutup", p.bad, p.bad_soft);
+                        }
+                    }
                 });
             });
             ui.with_layout(Layout::right_to_left(Align::TOP), |ui| {
@@ -110,7 +187,26 @@ pub fn render_detail_modal(
 
         ui.add_space(10.0);
 
-        ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
+        ScrollArea::vertical().max_height(430.0).show(ui, |ui| {
+            if let Some(ref warn) = j.risk_warning {
+                Frame::new()
+                    .fill(p.bad_soft)
+                    .stroke(Stroke::new(1.0, p.bad))
+                    .corner_radius(CornerRadius::same(8))
+                    .inner_margin(Margin::same(10))
+                    .show(ui, |ui| {
+                        ui.set_min_width(ui.available_width());
+                        ui.label(
+                            RichText::new("⚠ Peringatan Audit Keamanan / Predatory Detector")
+                                .size(12.0)
+                                .strong()
+                                .color(p.bad),
+                        );
+                        ui.label(RichText::new(warn).size(12.0).color(p.text));
+                    });
+                ui.add_space(8.0);
+            }
+
             card(ui, p, |ui| {
                 ui.label(
                     RichText::new("Ringkasan Akurasi & Jadwal")
@@ -137,9 +233,104 @@ pub fn render_detail_modal(
                 if j.submit_label != "-" {
                     info_kv(ui, p, "Submission Fee", &j.submit_label);
                 }
+                if let Some(open) = j.submission_open {
+                    info_kv(
+                        ui,
+                        p,
+                        "Status Pendaftaran",
+                        if open {
+                            "Open Submit / Menerima Naskah"
+                        } else {
+                            "Registrasi Tutup (Cek OJS)"
+                        },
+                    );
+                }
                 info_kv(ui, p, "Jadwal Terbit", &j.jadwal_terbit);
                 info_kv(ui, p, "Terbit Terdekat", &j.terbit_terdekat);
+                if !j.turnaround_label.trim().is_empty() {
+                    info_kv(ui, p, "Estimasi Kecepatan Review", &j.turnaround_label);
+                }
+                let wisuda_tip = if let Some(w) = j.turnaround_weeks {
+                    let rec_months = ((w as f32 / 4.3).ceil() as u16).max(1);
+                    format!(
+                        "Estimasi proses ~{w} minggu — disarankan submit minimal {rec_months} bulan sebelum target sidang/wisuda"
+                    )
+                } else {
+                    "Disarankan submit minimal 2–3 bulan sebelum target sidang/wisuda (termasuk waktu revisi)".to_string()
+                };
+                info_kv(ui, p, "Saran Target Wisuda", &wisuda_tip);
+                if !j.article_languages.trim().is_empty() {
+                    info_kv(ui, p, "Bahasa Naskah Diterima", &j.article_languages);
+                }
             });
+
+            if j.citation_style.is_some()
+                || j.word_limit.is_some()
+                || j.cited_count > 0
+                || manuscript.is_some()
+            {
+                ui.add_space(8.0);
+                card(ui, p, |ui| {
+                    ui.label(
+                        RichText::new("Syarat Naskah & Pre-Flight Fit")
+                            .size(13.0)
+                            .strong()
+                            .color(p.text),
+                    );
+                    ui.add_space(4.0);
+                    info_kv(
+                        ui,
+                        p,
+                        "Gaya Sitasi",
+                        j.citation_style.as_deref().unwrap_or("Belum terdeteksi di OJS"),
+                    );
+                    let limit_text = match j.word_limit {
+                        Some((0, max_w)) => format!("Maksimal {max_w} kata"),
+                        Some((min_w, max_w)) => format!("{min_w} – {max_w} kata"),
+                        None => "Belum terdeteksi di OJS".to_string(),
+                    };
+                    info_kv(ui, p, "Batas Panjang Kata", &limit_text);
+                    if j.cited_count > 0 {
+                        info_kv(
+                            ui,
+                            p,
+                            "Sitasi di Daftar Pustaka",
+                            &format!("Dikutip {}x di naskah Anda", j.cited_count),
+                        );
+                    }
+                    if let Some(ms) = manuscript {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(
+                                RichText::new(format!("Naskah Anda ({}):", ms.name))
+                                    .size(12.0)
+                                    .strong()
+                                    .color(p.muted),
+                            );
+                            ui.label(
+                                RichText::new(format!("{} kata", ms.word_count))
+                                    .size(12.0)
+                                    .color(p.text),
+                            );
+                            if let Some(status) =
+                                check_manuscript_word_fit(ms.word_count as u32, j.word_limit)
+                            {
+                                let (lbl, fg, bg) = match status {
+                                    FitStatus::Sesuai => {
+                                        ("✓ Sesuai Batas Kata", p.good, p.good_soft)
+                                    }
+                                    FitStatus::TerlaluPendek => {
+                                        ("⚠ Terlalu Pendek", p.warn, p.warn_soft)
+                                    }
+                                    FitStatus::MelebihiBatas => {
+                                        ("⚠ Melebihi Batas", p.bad, p.bad_soft)
+                                    }
+                                };
+                                pill_badge(ui, lbl, fg, bg);
+                            }
+                        });
+                    }
+                });
+            }
 
             if !j.apc_evidence.trim().is_empty() {
                 ui.add_space(8.0);
@@ -159,6 +350,83 @@ pub fn render_detail_modal(
                         ui.label(RichText::new(&j.apc_evidence).size(12.0).color(p.text));
                     });
             }
+
+            ui.add_space(8.0);
+            card(ui, p, |ui| {
+                ui.label(
+                    RichText::new("Pelacak Status Pengiriman Naskah (Tersimpan Lokal)")
+                        .size(13.0)
+                        .strong()
+                        .color(p.text),
+                );
+                ui.add_space(4.0);
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new("Status:").size(12.0).color(p.muted));
+                    egui::ComboBox::from_id_salt("sub_track_status_combo")
+                        .selected_text(&app_state.active_track_edit.status)
+                        .show_ui(ui, |ui| {
+                            for st in SUBMISSION_STATUS_OPTIONS {
+                                ui.selectable_value(
+                                    &mut app_state.active_track_edit.status,
+                                    st.to_string(),
+                                    st,
+                                );
+                            }
+                        });
+
+                    ui.label(RichText::new("Tgl Kirim:").size(12.0).color(p.muted));
+                    ui.add_sized(
+                        [110.0, 26.0],
+                        egui::TextEdit::singleline(&mut app_state.active_track_edit.submitted_date)
+                            .hint_text("YYYY-MM-DD"),
+                    );
+
+                    if accent_button(ui, p, "Simpan Status").clicked() {
+                        action = DetailModalAction::SaveTrack(app_state.active_track_edit.clone());
+                    }
+                    if secondary_button(ui, p, "Follow-Up (ID)")
+                        .on_hover_text("Salin draf email sopan menanyakan status review ke editor")
+                        .clicked()
+                    {
+                        let body = generate_followup_email(
+                            j,
+                            keyword,
+                            manuscript,
+                            &app_state.active_track_edit.submitted_date,
+                            "id",
+                        );
+                        ctx.copy_text(body);
+                        sink.send(EngineEvent::Toast(
+                            "Email Follow-Up Editor (ID) disalin ke clipboard.".to_string(),
+                        ));
+                    }
+                    if secondary_button(ui, p, "Follow-Up (EN)")
+                        .on_hover_text("Copy polite English review-status follow-up email")
+                        .clicked()
+                    {
+                        let body = generate_followup_email(
+                            j,
+                            keyword,
+                            manuscript,
+                            &app_state.active_track_edit.submitted_date,
+                            "en",
+                        );
+                        ctx.copy_text(body);
+                        sink.send(EngineEvent::Toast(
+                            "English Follow-Up Email copied to clipboard.".to_string(),
+                        ));
+                    }
+                });
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Catatan:").size(12.0).color(p.muted));
+                    ui.add_sized(
+                        [ui.available_width(), 26.0],
+                        egui::TextEdit::singleline(&mut app_state.active_track_edit.notes)
+                            .hint_text("Catatan untuk jurnal ini (misal: batas revisi, link OJS, nama reviewer)..."),
+                    );
+                });
+            });
 
             ui.add_space(8.0);
             card(ui, p, |ui| {
@@ -188,7 +456,7 @@ pub fn render_detail_modal(
             ui.add_space(8.0);
             card(ui, p, |ui| {
                 ui.label(
-                    RichText::new("Kontak Redaksi Editor")
+                    RichText::new("Kontak Redaksi Editor & Dokumen")
                         .size(13.0)
                         .strong()
                         .color(p.text),
@@ -219,18 +487,68 @@ pub fn render_detail_modal(
                 if !j.url.trim().is_empty() {
                     info_kv(ui, p, "Website OJS", &j.url);
                 }
+                if let Some(ref tpl_url) = j.template_url {
+                    ui.add_space(4.0);
+                    if secondary_button(ui, p, "📄 Unduh Template Naskah (.docx / Panduan)")
+                        .on_hover_text(tpl_url)
+                        .clicked()
+                    {
+                        open_url_with_feedback(tpl_url, sink);
+                    }
+                }
             });
         });
 
-        ui.add_space(12.0);
-        ui.horizontal(|ui| {
+        ui.add_space(10.0);
+        ui.horizontal_wrapped(|ui| {
             ui.set_min_width(ui.available_width());
-            if secondary_button(ui, p, "Salin Draf Pesan WA").clicked() {
+            if secondary_button(ui, p, "Salin Draf WA").clicked() {
                 let draft = format_editor_draft(&j.nama, keyword);
                 ctx.copy_text(draft);
                 sink.send(EngineEvent::Toast(
                     "Draf pesan sopan ke editor disalin ke clipboard.".to_string(),
                 ));
+            }
+            if secondary_button(ui, p, "Cover Letter (ID)").clicked() {
+                let letter = generate_cover_letter(j, keyword, manuscript, "id");
+                ctx.copy_text(letter);
+                sink.send(EngineEvent::Toast(
+                    "Surat Pengantar (Cover Letter Bahasa Indonesia) disalin ke clipboard."
+                        .to_string(),
+                ));
+            }
+            if secondary_button(ui, p, "Cover Letter (EN)").clicked() {
+                let letter = generate_cover_letter(j, keyword, manuscript, "en");
+                ctx.copy_text(letter);
+                sink.send(EngineEvent::Toast(
+                    "English Cover Letter copied to clipboard.".to_string(),
+                ));
+            }
+            if secondary_button(ui, p, "Email Editor (ID)")
+                .on_hover_text("Salin email konsultasi pra-submit (Subjek + Isi) siap kirim")
+                .clicked()
+            {
+                let email = generate_editor_inquiry_email(j, keyword, manuscript, "id");
+                ctx.copy_text(email);
+                sink.send(EngineEvent::Toast(
+                    "Draf Email Inquiry Editor (ID) disalin ke clipboard.".to_string(),
+                ));
+            }
+            if secondary_button(ui, p, "Email Editor (EN)")
+                .on_hover_text("Copy pre-submission inquiry email (Subject + Body) to clipboard")
+                .clicked()
+            {
+                let email = generate_editor_inquiry_email(j, keyword, manuscript, "en");
+                ctx.copy_text(email);
+                sink.send(EngineEvent::Toast(
+                    "English Editor Inquiry Email copied to clipboard.".to_string(),
+                ));
+            }
+            if secondary_button(ui, p, "🔍 Cari Jurnal Mirip")
+                .on_hover_text("Urutkan tabel berdasarkan kemiripan topik dengan jurnal ini")
+                .clicked()
+            {
+                action = DetailModalAction::FindSimilar(item_idx);
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if accent_button(ui, p, "Buka Web OJS").clicked() {
@@ -245,5 +563,9 @@ pub fn render_detail_modal(
         });
     });
 
-    modal_resp.should_close() || close_requested
+    if modal_resp.should_close() || close_requested {
+        DetailModalAction::Close
+    } else {
+        action
+    }
 }
