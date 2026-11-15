@@ -31,6 +31,7 @@
 
   --accent-danger: #dc2626;
   --accent-danger-hover: #b91c1c;
+  --accent-danger-soft: #fef2f2;
 
   --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
   --shadow-lg: 0 12px 28px rgba(15, 23, 42, 0.12);
@@ -70,6 +71,7 @@
 
   --accent-danger: #f87171;
   --accent-danger-hover: #ef4444;
+  --accent-danger-soft: rgba(239, 68, 68, 0.16);
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 16px 36px rgba(0, 0, 0, 0.45);
@@ -343,11 +345,13 @@ body {
 .target-wrap {
   display: inline-flex;
   align-items: center;
+  min-width: 132px;
+  flex-shrink: 0;
   height: 40px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-ctrl);
   background: var(--bg-subtle);
-  padding: 0 6px 0 10px;
+  padding: 0 8px 0 10px;
   gap: 6px;
 }
 
@@ -363,10 +367,12 @@ body {
   font-size: 12.5px;
   font-weight: 600;
   color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 .target-input {
   width: 68px;
+  min-width: 68px;
   height: 28px;
   border: 1px solid var(--border-subtle);
   border-radius: 6px;
@@ -378,6 +384,13 @@ body {
   font-variant-numeric: tabular-nums;
   text-align: center;
   padding: 0 4px;
+  -moz-appearance: textfield;
+}
+
+.target-input::-webkit-inner-spin-button,
+.target-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 .target-input:focus {
@@ -1191,6 +1204,31 @@ th[aria-sort="descending"] .sort-ind::after {
 .badge-paid { background: var(--accent-amber-soft); color: var(--accent-amber); }
 .badge-unk { background: var(--bg-subtle); color: var(--text-secondary); }
 
+.badge-act-row {
+  margin-top: 4px;
+}
+
+.badge-act-active {
+  background: var(--accent-success-soft);
+  color: var(--accent-success);
+  font-size: 11px;
+  padding: 1px 7px;
+}
+
+.badge-act-warn {
+  background: var(--accent-amber-soft);
+  color: var(--accent-amber);
+  font-size: 11px;
+  padding: 1px 7px;
+}
+
+.badge-act-dormant {
+  background: var(--accent-danger-soft);
+  color: var(--accent-danger);
+  font-size: 11px;
+  padding: 1px 7px;
+}
+
 .match-score {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -1213,6 +1251,12 @@ dialog.modal-dialog {
   background: var(--bg-surface);
   color: var(--text-primary);
   box-shadow: var(--shadow-lg);
+}
+
+dialog.modal-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 dialog.modal-dialog.modal-lg {
@@ -1250,12 +1294,17 @@ dialog::backdrop {
 }
 
 .modal-body {
-  padding: 16px 18px;
+  flex: 1 1 auto;
+  padding: 16px 18px 20px;
   overflow-y: auto;
-  max-height: 68vh;
+  max-height: 70vh;
 }
 
 .modal-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: var(--bg-surface);
   padding: 12px 18px;
   border-top: 1px solid var(--border-subtle);
   display: flex;

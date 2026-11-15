@@ -332,36 +332,98 @@ pub fn sanitize_free_traps(raw_text: &str) -> String {
     RE_SUBMISSION_FREE_STRIP.replace_all(&s2, " ").into_owned()
 }
 
+fn floor_char_boundary(s: &str, mut idx: usize) -> usize {
+    idx = idx.min(s.len());
+    while idx > 0 && !s.is_char_boundary(idx) {
+        idx -= 1;
+    }
+    idx
+}
+
+fn extract_sentence_evidence(text: &str, focus_start: usize, focus_end: usize) -> String {
+    let min_left = floor_char_boundary(text, focus_start.saturating_sub(95));
+    let mut left = min_left;
+    for (rel, ch) in text[min_left..focus_start].char_indices().rev() {
+        let abs = min_left + rel;
+        if ch == '\n' || ch == ';' {
+            left = abs + ch.len_utf8();
+            break;
+        }
+        if ch == '.' {
+            let prev = text[min_left..abs].chars().next_back();
+            let next = text[abs + 1..].chars().next();
+            if next.is_some_and(char::is_whitespace) && prev.is_some_and(|p| !p.is_ascii_digit() && p != 'p' && p != 'P') {
+                left = abs + 1;
+                break;
+            }
+        }
+    }
+
+    let max_right = ceil_char_boundary(text, (focus_end + 85).min(text.len()));
+    let mut right = max_right;
+    for (rel, ch) in text[focus_end..max_right].char_indices() {
+        let abs = focus_end + rel;
+        if ch == '\n' || ch == ';' {
+            right = abs;
+            break;
+        }
+        if ch == '.' {
+            let next = text[abs + 1..].chars().next();
+            if next.is_none() || next.is_some_and(char::is_whitespace) {
+                right = abs + 1;
+                break;
+            }
+        }
+    }
+
+    let raw_snip = text[left..right].split_whitespace().collect::<Vec<_>>().join(" ");
+    let trimmed = raw_snip.trim_start_matches(['-', '•', '*', ' ', ':', ',']).trim();
+    if trimmed.chars().count() <= 140 {
+        trimmed.to_string()
+    } else {
+        let cut: String = trimmed.chars().take(137).collect();
+        if let Some(sp) = cut.rfind(' ') {
+            format!("{}...", &cut[..sp])
+        } else {
+            format!("{cut}...")
+        }
+    }
+}
+
+/// Global Zero-Trap APC parser returning `(ApcParsed, evidence_snippet)`.
+pub fn parse_apc_with_evidence(raw_text: &str) -> (ApcParsed, String) {
+    if raw_text.trim().is_empty() {
+        return (ApcParsed::Unknown, String::new());
+    }
+
+    let historical_cleaned = RE_HISTORICAL_FREE_STRIP.replace_all(raw_text, " ");
+    let paid_candidates = collect_paid_candidates(&historical_cleaned);
+
+    if let Some(reg) = paid_candidates.iter().find(|c| !c.is_fast_track) {
+        let ev = extract_sentence_evidence(&historical_cleaned, reg.start, (reg.start + 24).min(historical_cleaned.len()));
+        return (reg.parsed.clone(), ev);
+    }
+
+    let free_scan = sanitize_free_traps(raw_text);
+    if let Some(m) = RE_PUB_FREE_STRICT.find(&free_scan) {
+        let ev = extract_sentence_evidence(&free_scan, m.start(), m.end());
+        return (ApcParsed::Free, ev);
+    }
+
+    if let Some(ft) = paid_candidates.first() {
+        let ev = extract_sentence_evidence(&historical_cleaned, ft.start, (ft.start + 24).min(historical_cleaned.len()));
+        return (ft.parsed.clone(), ev);
+    }
+
+    (ApcParsed::Unknown, String::new())
+}
+
 /// Global Zero-Trap APC parser across the full sanitized text:
 /// - **Paid Always Beats Free**
 /// - **Regular Fee Beats Fast Track**
 /// - **Free** only when NO paid regular fee exists AND an explicit publication-free statement remains after stripping historical/OA/submission traps.
 pub fn parse_apc_from_context(raw_text: &str) -> ApcParsed {
-    if raw_text.trim().is_empty() {
-        return ApcParsed::Unknown;
-    }
-
-    // Strip historical free statements first so old year numbers/ranges never pollute context
-    let historical_cleaned = RE_HISTORICAL_FREE_STRIP.replace_all(raw_text, " ");
-    let paid_candidates = collect_paid_candidates(&historical_cleaned);
-
-    // Priority 1: Regular Paid fee ALWAYS beats any earlier "IDR 0" / "No charge" or Fast-Track fee
-    if let Some(reg) = paid_candidates.into_iter().find(|c| !c.is_fast_track) {
-        return reg.parsed;
-    }
-
-    // Strip OA-reader & submission=0 traps before checking Free publication cues
-    let free_scan = sanitize_free_traps(raw_text);
-    if RE_PUB_FREE_STRICT.is_match(&free_scan) {
-        return ApcParsed::Free;
-    }
-
-    // Fallback: if no explicit Free statement exists and only Fast-Track paid fee was advertised
-    if let Some(ft) = collect_paid_candidates(&historical_cleaned).into_iter().next() {
-        return ft.parsed;
-    }
-
-    ApcParsed::Unknown
+    parse_apc_with_evidence(raw_text).0
 }
 
 pub fn extract_submission_fee_idr(raw_text: &str) -> Option<i64> {
@@ -374,8 +436,8 @@ pub fn extract_submission_fee_idr(raw_text: &str) -> Option<i64> {
     None
 }
 
-/// Inspect ALL OJS HTML fee/editorial blocks globally without stopping at the first Free cue.
-pub fn extract_apc_contextual_html(html: &str) -> (ApcParsed, Option<i64>) {
+/// Inspect ALL OJS HTML fee/editorial blocks globally, returning `(ApcParsed, sub_fee, evidence)`.
+pub fn extract_apc_contextual_html_with_evidence(html: &str) -> (ApcParsed, Option<i64>, String) {
     let doc = Html::parse_document(html);
     let full_text = sanitize_html_text(html);
     let sub_fee = extract_submission_fee_idr(&full_text);
@@ -421,7 +483,14 @@ pub fn extract_apc_contextual_html(html: &str) -> (ApcParsed, Option<i64>) {
         format!("{}\n{}", combined_blocks.join("\n"), full_text)
     };
 
-    (parse_apc_from_context(&combined_text), sub_fee)
+    let (parsed, evidence) = parse_apc_with_evidence(&combined_text);
+    (parsed, sub_fee, evidence)
+}
+
+/// Inspect ALL OJS HTML fee/editorial blocks globally without stopping at the first Free cue.
+pub fn extract_apc_contextual_html(html: &str) -> (ApcParsed, Option<i64>) {
+    let (parsed, sub_fee, _) = extract_apc_contextual_html_with_evidence(html);
+    (parsed, sub_fee)
 }
 
 fn ceil_char_boundary(s: &str, mut idx: usize) -> usize {

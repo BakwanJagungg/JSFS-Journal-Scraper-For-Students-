@@ -45,9 +45,44 @@ pub struct JournalRecord {
     pub publish_month_nums: Vec<u8>,
     #[serde(default)]
     pub server_status: String,
+    #[serde(default)]
+    pub last_issue_year: Option<u16>,
+    #[serde(default)]
+    pub activity_status: String,
+    #[serde(default)]
+    pub is_dormant: bool,
+    #[serde(default)]
+    pub apc_evidence: String,
+}
+
+/// Compute human-readable journal activity label and dormancy flag against `current_year`.
+pub fn compute_activity_status(
+    last_issue_year: Option<u16>,
+    broken_archive: bool,
+    current_year: u16,
+) -> (String, bool) {
+    match last_issue_year {
+        Some(y) if y >= current_year.saturating_sub(1) => (format!("Aktif ({y})"), false),
+        Some(y) if y >= current_year.saturating_sub(2) => {
+            (format!("Kurang Aktif (Terakhir {y})"), false)
+        }
+        Some(y) => (format!("Dorman / Tidak Terurus ({y})"), true),
+        None if broken_archive => (
+            "Dorman / Tidak Terurus (Arsip Kosong/Rusak)".to_string(),
+            true,
+        ),
+        None => ("Belum Terdeteksi".to_string(), false),
+    }
 }
 
 impl JournalRecord {
+    /// Update `activity_status` and `is_dormant` from `self.last_issue_year`.
+    pub fn refresh_activity_status(&mut self, broken_archive: bool, current_year: u16) {
+        let (status, dormant) =
+            compute_activity_status(self.last_issue_year, broken_archive, current_year);
+        self.activity_status = status;
+        self.is_dormant = dormant;
+    }
     /// Classify APC into `"free"`, `"paid"`, or `"unknown"` consistently for UI/filter/sort.
     pub fn apc_category(&self) -> &'static str {
         let s = self.apc_status.to_lowercase();
@@ -124,6 +159,10 @@ pub struct UiJournalItem {
     pub ai_validated: bool,
     pub ai_source: String,
     pub health_warning: bool,
+    pub last_issue_year: Option<u16>,
+    pub activity_status: String,
+    pub is_dormant: bool,
+    pub apc_evidence: String,
 }
 
 impl From<&JournalRecord> for UiJournalItem {
@@ -202,6 +241,14 @@ impl From<&JournalRecord> for UiJournalItem {
             ai_validated: r.ai_validated,
             ai_source: r.ai_source.clone(),
             health_warning,
+            last_issue_year: r.last_issue_year,
+            activity_status: if r.activity_status.is_empty() {
+                "Belum Terdeteksi".to_string()
+            } else {
+                r.activity_status.clone()
+            },
+            is_dormant: r.is_dormant,
+            apc_evidence: r.apc_evidence.clone(),
         }
     }
 }
@@ -263,6 +310,10 @@ pub struct SearchParams {
     pub max_rp: i64,
     #[serde(default = "default_true", alias = "match")]
     pub match_enabled: bool,
+    #[serde(default)]
+    pub include_non_sinta_garuda: bool,
+    #[serde(default = "default_true")]
+    pub exclude_dormant: bool,
     #[serde(default)]
     pub formats: Vec<String>,
 }

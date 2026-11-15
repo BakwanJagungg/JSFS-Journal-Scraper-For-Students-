@@ -4,7 +4,7 @@ use crate::config::{CACHE_VERSION, GARUDA_BASE_URL, GARUDA_JOURNAL_URL, INFO_NOT
 use crate::models::JournalRecord;
 use crate::parser::focus::normalize_focus_and_scope;
 use crate::scraper::dedup::normalize_ojs_root_url;
-use crate::scraper::{safe_fetch_html, DomainBreaker};
+use crate::scraper::{safe_fetch_html, sanitize_publisher_name, DomainBreaker};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use scraper::{Html, Selector};
@@ -95,7 +95,7 @@ pub fn parse_garuda_listing(html: &str) -> Vec<JournalRecord> {
         let row_text = row.text().collect::<Vec<_>>().join(" ");
         let publisher = cells
             .get(1)
-            .map(|c| c.text().collect::<Vec<_>>().join(" ").trim().to_string())
+            .map(|c| sanitize_publisher_name(&c.text().collect::<Vec<_>>().join(" ")))
             .filter(|s| !s.is_empty() && s.len() < 160)
             .unwrap_or_default();
 
@@ -196,7 +196,7 @@ pub async fn resolve_garuda_detail(
     if rec.publisher.trim().is_empty() {
         if let Ok(sel_pub) = Selector::parse("div.j-meta-pub") {
             if let Some(el) = doc.select(&sel_pub).next() {
-                rec.publisher = el.text().collect::<Vec<_>>().join(" ").trim().to_string();
+                rec.publisher = sanitize_publisher_name(&el.text().collect::<Vec<_>>().join(" "));
             }
         }
     }

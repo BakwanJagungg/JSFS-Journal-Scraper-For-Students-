@@ -240,6 +240,8 @@
     if (maxRp > 0 && maxRp < 15000000) activeCount += 1;
     if (useSel) activeCount += 1;
     if (!$("chk-garuda")?.checked || !$("chk-sinta-src")?.checked) activeCount += 1;
+    if ($("chk-include-non-sinta-garuda")?.checked) activeCount += 1;
+    if ($("chk-exclude-dormant") && !$("chk-exclude-dormant").checked) activeCount += 1;
 
     const badge = $("active-filter-badge");
     if (badge) {
@@ -314,6 +316,8 @@
   function resetAllFilters() {
     $("chk-garuda").checked = true;
     $("chk-sinta-src").checked = true;
+    if ($("chk-include-non-sinta-garuda")) $("chk-include-non-sinta-garuda").checked = false;
+    if ($("chk-exclude-dormant")) $("chk-exclude-dormant").checked = true;
     $("chk-include-unknown-month").checked = true;
     $("chk-match").checked = true;
     $("chk-turbo").checked = true;
@@ -351,6 +355,8 @@
       sinta_src: $("chk-sinta-src").checked,
       only_free: $("chk-only-free").checked,
       include_na: $("chk-include-na").checked,
+      include_non_sinta_garuda: Boolean($("chk-include-non-sinta-garuda")?.checked),
+      exclude_dormant: $("chk-exclude-dormant") ? $("chk-exclude-dormant").checked : true,
       match: $("chk-match").checked,
       turbo: $("chk-turbo").checked || target >= 100,
       selenium: $("chk-selenium").checked,
@@ -361,6 +367,30 @@
   }
 
   // ── Results Rendering & Sortable Table ───────────────────────────────────────
+  function classifyActivityPill(item) {
+    const st = String(item.activity_status || "");
+    const yr = item.last_issue_year;
+    if (item.is_dormant || st.toLowerCase().includes("dorman")) {
+      return {
+        cls: "badge-act-dormant",
+        label: yr ? `Dorman (${yr})` : "Dorman",
+      };
+    }
+    if (st.startsWith("Kurang Aktif") || (yr && yr <= 2024 && yr >= 2023)) {
+      return {
+        cls: "badge-act-warn",
+        label: yr ? `Terakhir ${yr}` : st,
+      };
+    }
+    if (st.startsWith("Aktif") || (yr && yr >= 2025)) {
+      return {
+        cls: "badge-act-active",
+        label: yr ? `Aktif ${yr}` : st,
+      };
+    }
+    return null;
+  }
+
   function classifyApc(item) {
     const cat = item.apc_category;
     if (cat === "free" || cat === "paid" || cat === "unknown") return cat;
@@ -550,6 +580,17 @@
       jadEst.textContent = `Terdekat: ${item.terbit_terdekat || "-"}`;
       tdJadwal.append(jadTop, jadEst);
 
+      const actInfo = classifyActivityPill(item);
+      if (actInfo) {
+        const actWrapPill = document.createElement("div");
+        actWrapPill.className = "badge-act-row";
+        const actPill = document.createElement("span");
+        actPill.className = `badge ${actInfo.cls}`;
+        actPill.textContent = actInfo.label;
+        actWrapPill.appendChild(actPill);
+        tdJadwal.appendChild(actWrapPill);
+      }
+
       const tdAct = document.createElement("td");
       const contactLine = document.createElement("div");
       contactLine.className = "muted";
@@ -642,9 +683,11 @@
       ["Biaya Publikasi (APC)", item.apc_label || "-"],
       ["Biaya Submit", item.submit_label || "-"],
       ["Jadwal Terbit", `${item.jadwal_terbit || "-"} (Terdekat: ${item.terbit_terdekat || "-"})`],
+      ["Status Keaktifan Jurnal", item.activity_status || "Belum Terdeteksi"],
       ["Skor Kesesuaian", `${item.match_score ?? 40}% (${item.kesesuaian_naskah || "-"})`],
       ["Email Redaksi", item.email || "-"],
       ["Telepon / WA", item.telepon || "-"],
+      ["Bukti Kutipan Biaya (APC)", item.apc_evidence || "Diekstrak otomatis dari situs jurnal / metadata portal.", true],
       ["Focus & Scope", item.focus_scope || "-", true],
       ["Tautan Situs / Halaman Biaya", item.apc_url || item.url || "-", true],
     ];
@@ -1409,7 +1452,7 @@
     applyPreset("skripsi", true);
     applySoundPreference();
     renderResultsTable([]);
-    appendLog("JSFS v3.0.1 siap digunakan (Tauri Native Engine).");
+    appendLog("JSFS v3.1.0 siap digunakan (Tauri Native Engine).");
     await bindTauriEvents();
     await pollStatusOnce();
     setTimeout(pollStatusOnce, 600);

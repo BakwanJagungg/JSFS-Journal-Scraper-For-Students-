@@ -2165,7 +2165,7 @@ dependencies = [
 
 [[package]]
 name = "jsfs"
-version = "3.0.1"
+version = "3.1.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",

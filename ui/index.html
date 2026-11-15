@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light dark" />
-  <title>JSFS v3.0.1 — Journal Scraper For Students</title>
+  <title>JSFS v3.1.0 — Journal Scraper For Students</title>
   <link rel="icon" type="image/x-icon" href="/favicon.ico" />
   <script>
     (function () {
@@ -35,7 +35,7 @@
           </svg>
         </div>
         <div class="brand-copy">
-          <h1 class="brand-title">JSFS <span class="brand-version">v3.0.1</span></h1>
+          <h1 class="brand-title">JSFS <span class="brand-version">v3.1.0</span></h1>
           <p class="brand-caption">Asisten Pencari Jurnal SINTA &amp; Garuda untuk Mahasiswa</p>
         </div>
       </div>
@@ -569,6 +569,10 @@
             <label class="inline-check"><input type="checkbox" id="chk-garuda" checked /><span>Portal Garuda</span></label>
             <label class="inline-check"><input type="checkbox" id="chk-sinta-src" checked /><span>Portal SINTA</span></label>
           </div>
+          <label class="inline-check mt-6">
+            <input type="checkbox" id="chk-include-non-sinta-garuda" />
+            <span>Sertakan jurnal Garuda yang belum terakreditasi SINTA</span>
+          </label>
         </div>
 
         <!-- Bulan Terbit -->
@@ -617,6 +621,7 @@
           <div class="stack-checks mt-10">
             <label class="inline-check"><input type="checkbox" id="chk-only-free" /><span>Hanya Jurnal Gratis (Rp 0)</span></label>
             <label class="inline-check"><input type="checkbox" id="chk-include-na" checked /><span>Sertakan biaya "Cek Web / Belum Terdata"</span></label>
+            <label class="inline-check"><input type="checkbox" id="chk-exclude-dormant" checked /><span>Sembunyikan jurnal tidak aktif / dorman (&gt; 2 tahun tidak terbit)</span></label>
             <label class="inline-check"><input type="checkbox" id="chk-match" checked /><span>Hitung skor kesesuaian topik (Match Score)</span></label>
           </div>
         </div>
@@ -678,7 +683,7 @@
   <!-- Modal Dialog: Panduan Singkat -->
   <dialog id="dialog-guide" class="modal-dialog" closedby="any" aria-labelledby="guide-title">
     <div class="modal-header">
-      <h2 id="guide-title">Panduan Penggunaan JSFS v2.4.0</h2>
+      <h2 id="guide-title">Panduan Penggunaan JSFS v3.1.0</h2>
       <button type="button" class="btn btn-ghost btn-icon" data-close-dialog="dialog-guide" aria-label="Tutup panduan">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M18 6 6 18"/><path d="m6 6 12 12"/>

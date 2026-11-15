@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.1.0] - 2026-11-15
+
+### Added
+- **Journal Activity & Recency Audit (`models.rs`, `parser/month.rs`, `scraper/ojs_deep.rs`)**:
+  - Scans homepage Current Issue blocks, announcement dates, metadata dates, and `/issue/archive` headings to extract `last_issue_year`, compute `activity_status` (`Aktif (2026)`, `Aktif (2025)`, `Kurang Aktif (Terakhir 2024)`, `Dorman / Tidak Terurus (<2024)`), and flag dormant/abandoned OJS sites (`is_dormant`, including broken `navigation.archives` templates without recent issues).
+  - Automatically exposes APC verification snippets (`apc_evidence`, max 140 chars) in the Journal Detail modal.
+- **Strict SINTA Gate & Dormancy Exclusion (`commands/search.rs`, `models.rs`)**:
+  - Added `include_non_sinta_garuda` (default `false`) and `exclude_dormant` (default `true`) filter controls so SINTA-filtered searches no longer leak unranked Garuda-only journals or dormant (>2-year inactive) journals unless explicitly enabled.
+- **UI & Filter Modal Polish (`ui/index.html`, `ui/style.css`, `ui/app.js`)**:
+  - Widened `.target-wrap` / `.target-input` (`min-width: 132px`, `width: 68px`, `tabular-nums`, hidden spin overlay) so 4-digit targets such as `1000` render without clipping.
+  - Added color-coded activity status pills (`Aktif`, `Terakhir 2024`, `Dorman`) in the results table, sticky modal footer (`Reset Default` & `Terapkan Filter`), and new detail modal fields.
+
+### Fixed
+- **Privacy-Statement Contamination Cleaner (`parser/focus.rs`)**:
+  - Rejected OJS standard *Privacy Statement* sentences (`"The names and email addresses entered in this journal site..."` / Indonesian variants) with immediate boilerplate guards and automatic fallback synthesis (`synthesize_focus_scope`).
+- **Publisher Prefix Hygiene (`scraper/mod.rs`, `scraper/garuda.rs`, `scraper/sinta.rs`, `scraper/ojs_deep.rs`)**:
+  - Unified publisher sanitization across all portals to strip `"Published by"`, `"Diterbitkan oleh"`, and link-bar noise.
+- **Cache Version Invalidation (`config.rs`)**:
+  - Bumped `CACHE_VERSION` to `"3.1.0"` to refresh cached records with recency metadata cleanly.
+
+---
+
 ## [3.0.1] - 2026-11-15
 
 ### Fixed

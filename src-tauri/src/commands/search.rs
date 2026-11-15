@@ -110,14 +110,17 @@ fn emit_progress(
     );
 }
 
-fn filter_sinta_tier(rec: &JournalRecord, allowed_ranks: &[u8]) -> bool {
-    if allowed_ranks.is_empty() || allowed_ranks.len() >= 6 {
+fn filter_sinta_tier(
+    rec: &JournalRecord,
+    allowed_ranks: &[u8],
+    include_non_sinta_garuda: bool,
+) -> bool {
+    if allowed_ranks.is_empty() {
         return true;
     }
     match rec.sinta_rank_num() {
         Some(r) => allowed_ranks.contains(&r),
-        // Allow Garuda records without parsed SINTA badge through candidate pool so cross-ref/user isn't starved
-        None => rec.source_portal.contains("Garuda"),
+        None => include_non_sinta_garuda,
     }
 }
 
@@ -136,13 +139,14 @@ fn filter_apc_tier(rec: &JournalRecord, params: &SearchParams) -> bool {
     }
 }
 
-/// Strict post-crawl & post-AI filter gate enforcing `only_free`, `min_rp..=max_rp`,
-/// `include_na`, publish months, and SINTA rank before exporting or emitting to UI.
+/// Strict post-crawl & post-AI filter gate enforcing `sinta`, `include_non_sinta_garuda`,
+/// `exclude_dormant`, `only_free`, `min_rp..=max_rp`, `include_na`, and publish months.
 pub fn apply_strict_filters(records: &mut Vec<JournalRecord>, params: &SearchParams) {
     let allowed_ranks = params.normalized_sinta_ranks();
     let selected_months = params.normalized_months();
     records.retain(|r| {
-        filter_sinta_tier(r, &allowed_ranks)
+        filter_sinta_tier(r, &allowed_ranks, params.include_non_sinta_garuda)
+            && (!params.exclude_dormant || !r.is_dormant)
             && month::lolos_filter_bulan(
                 &r.publish_month_nums,
                 &selected_months,
@@ -304,7 +308,7 @@ pub async fn start_search(
         let deduped = dedup::deduplicate_and_merge(raw_candidates);
         let mut deep_pool: Vec<JournalRecord> = deduped
             .into_iter()
-            .filter(|r| filter_sinta_tier(r, &sinta_ranks))
+            .filter(|r| filter_sinta_tier(r, &sinta_ranks, params.include_non_sinta_garuda))
             .collect();
         let deep_cap = (target * 2).clamp(40, 1200);
         deep_pool.truncate(deep_cap);
@@ -706,5 +710,54 @@ mod tests {
         apply_strict_filters(&mut list3, &params_min_200k);
         assert_eq!(list3.len(), 1);
         assert_eq!(list3[0].title, "Jurbisman");
+    }
+
+    #[test]
+    fn test_strict_sinta_filter_excludes_unranked_garuda() {
+        let mut s2 = make_rec("Jurnal Sinta 2", "Gratis (Rp 0)", Some(0), "Sinta 2", vec![3, 9]);
+        s2.source_portal = "SINTA + Garuda".to_string();
+
+        let mut s5 = make_rec("Jurnal Sinta 5", "Gratis (Rp 0)", Some(0), "Sinta 5", vec![3, 9]);
+        s5.source_portal = "SINTA".to_string();
+
+        let mut garuda_only = make_rec(
+            "Jurnal Garuda Non-SINTA",
+            "Gratis (Rp 0)",
+            Some(0),
+            crate::config::INFO_NOT_FOUND,
+            vec![3, 9],
+        );
+        garuda_only.source_portal = "Garuda".to_string();
+
+        let mut dormant_s2 = make_rec("Jurnal Dorman 2020", "Gratis (Rp 0)", Some(0), "Sinta 2", vec![3]);
+        dormant_s2.is_dormant = true;
+        dormant_s2.last_issue_year = Some(2020);
+
+        let params_strict: SearchParams = serde_json::from_value(serde_json::json!({
+            "sinta": [1, 2, 3],
+            "include_non_sinta_garuda": false,
+            "exclude_dormant": true
+        }))
+        .unwrap();
+
+        let mut pool = vec![s2.clone(), s5.clone(), garuda_only.clone(), dormant_s2.clone()];
+        apply_strict_filters(&mut pool, &params_strict);
+        assert_eq!(pool.len(), 1);
+        assert_eq!(pool[0].title, "Jurnal Sinta 2");
+
+        // When include_non_sinta_garuda = true and exclude_dormant = false, both unranked Garuda and dormant S2 are retained
+        let params_relaxed: SearchParams = serde_json::from_value(serde_json::json!({
+            "sinta": [1, 2, 3],
+            "include_non_sinta_garuda": true,
+            "exclude_dormant": false
+        }))
+        .unwrap();
+        let mut pool2 = vec![s2, s5, garuda_only, dormant_s2];
+        apply_strict_filters(&mut pool2, &params_relaxed);
+        let titles: Vec<&str> = pool2.iter().map(|r| r.title.as_str()).collect();
+        assert_eq!(
+            titles,
+            vec!["Jurnal Sinta 2", "Jurnal Garuda Non-SINTA", "Jurnal Dorman 2020"]
+        );
     }
 }

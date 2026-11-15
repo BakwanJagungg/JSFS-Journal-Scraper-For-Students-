@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-pub const APP_VERSION: &str = "3.0.1";
-pub const CACHE_VERSION: &str = "3.0.1";
+pub const APP_VERSION: &str = "3.1.0";
+pub const CACHE_VERSION: &str = "3.1.0";
 pub const CACHE_TTL_DAYS: i64 = 14;
 pub const MAX_WORKERS: usize = 32;
 pub const OJS_HARD_TIMEOUT_MS: u64 = 5500;

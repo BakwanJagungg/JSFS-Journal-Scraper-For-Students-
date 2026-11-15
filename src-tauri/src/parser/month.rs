@@ -31,6 +31,30 @@ static RE_X_PER_YEAR: Lazy<Regex> = Lazy::new(|| {
 static RE_EVERY_MONTHS: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?i)\b(?:every|setiap|tiap)\s*(\d{1,2})\s*(?:months?|bulan)\b").expect("valid regex")
 });
+static RE_ISSUE_YEAR: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\b(20\d{2})\b").expect("valid regex")
+});
+
+pub fn current_local_year() -> u16 {
+    Local::now().year().max(2020) as u16
+}
+
+/// Extract plausible journal publication years (`2005..=max_year`) from issue/announcement headings.
+pub fn extract_issue_years_from_text(text: &str, max_year: u16) -> Vec<u16> {
+    RE_ISSUE_YEAR
+        .captures_iter(text)
+        .filter_map(|c| c[1].parse::<u16>().ok())
+        .filter(|&y| (2005..=max_year).contains(&y))
+        .collect()
+}
+
+/// Extract the most recent publication year across OJS issue headings or archive titles.
+pub fn extract_max_issue_year(titles: &[String], max_year: u16) -> Option<u16> {
+    titles
+        .iter()
+        .flat_map(|t| extract_issue_years_from_text(t, max_year))
+        .max()
+}
 
 fn token_to_month(tok_original: &str, prev_tok: Option<&str>, next_tok: Option<&str>) -> Option<u8> {
     let low = tok_original.to_ascii_lowercase();

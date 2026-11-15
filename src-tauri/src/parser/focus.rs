@@ -35,6 +35,10 @@ pub const BOILERPLATE_TOKENS: &[&str] = &[
     "allegations of misconduct",
     "online submissions",
     "privacy statement",
+    "the names and email addresses entered in this journal site",
+    "used exclusively for the stated purposes of this journal",
+    "will not be made available for any other purpose",
+    "nama dan alamat surel yang dimasukkan di situs jurnal ini",
     "focus and scope",
     "about the journal",
     "editor-in-chief",
@@ -67,6 +71,17 @@ pub fn is_boilerplate_noise(text: &str) -> bool {
         return false;
     }
     if RE_BOILERPLATE_PROFILE.is_match(&clean) {
+        return true;
+    }
+    const PRIVACY_BOILERPLATE: &[&str] = &[
+        "the names and email addresses entered in this journal site",
+        "used exclusively for the stated purposes of this journal",
+        "will not be made available for any other purpose",
+        "nama dan alamat surel yang dimasukkan di situs jurnal ini",
+        "digunakan secara eksklusif untuk tujuan",
+        "tidak akan tersedia untuk tujuan lain",
+    ];
+    if PRIVACY_BOILERPLATE.iter().any(|p| clean.contains(p)) {
         return true;
     }
     let editorial_tokens = [
@@ -262,13 +277,17 @@ pub fn extract_focus_and_scope_from_html(html: &str, is_homepage: bool) -> Strin
     INFO_NOT_FOUND.to_string()
 }
 
-pub fn build_tier3_scope_fallback(title: &str, subject_area: &str) -> String {
+pub fn synthesize_focus_scope(title: &str, subject_area: &str) -> String {
     let subj = subject_area.trim();
     if !subj.is_empty() && subj != INFO_NOT_FOUND && !subj.eq_ignore_ascii_case("umum") {
         format!("Jurnal ilmiah yang berfokus pada bidang {subj} ({title}).")
     } else {
         INFO_NOT_FOUND.to_string()
     }
+}
+
+pub fn build_tier3_scope_fallback(title: &str, subject_area: &str) -> String {
+    synthesize_focus_scope(title, subject_area)
 }
 
 #[cfg(test)]
@@ -289,5 +308,24 @@ mod tests {
         let scope = extract_focus_and_scope_from_html(html, false);
         assert!(scope.contains("e-commerce"));
         assert!(scope.contains("UMKM"));
+    }
+
+    #[test]
+    fn test_strip_ojs_privacy_statement_from_focus() {
+        let privacy_html = r#"
+        <html><body>
+          <div id="focusAndScope">
+            <p>The names and email addresses entered in this journal site will be used exclusively for the stated purposes of this journal and will not be made available for any other purpose or to any other party.</p>
+          </div>
+        </body></html>"#;
+        let extracted = extract_focus_and_scope_from_html(privacy_html, false);
+        assert_eq!(extracted, INFO_NOT_FOUND);
+
+        let fallback = synthesize_focus_scope(
+            "Jurnal Inovasi Bisnis Manajemen dan Akuntansi",
+            "Business, Management, Accounting",
+        );
+        assert!(fallback.contains("Business, Management, Accounting"));
+        assert!(fallback.contains("Jurnal Inovasi Bisnis Manajemen dan Akuntansi"));
     }
 }

@@ -8,7 +8,7 @@ use crate::config::{
 use crate::models::JournalRecord;
 use crate::parser::{apc, contact, focus, month};
 use crate::scraper::dedup::normalize_ojs_root_url;
-use crate::scraper::{safe_fetch_html, DomainBreaker};
+use crate::scraper::{safe_fetch_html, sanitize_publisher_name, DomainBreaker};
 use scraper::{Html, Selector};
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -23,6 +23,7 @@ struct HtmlMeta {
     eissn: String,
     emails: Vec<String>,
     subjects: Vec<String>,
+    issue_dates: Vec<String>,
 }
 
 fn extract_html_meta(html: &str) -> HtmlMeta {
@@ -44,7 +45,12 @@ fn extract_html_meta(html: &str) -> HtmlMeta {
         }
         if matches!(name.as_str(), "dc.publisher" | "citation_publisher") && meta.publisher.is_empty()
         {
-            meta.publisher = content.to_string();
+            meta.publisher = sanitize_publisher_name(content);
+        } else if matches!(
+            name.as_str(),
+            "citation_publication_date" | "citation_date" | "dc.date.issued"
+        ) {
+            meta.issue_dates.push(content.to_string());
         } else if matches!(
             name.as_str(),
             "citation_issn" | "dc.source.issn" | "dc.identifier.issn" | "prism.issn"
@@ -172,11 +178,16 @@ fn has_complete_core_data(rec: &JournalRecord) -> bool {
     let has_paid_apc = rec.apc_category() == "paid";
     let has_contact = !rec.email.trim().is_empty() || !rec.phone.trim().is_empty();
     let has_months = !rec.publish_month_nums.is_empty();
-    has_paid_apc && has_contact && has_months
+    let has_year = rec.last_issue_year.is_some();
+    has_paid_apc && has_contact && has_months && has_year
 }
 
 /// Apply parsed APC enforcing **Paid Always Beats Free** across multiple OJS pages.
-fn apply_apc_with_paid_priority(rec: &mut JournalRecord, parsed_apc: apc::ApcParsed) {
+fn apply_apc_with_paid_priority(
+    rec: &mut JournalRecord,
+    parsed_apc: apc::ApcParsed,
+    evidence: String,
+) {
     match parsed_apc {
         apc::ApcParsed::Paid {
             currency,
@@ -189,6 +200,9 @@ fn apply_apc_with_paid_priority(rec: &mut JournalRecord, parsed_apc: apc::ApcPar
             rec.fee_currency = currency;
             rec.fee_amount = raw_amount;
             rec.publication_fee_idr = Some(amount_idr);
+            if !evidence.is_empty() {
+                rec.apc_evidence = evidence;
+            }
         }
         apc::ApcParsed::Free => {
             // Never overwrite an already-detected Paid APC with Free
@@ -203,17 +217,39 @@ fn apply_apc_with_paid_priority(rec: &mut JournalRecord, parsed_apc: apc::ApcPar
                 rec.fee_currency = "IDR".to_string();
                 rec.fee_amount = "0".to_string();
                 rec.publication_fee_idr = Some(0);
+                if !evidence.is_empty() {
+                    rec.apc_evidence = evidence;
+                }
             }
         }
         apc::ApcParsed::Unknown => {}
     }
 }
 
-fn absorb_page(rec: &mut JournalRecord, page_url: &str, html: &str, is_homepage: bool, agg_text: &mut String, archive_hints: &mut Vec<String>) {
+fn update_max_year(rec: &mut JournalRecord, texts: &[String]) {
+    let max_cur = month::current_local_year();
+    if let Some(y) = month::extract_max_issue_year(texts, max_cur) {
+        rec.last_issue_year = Some(rec.last_issue_year.map_or(y, |cur| cur.max(y)));
+    }
+}
+
+fn absorb_page(
+    rec: &mut JournalRecord,
+    page_url: &str,
+    html: &str,
+    is_homepage: bool,
+    agg_text: &mut String,
+    archive_hints: &mut Vec<String>,
+    broken_archive: &mut bool,
+) {
     let plain = focus::sanitize_html_text(html);
     if agg_text.len() < 12000 {
         agg_text.push('\n');
         agg_text.push_str(&plain.chars().take(3500).collect::<String>());
+    }
+
+    if html.to_ascii_lowercase().contains("navigation.archives") {
+        *broken_archive = true;
     }
 
     let meta = extract_html_meta(html);
@@ -229,14 +265,22 @@ fn absorb_page(rec: &mut JournalRecord, page_url: &str, html: &str, is_homepage:
     if !meta.subjects.is_empty() && (rec.subject_area.is_empty() || rec.subject_area == "Umum") {
         rec.subject_area = meta.subjects.join(", ");
     }
+    if !meta.issue_dates.is_empty() {
+        update_max_year(rec, &meta.issue_dates);
+    }
 
-    if rec.focus_and_scope.trim().is_empty() || rec.focus_and_scope == INFO_NOT_FOUND {
+    if rec.focus_and_scope.trim().is_empty()
+        || rec.focus_and_scope == INFO_NOT_FOUND
+        || focus::is_boilerplate_noise(&rec.focus_and_scope)
+    {
         let extracted = focus::extract_focus_and_scope_from_html(html, is_homepage);
         if extracted != INFO_NOT_FOUND {
             rec.focus_and_scope = extracted;
             if page_url.to_ascii_lowercase().contains("about") && rec.about_url.is_empty() {
                 rec.about_url = page_url.to_string();
             }
+        } else if focus::is_boilerplate_noise(&rec.focus_and_scope) {
+            rec.focus_and_scope = INFO_NOT_FOUND.to_string();
         }
     }
 
@@ -278,11 +322,11 @@ fn absorb_page(rec: &mut JournalRecord, page_url: &str, html: &str, is_homepage:
 
     // Always scan fee/editorial pages until a concrete Paid APC is confirmed (Paid Always Beats Free)
     if rec.apc_category() != "paid" {
-        let (parsed_apc, sub_fee) = apc::extract_apc_contextual_html(html);
+        let (parsed_apc, sub_fee, evidence) = apc::extract_apc_contextual_html_with_evidence(html);
         if sub_fee.is_some() && rec.submission_fee_idr.is_none() {
             rec.submission_fee_idr = sub_fee;
         }
-        apply_apc_with_paid_priority(rec, parsed_apc);
+        apply_apc_with_paid_priority(rec, parsed_apc, evidence);
     }
 
     let url_low = page_url.to_ascii_lowercase();
@@ -300,17 +344,22 @@ fn absorb_page(rec: &mut JournalRecord, page_url: &str, html: &str, is_homepage:
         rec.apc_raw_text.push_str(&plain.chars().take(1500).collect::<String>());
     }
 
-    // Grab current issue hints on homepage
+    // Grab current issue & announcement recency hints on homepage
     if is_homepage {
         let doc = Html::parse_document(html);
-        if let Ok(sel) = Selector::parse(".current_issue, #currentIssue, .obj_issue_toc, .issue-summary") {
+        let mut year_texts = Vec::new();
+        if let Ok(sel) = Selector::parse(
+            ".current_issue, #currentIssue, .obj_issue_toc, .issue-summary, .current_issue_title, .cmp_announcements, .obj_announcement_summary, #announcementsHome, .obj_article_summary .published",
+        ) {
             for el in doc.select(&sel) {
                 let t = el.text().collect::<Vec<_>>().join(" ").trim().to_string();
                 if !t.is_empty() {
-                    archive_hints.push(t);
+                    archive_hints.push(t.clone());
+                    year_texts.push(t);
                 }
             }
         }
+        update_max_year(rec, &year_texts);
     }
 }
 
@@ -322,14 +371,19 @@ pub async fn deep_enrich_record(
     cancel_flag: Arc<AtomicBool>,
 ) -> JournalRecord {
     rec.cache_version = CACHE_VERSION.to_string();
+    rec.publisher = sanitize_publisher_name(&rec.publisher);
 
     if !rec.website_url.starts_with("http") || rec.website_url.contains("kemdiktisaintek.go.id") {
         if rec.apc_status.is_empty() {
             rec.apc_status = APC_UNKNOWN.to_string();
         }
-        if rec.focus_and_scope.is_empty() || rec.focus_and_scope == INFO_NOT_FOUND {
-            rec.focus_and_scope = focus::build_tier3_scope_fallback(&rec.title, &rec.subject_area);
+        if rec.focus_and_scope.trim().is_empty()
+            || rec.focus_and_scope == INFO_NOT_FOUND
+            || focus::is_boilerplate_noise(&rec.focus_and_scope)
+        {
+            rec.focus_and_scope = focus::synthesize_focus_scope(&rec.title, &rec.subject_area);
         }
+        rec.refresh_activity_status(false, month::current_local_year());
         return rec;
     }
 
@@ -353,6 +407,7 @@ pub async fn deep_enrich_record(
     }
 
     let base_root = normalize_ojs_root_url(&rec.website_url);
+    let mut broken_archive = false;
     let crawl_fut = async {
         let mut agg_text = String::new();
         let mut archive_hints = Vec::new();
@@ -384,7 +439,15 @@ pub async fn deep_enrich_record(
                     rec.website_url = normalize_ojs_root_url(&home.final_url);
                 }
                 let effective_base = normalize_ojs_root_url(&rec.website_url);
-                absorb_page(&mut rec, &home.final_url, &home.html, true, &mut agg_text, &mut archive_hints);
+                absorb_page(
+                    &mut rec,
+                    &home.final_url,
+                    &home.html,
+                    true,
+                    &mut agg_text,
+                    &mut archive_hints,
+                    &mut broken_archive,
+                );
                 let (m_nums_home, m_names_home, sched_home) = month::resolve_schedule_and_frequency(&agg_text);
                 if !m_nums_home.is_empty() {
                     rec.publish_month_nums = m_nums_home;
@@ -393,7 +456,9 @@ pub async fn deep_enrich_record(
                     rec.next_issue_estimate = month::get_next_issue_estimate_now(&rec.publish_month_nums);
                 }
 
-                if !has_complete_core_data(&rec) && !cancel_flag.load(Ordering::Relaxed) {
+                if (!has_complete_core_data(&rec) || rec.last_issue_year.is_none())
+                    && !cancel_flag.load(Ordering::Relaxed)
+                {
                     let (fee_links, contact_links, scope_links, archive_links) =
                         discover_ojs_links(&home.html, &effective_base);
 
@@ -421,33 +486,49 @@ pub async fn deep_enrich_record(
                         visits += 1;
                         if let Ok(sub_out) = safe_fetch_html(client, &breaker, &sub, per_req).await {
                             if sub_out.status == 200 && !sub_out.cloudflare_blocked {
-                                absorb_page(&mut rec, &sub, &sub_out.html, false, &mut agg_text, &mut archive_hints);
+                                absorb_page(
+                                    &mut rec,
+                                    &sub,
+                                    &sub_out.html,
+                                    false,
+                                    &mut agg_text,
+                                    &mut archive_hints,
+                                    &mut broken_archive,
+                                );
                             }
                         }
                     }
 
                     // Global aggregated pass across homepage + subpages (Paid Always Beats Free)
                     if rec.apc_category() != "paid" && !agg_text.trim().is_empty() {
-                        apply_apc_with_paid_priority(&mut rec, apc::parse_apc_from_context(&agg_text));
+                        let (parsed_agg, ev_agg) = apc::parse_apc_with_evidence(&agg_text);
+                        apply_apc_with_paid_priority(&mut rec, parsed_agg, ev_agg);
                     }
 
-                    // Resolve publish months from aggregated text, or /issue/archive if still empty
+                    // Resolve publish months & latest issue year from archive when still missing
                     let (mut m_nums, mut m_names, mut sched_str) =
                         month::resolve_schedule_and_frequency(&agg_text);
 
-                    if m_nums.is_empty() && !cancel_flag.load(Ordering::Relaxed) {
-                        if !archive_hints.is_empty() {
+                    if (m_nums.is_empty() || rec.last_issue_year.is_none())
+                        && !cancel_flag.load(Ordering::Relaxed)
+                    {
+                        if m_nums.is_empty() && !archive_hints.is_empty() {
                             m_nums = month::extract_months_from_archive_titles(&archive_hints);
                         }
-                        if m_nums.is_empty() {
+                        if m_nums.is_empty() || rec.last_issue_year.is_none() {
                             let arc_url = archive_links
                                 .first()
                                 .cloned()
                                 .unwrap_or_else(|| format!("{effective_base}/issue/archive"));
                             if let Ok(arc_out) = safe_fetch_html(client, &breaker, &arc_url, per_req).await {
                                 if arc_out.status == 200 {
+                                    if arc_out.html.to_ascii_lowercase().contains("navigation.archives") {
+                                        broken_archive = true;
+                                    }
                                     let doc = Html::parse_document(&arc_out.html);
-                                    if let Ok(sel) = Selector::parse("a.title, .obj_issue_toc h2, .obj_issue_toc h3, h2, h3, h4") {
+                                    if let Ok(sel) = Selector::parse(
+                                        ".obj_issue_summary .title, .obj_issue_summary .published, .obj_issue_summary h2, .obj_issue_summary h3, a.title, .obj_issue_toc h2, .obj_issue_toc h3, h2, h3, h4",
+                                    ) {
                                         let titles: Vec<String> = doc
                                             .select(&sel)
                                             .map(|e| e.text().collect::<Vec<_>>().join(" ").trim().to_string())
@@ -455,14 +536,20 @@ pub async fn deep_enrich_record(
                                                 let l = t.to_ascii_lowercase();
                                                 l.contains("vol") || l.contains("no") || l.contains("issue") || l.contains("202") || l.contains("201")
                                             })
-                                            .take(15)
+                                            .take(20)
                                             .collect();
-                                        m_nums = month::extract_months_from_archive_titles(&titles);
+                                        update_max_year(&mut rec, &titles);
+                                        if m_nums.is_empty() {
+                                            m_nums = month::extract_months_from_archive_titles(&titles);
+                                        }
+                                        if titles.is_empty() && rec.last_issue_year.is_none() {
+                                            broken_archive = true;
+                                        }
                                     }
                                 }
                             }
                         }
-                        if !m_nums.is_empty() {
+                        if !m_nums.is_empty() && m_names.is_empty() {
                             m_names = month::month_nums_to_names_id(&m_nums);
                             let cnt = m_names.len();
                             let joined = if cnt > 1 {
@@ -508,9 +595,14 @@ pub async fn deep_enrich_record(
     if rec.apc_status.is_empty() {
         rec.apc_status = APC_UNKNOWN.to_string();
     }
-    if rec.focus_and_scope.trim().is_empty() || rec.focus_and_scope == INFO_NOT_FOUND {
-        rec.focus_and_scope = focus::build_tier3_scope_fallback(&rec.title, &rec.subject_area);
+    rec.publisher = sanitize_publisher_name(&rec.publisher);
+    if rec.focus_and_scope.trim().is_empty()
+        || rec.focus_and_scope == INFO_NOT_FOUND
+        || focus::is_boilerplate_noise(&rec.focus_and_scope)
+    {
+        rec.focus_and_scope = focus::synthesize_focus_scope(&rec.title, &rec.subject_area);
     }
+    rec.refresh_activity_status(broken_archive, month::current_local_year());
 
     if !rec.is_incomplete {
         if let Ok(guard) = cache.lock() {
@@ -524,4 +616,52 @@ pub async fn deep_enrich_record(
     }
 
     rec
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_detect_dormant_journal_2020() {
+        let mut rec = JournalRecord {
+            title: "Jurnal Teknologi Informasi dan Ekonomi (JTIEMB)".to_string(),
+            publisher: "Published by Politeknik Negeri Sriwijaya".to_string(),
+            ..Default::default()
+        };
+        let html = r#"
+        <html><body>
+          <nav><a href="/about">navigation.archives</a></nav>
+          <div class="cmp_announcements">
+            <article class="obj_announcement_summary">
+              <h3>Call for Paper Vol. 4 No. 2</h3>
+              <div class="date">2020-09-16</div>
+            </article>
+          </div>
+          <div class="current_issue">
+            <h2>Vol. 4 No. 1 (2020)</h2>
+          </div>
+        </body></html>"#;
+
+        let mut agg = String::new();
+        let mut hints = Vec::new();
+        let mut broken = false;
+        absorb_page(
+            &mut rec,
+            "https://jurnal.polsri.ac.id/index.php/jtiemb/id",
+            html,
+            true,
+            &mut agg,
+            &mut hints,
+            &mut broken,
+        );
+        rec.publisher = sanitize_publisher_name(&rec.publisher);
+        rec.refresh_activity_status(broken, 2026);
+
+        assert_eq!(rec.last_issue_year, Some(2020));
+        assert!(rec.is_dormant);
+        assert!(rec.activity_status.contains("Dorman"));
+        assert!(rec.activity_status.contains("2020"));
+        assert_eq!(rec.publisher, "Politeknik Negeri Sriwijaya");
+    }
 }

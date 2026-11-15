@@ -14,8 +14,8 @@
 
 ### 1. Mesin Scraping Asinkron Berkecepatan Tinggi
 - **Dual-Source Portal Discovery**: Mengumpulkan daftar jurnal dari **SINTA** dan **Garuda** secara konkuren dengan *rate-limiting* dan *circuit breaker* per domain.
-- **Filter-Before-Deep & Pre-Deep Deduplication**: Menyaring duplikasi ISSN/URL dan memvalidasi peringkat SINTA sebelum melakukan *deep crawl* ke situs OJS penerbit.
-- **Deep OJS Crawler**: Mengekstrak informasi **Biaya Publikasi (APC)**, **Bulan & Jadwal Terbit**, **Kontak Editor (Email / WhatsApp)**, serta **Focus & Scope** langsung dari halaman OJS jurnal.
+- **Filter-Before-Deep & Strict SINTA / Activity Gate**: Menyaring duplikasi ISSN/URL, memvalidasi peringkat SINTA murni (opsional menyertakan Garuda non-SINTA), dan mendeteksi jurnal dorman (> 2 tahun tidak terbit) secara otomatis.
+- **Deep OJS Crawler & Evidence**: Mengekstrak **Biaya Publikasi (APC)** beserta bukti kutipan kalimatnya (`apc_evidence`), **Bulan, Tahun Terbit Terakhir & Jadwal Terbit**, **Kontak Editor**, serta **Focus & Scope** bebas *privacy statement* langsung dari situs OJS jurnal.
 
 ### 2. Multi-Provider Smart Matcher (Zero-Setup Default)
 - **Built-in Smart Matcher (Default — Tanpa Instalasi)**: Menggunakan mesin **Bilingual BM25 + Academic Synonym Matcher (Indonesia & Inggris)** yang langsung siap pakai (0 detik) tanpa perlu menginstal AI eksternal (memahami padanan seperti *UMKM ↔ SME, pembelajaran ↔ learning, sistem informasi ↔ information system, bisnis ↔ commerce*).
@@ -40,7 +40,7 @@ Hasil pencarian otomatis tersimpan di folder `output/` dalam 4 format:
 Bagi pengguna yang ingin langsung menggunakan aplikasi tanpa menginstal Rust atau Node.js:
 
 1. Buka halaman **[Releases](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases)**.
-2. Pada rilis terbaru (**v3.0.1**), unduh salah satu paket berikut:
+2. Pada rilis terbaru (**v3.1.0**), unduh salah satu paket berikut:
    - **Setup Installer Windows** (`*_x64-setup.exe` atau `*.msi`) — disarankan untuk instalasi standar.
    - **Portable Executable** (`jsfs.exe`) — dapat langsung dijalankan tanpa instalasi.
 3. *(Opsional)* Jika ingin memakai validasi LLM tambahan, Anda dapat memilih mode **Cloud AI (Groq / Gemini API Key gratis)** atau **Ollama Lokal** langsung dari tombol status **Match Engine** di header aplikasi.

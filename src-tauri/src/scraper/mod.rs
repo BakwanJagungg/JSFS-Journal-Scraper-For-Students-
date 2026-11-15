@@ -7,8 +7,32 @@ use crate::config::MAX_HTML_BYTES;
 use chrono::Utc;
 use dashmap::DashMap;
 use futures_util::StreamExt;
+use once_cell::sync::Lazy;
+use regex::Regex;
 use std::time::Duration;
 use url::Url;
+
+static RE_PUB_NOISE_SHARED: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"(?i)\b(?:google\s+scholar|editor\s+url|published\s+by|diterbitkan\s+oleh|publisher\s*:?|penerbit\s*:?|website|garuda|sinta|orcid|scopus)\b|https?://\S+",
+    )
+    .expect("valid regex")
+});
+
+/// Strip portal prefixes (`Published by`, `Diterbitkan oleh`) and link-bar noise from publisher names.
+pub fn sanitize_publisher_name(raw: &str) -> String {
+    let without_noise = RE_PUB_NOISE_SHARED.replace_all(raw, " ");
+    let collapsed = without_noise.split_whitespace().collect::<Vec<_>>().join(" ");
+    let trimmed = collapsed
+        .trim_matches(['|', '-', ':', '/', ',', '•', ';', ' '])
+        .trim()
+        .to_string();
+    if trimmed.len() < 3 {
+        String::new()
+    } else {
+        trimmed
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DomainHealth {

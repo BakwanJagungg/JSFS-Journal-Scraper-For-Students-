@@ -23,29 +23,10 @@ static RE_EISSN: Lazy<Regex> = Lazy::new(|| {
 static RE_SUBJ: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?i)Subject\s*Area\s*:\s*([^|\n]+)").expect("valid regex")
 });
-static RE_PUB_NOISE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(
-        r"(?i)\b(?:google\s+scholar|editor\s+url|published\s+by|publisher\s*:?|website|garuda|sinta|orcid|scopus)\b|https?://\S+",
-    )
-    .expect("valid regex")
-});
 
-/// Strip SINTA link-bar noise (`Google Scholar`, `Website`, `Editor URL`, etc.) from publisher strings.
+/// Strip `"Published by"`, `"Diterbitkan oleh"`, and SINTA link-bar noise from publisher strings.
 pub fn sanitize_sinta_publisher(raw: &str) -> String {
-    let without_noise = RE_PUB_NOISE.replace_all(raw, " ");
-    let cleaned = without_noise
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-    let trimmed = cleaned
-        .trim_matches(|c: char| matches!(c, '|' | '-' | ':' | '/' | ',' | '•' | ';' | ' '))
-        .trim()
-        .to_string();
-    if trimmed.len() < 3 {
-        String::new()
-    } else {
-        trimmed
-    }
+    crate::scraper::sanitize_publisher_name(raw)
 }
 
 fn format_issn(raw: &str) -> String {
