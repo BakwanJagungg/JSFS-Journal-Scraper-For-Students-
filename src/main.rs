@@ -30,6 +30,7 @@ fn load_app_icon() -> Option<egui::IconData> {
 }
 
 fn main() -> eframe::Result<()> {
+    config::ensure_runtime_dirs();
     let _log_guard = init_tracing();
 
     let mut viewport = egui::ViewportBuilder::default()

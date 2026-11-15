@@ -1,5 +1,6 @@
+use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub const APP_VERSION: &str = "4.3.0";
 pub const CACHE_VERSION: &str = "4.3.0";
@@ -33,11 +34,59 @@ pub const USD_TO_IDR_RATE: i64 = 16_500;
 pub const APC_SANITY_MIN_IDR: i64 = 50_000;
 pub const APC_SANITY_MAX_IDR: i64 = 15_000_000;
 
-/// Resolve the base directory for JSFS data (`.cache/`, `output/`, `logs/`).
-///
-/// Follows Pantangan V3-3: stored alongside the executable (`current_exe().parent()`).
-/// Never writes persistent caches or outputs into `%TEMP%`.
-pub fn app_base_dir() -> PathBuf {
+static RESOLVED_BASE_DIR: OnceCell<PathBuf> = OnceCell::new();
+
+fn is_dir_writable(dir: &Path) -> bool {
+    if std::fs::create_dir_all(dir).is_err() {
+        return false;
+    }
+    let probe = dir.join(format!(".jsfs_write_probe_{}", std::process::id()));
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&probe)
+    {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&probe);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+fn local_appdata_jsfs_dir() -> Option<PathBuf> {
+    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+        let p = PathBuf::from(local).join("JSFS");
+        if !p.as_os_str().is_empty() {
+            return Some(p);
+        }
+    }
+    if let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) {
+        return Some(
+            PathBuf::from(home)
+                .join("AppData")
+                .join("Local")
+                .join("JSFS"),
+        );
+    }
+    None
+}
+
+fn resolve_writable_base_dir(preferred: PathBuf, fallback: Option<PathBuf>) -> PathBuf {
+    if is_dir_writable(&preferred) {
+        return preferred;
+    }
+    if let Some(fb) = fallback {
+        if is_dir_writable(&fb) {
+            return fb;
+        }
+        return fb;
+    }
+    preferred
+}
+
+fn preferred_base_dir() -> PathBuf {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             let dir_str = dir.to_string_lossy();
@@ -51,6 +100,24 @@ pub fn app_base_dir() -> PathBuf {
         }
     }
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+}
+
+/// Resolve the base directory for JSFS data (`.cache/`, `output/`, `logs/`).
+///
+/// Prefers the directory alongside the executable (`current_exe().parent()`) for portable usage,
+/// and automatically falls back to `%LOCALAPPDATA%\JSFS` if that folder is read-only or blocked
+/// by Windows Controlled Folder Access.
+pub fn app_base_dir() -> PathBuf {
+    RESOLVED_BASE_DIR
+        .get_or_init(|| resolve_writable_base_dir(preferred_base_dir(), local_appdata_jsfs_dir()))
+        .clone()
+}
+
+/// Ensure runtime directories (`.cache/`, `output/`, `logs/`) exist without panicking.
+pub fn ensure_runtime_dirs() {
+    for dir in [cache_dir(), output_dir(), logs_dir()] {
+        let _ = std::fs::create_dir_all(dir);
+    }
 }
 
 pub fn cache_dir() -> PathBuf {
@@ -174,4 +241,29 @@ pub fn save_matcher_config_to_disk(cfg: &MatcherConfig) -> std::io::Result<()> {
     let json = serde_json::to_string_pretty(cfg)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     std::fs::write(path, json)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_writable_base_dir_fallback() {
+        let writable = std::env::temp_dir().join(format!("jsfs_cfg_ok_{}", std::process::id()));
+        let fallback = std::env::temp_dir().join(format!("jsfs_cfg_fb_{}", std::process::id()));
+
+        let chosen = resolve_writable_base_dir(writable.clone(), Some(fallback.clone()));
+        assert_eq!(chosen, writable);
+
+        // Using a regular file as "preferred" dir makes create_dir_all / probe fail deterministically
+        let blocked_pref =
+            std::env::temp_dir().join(format!("jsfs_cfg_file_{}", std::process::id()));
+        std::fs::write(&blocked_pref, b"not a directory").expect("create dummy file");
+        let chosen_fb = resolve_writable_base_dir(blocked_pref.clone(), Some(fallback.clone()));
+        assert_eq!(chosen_fb, fallback);
+
+        let _ = std::fs::remove_dir_all(&writable);
+        let _ = std::fs::remove_dir_all(&fallback);
+        let _ = std::fs::remove_file(&blocked_pref);
+    }
 }

@@ -26,21 +26,30 @@
 
 <div align="center">
 
-[![Download jsfs.exe](https://img.shields.io/badge/Download_jsfs.exe-v4.3.0_(12.3_MB)-2563eb?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/jsfs.exe)
-[![Download Portable ZIP](https://img.shields.io/badge/Download_Portable_ZIP-Windows_x64-059669?style=for-the-badge&logo=github&logoColor=white)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/JSFS-windows-x64-portable.zip)
+[![Download Portable ZIP (Direkomendasikan)](https://img.shields.io/badge/Download_Portable_ZIP_(Direkomendasikan)-v4.3.0_x64-059669?style=for-the-badge&logo=github&logoColor=white)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/JSFS-windows-x64-portable.zip)
+[![Download jsfs.exe](https://img.shields.io/badge/Download_jsfs.exe-Standalone_(~12_MB)-2563eb?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/jsfs.exe)
 
 </div>
 
 **Cara Pakai (2 Langkah Tanpa Instalasi):**
-1. Klik tombol **Download `jsfs.exe`** di atas (atau kunjungi [GitHub Releases](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest) untuk seluruh berkas rilis).
-2. Letakkan di folder pilihan Anda lalu **klik ganda `jsfs.exe`** untuk langsung menjalankan aplikasi — folder `.cache/`, `logs/`, dan `output/` akan dibuat otomatis.
+1. **Direkomendasikan:** Unduh **[`JSFS-windows-x64-portable.zip`](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/JSFS-windows-x64-portable.zip)** lalu ekstrak ke folder baru (lebih jarang diblokir browser dibanding mengunduh `.exe` mentah), atau unduh langsung **[`jsfs.exe`](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/jsfs.exe)**.
+2. **Klik ganda `jsfs.exe`** untuk langsung menjalankan aplikasi (*zero-dependency*, tidak perlu menginstal Visual C++ Redistributable atau WebView2). Folder `.cache/`, `logs/`, dan `output/` akan dibuat otomatis di sebelah `jsfs.exe` (atau otomatis beralih ke `%LOCALAPPDATA%\JSFS` jika folder tidak memiliki izin tulis).
 
 | Paket Unduhan | Isi Berkas | Cocok Untuk |
 | :--- | :--- | :--- |
-| **[`jsfs.exe` (Standalone)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/jsfs.exe)** | Aplikasi tunggal Windows x64 (~12.3 MB, *zero runtime dependencies*) | Langsung unduh & jalankan dalam 1 klik |
-| **[`JSFS-windows-x64-portable.zip`](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/JSFS-windows-x64-portable.zip)** | `jsfs.exe` + `README.md` + `LICENSE` dalam arsip portabel | Dibagikan ke teman, lab kampus, atau arsip *flashdisk* |
+| **[`JSFS-windows-x64-portable.zip`](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/JSFS-windows-x64-portable.zip)** *(Utama)* | `jsfs.exe` + `README.md` + `LICENSE` dalam arsip portabel | Menghindari blokir *Mark-of-the-Web* browser pada `.exe` mentah, cocok untuk dibagikan ke teman & lab kampus |
+| **[`jsfs.exe` (Standalone)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/jsfs.exe)** | Aplikasi tunggal Windows x64 *static CRT* (`asInvoker`, tanpa ketergantungan DLL eksternal) | Unduh tunggal cepat dalam 1 file |
+| **[`SHA256SUMS.txt`](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/SHA256SUMS.txt)** | Checksum SHA-256 resmi hasil build GitHub Actions | Verifikasi keaslian biner (`Get-FileHash jsfs.exe -Algorithm SHA256`) |
 
-> **Catatan Windows SmartScreen:** Karena aplikasi indie sumber terbuka ini belum memakai sertifikat komersial berbayar *EV Code Signing*, Windows Defender SmartScreen dapat memunculkan dialog *"Windows protected your PC"*. Klik **More info** -> **Run anyway** untuk menjalankan, atau kompilasi langsung dari kode sumber di bagian bawah README ini.
+> [!NOTE]
+> **Panduan Keamanan & Windows SmartScreen**
+>
+> **Mengapa muncul peringatan biru/merah *"Windows protected your PC / Are you sure you want to run?"*?**
+> Proyek *open-source* gratis ini tidak membeli sertifikat komersial berbayar *EV Code Signing*, sehingga Windows memunculkan peringatan standar pada biner baru yang diunduh dari internet — meskipun **100% kode sumbernya terbuka dan dikompilasi otomatis di server resmi GitHub Actions**. Anda selalu dapat memverifikasi kecocokan hash biner dengan [`SHA256SUMS.txt`](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/SHA256SUMS.txt).
+>
+> **Cara aman membuka aplikasi:**
+> 1. Pada dialog SmartScreen, klik **More info** (*Informasi selengkapnya*) → klik **Run anyway** (*Tetap jalankan*).
+> 2. *(Alternatif)* Sebelum membuka, klik kanan **`jsfs.exe`** → **Properties** → centang **Unblock** di bagian bawah → klik **OK**.
 
 ---
 
@@ -147,7 +156,7 @@ Dokumentasi teknis lengkap tersedia di **[docs/ARCHITECTURE.md](docs/ARCHITECTUR
 git clone https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-.git
 cd JSFS-Journal-Scraper-For-Students-
 
-# 2. Jalankan seluruh unit test (35 test backend & UI state)
+# 2. Jalankan seluruh unit test (36 test backend & UI state)
 cargo test --locked
 
 # 3. Verifikasi bebas warning dengan Clippy

@@ -33,7 +33,7 @@ jobs:
       - name: Build Pure Rust Release Binary
         run: cargo build --release --locked
 
-      - name: Package Portable Windows Release
+      - name: Package Portable Windows Release & SHA256SUMS
         shell: pwsh
         run: |
           $tag = if ($env:GITHUB_REF_NAME -match '^v') { $env:GITHUB_REF_NAME } else { 'v4.3.0' }
@@ -45,10 +45,20 @@ jobs:
           $zipStable = "JSFS-windows-x64-portable.zip"
           Compress-Archive -Path release-pkg\jsfs.exe, release-pkg\README.md, release-pkg\LICENSE -DestinationPath $zipVersioned -Force
           Copy-Item $zipVersioned $zipStable -Force
+
+          $exeHash = (Get-FileHash target\release\jsfs.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $zipStableHash = (Get-FileHash $zipStable -Algorithm SHA256).Hash.ToLowerInvariant()
+          $zipVersionedHash = (Get-FileHash $zipVersioned -Algorithm SHA256).Hash.ToLowerInvariant()
+          @(
+            "$exeHash  jsfs.exe"
+            "$zipStableHash  $zipStable"
+            "$zipVersionedHash  $zipVersioned"
+          ) | Set-Content -Path SHA256SUMS.txt -Encoding UTF8
+
           Write-Output "ZIP_VERSIONED=$zipVersioned" >> $env:GITHUB_ENV
           Write-Output "ZIP_STABLE=$zipStable" >> $env:GITHUB_ENV
 
-      - name: Upload Portable EXE & ZIP to GitHub Release
+      - name: Upload Portable EXE, ZIP & Checksums to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
@@ -56,4 +66,5 @@ jobs:
             target/release/jsfs.exe
             ${{ env.ZIP_STABLE }}
             ${{ env.ZIP_VERSIONED }}
+            SHA256SUMS.txt
           generate_release_notes: true
