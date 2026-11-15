@@ -6,8 +6,8 @@ use crate::engine::manuscript::ManuscriptSummary;
 use crate::engine::EventSink;
 use crate::models::UiJournalItem;
 use crate::ui::state::{
-    activity_badge_label, filtered_sorted_indices, format_duration, ApcFilter, FilterSettings,
-    QuickPreset, SearchProgressView, SortColumn,
+    activity_badge_label, filtered_sorted_indices, format_duration, ApcFilter, AppState,
+    FilterSettings, QuickPreset, SearchProgressView, SortColumn,
 };
 use crate::ui::theme::{
     accent_button_h, card, danger_button_h, page_header, pill_badge, secondary_button,
@@ -33,6 +33,8 @@ pub enum SearchPageAction {
     PickManuscript(PathBuf),
     ClearManuscript,
     OpenDetail(usize),
+    CopyWa(Vec<usize>),
+    OpenExcel,
     NavigateFilters,
 }
 
@@ -49,21 +51,15 @@ fn preset_chip(
     let title_color = if active { p.accent } else { p.text };
     let resp = Frame::new()
         .fill(fill)
-        .stroke(Stroke::new(if active { 1.4 } else { 1.0 }, border))
+        .stroke(Stroke::new(if active { 1.5 } else { 1.0 }, border))
         .corner_radius(CornerRadius::same(16))
-        .inner_margin(Margin::symmetric(10, 6))
+        .inner_margin(Margin::symmetric(10, 5))
         .show(ui, |ui| {
-            ui.allocate_ui(Vec2::new(ui.available_width(), 20.0), |ui| {
-                ui.horizontal_centered(|ui| {
-                    let (dot_r, _) = ui.allocate_exact_size(Vec2::splat(8.0), Sense::hover());
-                    ui.painter().circle_filled(dot_r.center(), 4.0, accent);
-                    ui.add(
-                        egui::Label::new(
-                            RichText::new(title).size(12.5).strong().color(title_color),
-                        )
-                        .truncate(),
-                    );
-                });
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                let (dot_r, _) = ui.allocate_exact_size(Vec2::splat(8.0), Sense::hover());
+                ui.painter().circle_filled(dot_r.center(), 4.0, accent);
+                ui.label(RichText::new(title).size(12.0).strong().color(title_color));
             });
         })
         .response
@@ -104,6 +100,7 @@ pub fn render_search_page(
     keyword: &mut String,
     target_text: &mut String,
     filters: &mut FilterSettings,
+    app_state: &mut AppState,
     manuscript: Option<&ManuscriptSummary>,
     is_searching: bool,
     progress: &SearchProgressView,
@@ -198,7 +195,9 @@ pub fn render_search_page(
         }
 
         ui.add_space(8.0);
-        ui.columns(4, |cols| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+            ui.label(RichText::new("Preset:").size(12.0).color(p.muted));
             let presets = [
                 (
                     QuickPreset::SkripsiS1,
@@ -225,21 +224,24 @@ pub fn render_search_page(
                     egui::Color32::from_rgb(0xbf, 0x5a, 0xf2),
                 ),
             ];
-            for (idx, (preset, title, desc, dot_c)) in presets.into_iter().enumerate() {
-                if preset_chip(
-                    &mut cols[idx],
-                    p,
-                    filters.active_preset == preset,
-                    title,
-                    desc,
-                    dot_c,
-                ) {
+            for (preset, title, desc, dot_c) in presets {
+                if preset_chip(ui, p, filters.active_preset == preset, title, desc, dot_c) {
                     let msg = filters.apply_preset(preset);
                     *target_text = filters.target_count.to_string();
                     sink.send(crate::engine::EngineEvent::LogLine(msg.to_string()));
                     sink.send(crate::engine::EngineEvent::Toast(msg.to_string()));
                 }
             }
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.add(
+                    egui::Label::new(
+                        RichText::new(filters.summary_text())
+                            .size(11.5)
+                            .color(p.muted),
+                    )
+                    .truncate(),
+                );
+            });
         });
     });
 
@@ -437,7 +439,16 @@ pub fn render_search_page(
             });
         } else {
 
-        let filtered = filtered_sorted_indices(results, table_filter, *apc_filter, *sort_col, *sort_desc);
+        let bm_filter = app_state.only_bookmarked.then_some(&app_state.bookmarked_ids);
+        let filtered = filtered_sorted_indices(
+            results,
+            table_filter,
+            *apc_filter,
+            bm_filter,
+            *sort_col,
+            *sort_desc,
+        );
+        let bm_count = app_state.bookmarked_count(results);
 
         // Table Toolbar
         ui.horizontal_wrapped(|ui| {
@@ -449,7 +460,45 @@ pub fn render_search_page(
                 p.accent_soft,
             );
 
+            let (bm_fg, bm_fill, bm_border) = if app_state.only_bookmarked {
+                (p.warn, p.warn_soft, p.warn)
+            } else {
+                (p.text, p.control_bg, p.line)
+            };
+            let bm_btn = egui::Button::new(
+                RichText::new(format!("★ Pilihan ({bm_count})"))
+                    .size(12.0)
+                    .strong()
+                    .color(bm_fg),
+            )
+            .fill(bm_fill)
+            .stroke(Stroke::new(if app_state.only_bookmarked { 1.4 } else { 1.0 }, bm_border))
+            .corner_radius(CornerRadius::same(7))
+            .min_size(Vec2::new(0.0, 28.0));
+            if ui
+                .add(bm_btn)
+                .on_hover_text("Tampilkan hanya jurnal yang ditandai bintang")
+                .clicked()
+            {
+                app_state.only_bookmarked = !app_state.only_bookmarked;
+            }
+
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if secondary_button(ui, p, "Excel")
+                    .on_hover_text("Buka file Excel hasil pencarian terakhir")
+                    .clicked()
+                {
+                    action = SearchPageAction::OpenExcel;
+                }
+                if ui
+                    .add_enabled_ui(!filtered.is_empty(), |ui| secondary_button(ui, p, "Salin WA"))
+                    .inner
+                    .on_hover_text("Salin daftar jurnal tampil ke clipboard (format WhatsApp)")
+                    .clicked()
+                {
+                    action = SearchPageAction::CopyWa(filtered.clone());
+                }
+
                 let dir_lbl = if *sort_desc { "Turun" } else { "Naik" };
                 if secondary_button(ui, p, dir_lbl).clicked() {
                     *sort_desc = !*sort_desc;
@@ -481,7 +530,7 @@ pub fn render_search_page(
                     });
 
                 ui.add_sized(
-                    [200.0, 26.0],
+                    [175.0, 26.0],
                     egui::TextEdit::singleline(table_filter)
                         .hint_text("Filter nama, penerbit, email..."),
                 );
@@ -498,12 +547,12 @@ pub fn render_search_page(
                 .min_scrolled_height(360.0)
                 .max_scroll_height(avail_h)
                 .cell_layout(Layout::left_to_right(Align::Center))
-                .column(Column::initial(285.0).at_least(210.0).clip(true))
+                .column(Column::initial(260.0).at_least(200.0).clip(true))
                 .column(Column::exact(96.0))
                 .column(Column::exact(82.0))
                 .column(Column::initial(156.0).at_least(125.0).clip(true))
                 .column(Column::initial(148.0).at_least(125.0).clip(true))
-                .column(Column::exact(136.0));
+                .column(Column::exact(168.0));
 
             table
                 .header(28.0, |mut header| {
@@ -620,6 +669,31 @@ pub fn render_search_page(
                         row.col(|ui| {
                             table_cell(ui, |ui| {
                                 ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = 5.0;
+                                    let starred = app_state.is_bookmarked(item);
+                                    let (star_txt, star_fg, star_fill, star_border) = if starred {
+                                        ("★", p.warn, p.warn_soft, p.warn)
+                                    } else {
+                                        ("☆", p.muted, p.control_bg, p.line)
+                                    };
+                                    let star_btn = egui::Button::new(
+                                        RichText::new(star_txt).size(14.0).color(star_fg),
+                                    )
+                                    .fill(star_fill)
+                                    .stroke(Stroke::new(1.0, star_border))
+                                    .corner_radius(CornerRadius::same(7))
+                                    .min_size(Vec2::new(28.0, 28.0));
+                                    if ui
+                                        .add(star_btn)
+                                        .on_hover_text(if starred {
+                                            "Hapus dari shortlist pilihan"
+                                        } else {
+                                            "Simpan ke shortlist pilihan"
+                                        })
+                                        .clicked()
+                                    {
+                                        app_state.toggle_bookmark(item);
+                                    }
                                     if secondary_button(ui, p, "Detail").clicked() {
                                         action = SearchPageAction::OpenDetail(real_idx);
                                     }

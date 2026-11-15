@@ -23,7 +23,7 @@ use crate::ui::match_engine_page::render_match_engine_page;
 use crate::ui::search_page::{render_search_page, SearchPageAction};
 use crate::ui::sidebar::{render_sidebar, NavPage, SidebarProps};
 use crate::ui::state::{
-    ApcFilter, FilterSettings, MatcherFormState, SearchProgressView, SortColumn,
+    ApcFilter, AppState, FilterSettings, MatcherFormState, SearchProgressView, SortColumn,
 };
 use crate::ui::theme::{apply_theme, load_crisp_fonts, Palette, ThemeMode};
 use egui::{Align2, CentralPanel, CornerRadius, Frame, Margin, Panel, RichText, Stroke, Vec2};
@@ -50,6 +50,7 @@ pub struct JsfsNativeApp {
 
     table_filter: String,
     apc_filter: ApcFilter,
+    app_state: AppState,
     sort_col: SortColumn,
     sort_desc: bool,
 
@@ -95,6 +96,7 @@ impl JsfsNativeApp {
             detail_open_idx: None,
             table_filter: String::new(),
             apc_filter: ApcFilter::All,
+            app_state: AppState::default(),
             sort_col: SortColumn::MatchScore,
             sort_desc: true,
             progress: SearchProgressView::default(),
@@ -334,6 +336,7 @@ impl eframe::App for JsfsNativeApp {
                         &mut self.keyword,
                         &mut self.target_text,
                         &mut self.filters,
+                        &mut self.app_state,
                         self.manuscript.as_ref(),
                         is_searching,
                         &self.progress,
@@ -362,6 +365,27 @@ impl eframe::App for JsfsNativeApp {
                         SearchPageAction::OpenDetail(idx) => {
                             self.selected_idx = Some(idx);
                             self.detail_open_idx = Some(idx);
+                        }
+                        SearchPageAction::CopyWa(indices) => {
+                            let refs: Vec<&UiJournalItem> = indices
+                                .iter()
+                                .filter_map(|&idx| self.results.get(idx))
+                                .collect();
+                            if !refs.is_empty() {
+                                let text = crate::engine::file_ops::format_wa_share_from_ui(&refs);
+                                ui.ctx().copy_text(text);
+                                self.set_toast(format!(
+                                    "Daftar WA untuk {} jurnal disalin ke clipboard.",
+                                    refs.len()
+                                ));
+                            }
+                        }
+                        SearchPageAction::OpenExcel => {
+                            crate::engine::file_ops::open_excel_async(
+                                self.engine.clone(),
+                                self.sink.clone(),
+                                self.last_excel_path.clone(),
+                            );
                         }
                         SearchPageAction::NavigateFilters => {
                             self.current_page = NavPage::Filters;
@@ -418,7 +442,7 @@ impl eframe::App for JsfsNativeApp {
         // Floating Toast Notification
         if let Some((msg, _)) = &self.toast {
             egui::Area::new(egui::Id::unique("jsfs_toast"))
-                .anchor(Align2::RIGHT_BOTTOM, Vec2::new(-20.0, -20.0))
+                .anchor(Align2::RIGHT_TOP, Vec2::new(-20.0, 16.0))
                 .order(egui::Order::Foreground)
                 .show(ui.ctx(), |ui| {
                     Frame::new()

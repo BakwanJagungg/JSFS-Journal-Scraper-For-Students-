@@ -4,6 +4,45 @@ use crate::engine::ai_ops::AiStatusExtended;
 use crate::engine::manuscript::ManuscriptSummary;
 use crate::models::{SearchParams, UiJournalItem};
 use chrono::Datelike;
+use std::collections::HashSet;
+
+#[derive(Debug, Clone, Default)]
+pub struct AppState {
+    pub bookmarked_ids: HashSet<String>,
+    pub only_bookmarked: bool,
+}
+
+impl AppState {
+    pub fn bookmark_key(item: &UiJournalItem) -> String {
+        let primary = item.url.trim();
+        if !primary.is_empty() {
+            return primary.to_ascii_lowercase();
+        }
+        let garuda = item.garuda_url.trim();
+        if !garuda.is_empty() {
+            return garuda.to_ascii_lowercase();
+        }
+        format!("title:{}", item.nama.trim().to_ascii_lowercase())
+    }
+
+    pub fn is_bookmarked(&self, item: &UiJournalItem) -> bool {
+        self.bookmarked_ids.contains(&Self::bookmark_key(item))
+    }
+
+    pub fn toggle_bookmark(&mut self, item: &UiJournalItem) -> bool {
+        let key = Self::bookmark_key(item);
+        if !self.bookmarked_ids.remove(&key) {
+            self.bookmarked_ids.insert(key);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn bookmarked_count(&self, results: &[UiJournalItem]) -> usize {
+        results.iter().filter(|it| self.is_bookmarked(it)).count()
+    }
+}
 
 pub const MONTH_NAMES: [&str; 12] = [
     "Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des",
@@ -196,6 +235,60 @@ impl FilterSettings {
         count
     }
 
+    pub fn summary_text(&self) -> String {
+        let ranks: Vec<usize> = self
+            .sinta_enabled
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &on)| on.then_some(i + 1))
+            .collect();
+        let sinta_str = if ranks.is_empty() {
+            "Non-SINTA".to_string()
+        } else if ranks.len() == 6 {
+            "SINTA 1-6".to_string()
+        } else {
+            let first = ranks[0];
+            let last = ranks[ranks.len() - 1];
+            if last - first + 1 == ranks.len() && ranks.len() > 1 {
+                format!("SINTA {first}-{last}")
+            } else {
+                let joined: Vec<String> = ranks.iter().map(ToString::to_string).collect();
+                format!("SINTA {}", joined.join(","))
+            }
+        };
+
+        let cost_str = if self.only_free {
+            "Gratis Rp 0".to_string()
+        } else if self.max_rp > 0 && self.max_rp < 15_000_000 {
+            if self.min_rp <= 0 {
+                format!("<= Rp {}", format_compact_idr(self.max_rp))
+            } else {
+                format!(
+                    "Rp {}-{}",
+                    format_compact_idr(self.min_rp),
+                    format_compact_idr(self.max_rp)
+                )
+            }
+        } else {
+            "Semua Biaya".to_string()
+        };
+
+        let months: Vec<&str> = self
+            .months
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &on)| on.then_some(MONTH_NAMES[i]))
+            .collect();
+        let month_str = match months.len() {
+            12 => "Semua Bulan".to_string(),
+            0 => "Tanpa Bulan".to_string(),
+            1..=4 => months.join(", "),
+            n => format!("{n} Bulan"),
+        };
+
+        format!("Filter: {sinta_str} • {cost_str} • {month_str}")
+    }
+
     pub fn to_search_params(&mut self, keyword: &str, ollama_model: &str) -> SearchParams {
         self.sync_budget_from_text();
         let months: Vec<serde_json::Value> = self
@@ -256,6 +349,25 @@ impl FilterSettings {
 pub fn parse_idr_input(raw: &str) -> i64 {
     let digits: String = raw.chars().filter(|c| c.is_ascii_digit()).collect();
     digits.parse::<i64>().unwrap_or(0)
+}
+
+fn format_compact_idr(amount: i64) -> String {
+    if amount <= 0 {
+        return "0".to_string();
+    }
+    if amount >= 1_000_000 {
+        let jt = amount / 1_000_000;
+        let rem = (amount % 1_000_000) / 100_000;
+        if rem > 0 {
+            format!("{jt},{rem} jt")
+        } else {
+            format!("{jt} jt")
+        }
+    } else if amount >= 1_000 {
+        format!("{} rb", amount / 1_000)
+    } else {
+        amount.to_string()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -365,6 +477,7 @@ pub fn filtered_sorted_indices(
     results: &[UiJournalItem],
     query: &str,
     apc_filter: ApcFilter,
+    bookmarked_only: Option<&HashSet<String>>,
     sort_col: SortColumn,
     sort_desc: bool,
 ) -> Vec<usize> {
@@ -373,6 +486,11 @@ pub fn filtered_sorted_indices(
         .iter()
         .enumerate()
         .filter(|(_, r)| {
+            if let Some(bm) = bookmarked_only {
+                if !bm.contains(&AppState::bookmark_key(r)) {
+                    return false;
+                }
+            }
             let apc_ok = match apc_filter {
                 ApcFilter::All => true,
                 ApcFilter::Free => r.apc_category == "free",
@@ -499,11 +617,65 @@ mod tests {
         assert_eq!(activity_badge_label(&rows[1]), "Aktif 2026");
         assert_eq!(activity_badge_label(&rows[0]), "Terakhir 2024");
 
-        let only_free =
-            filtered_sorted_indices(&rows, "", ApcFilter::Free, SortColumn::MatchScore, true);
+        let only_free = filtered_sorted_indices(
+            &rows,
+            "",
+            ApcFilter::Free,
+            None,
+            SortColumn::MatchScore,
+            true,
+        );
         assert_eq!(only_free, vec![1]);
 
-        let by_cost = filtered_sorted_indices(&rows, "", ApcFilter::All, SortColumn::Cost, false);
+        let by_cost =
+            filtered_sorted_indices(&rows, "", ApcFilter::All, None, SortColumn::Cost, false);
         assert_eq!(by_cost, vec![1, 0]);
+    }
+
+    #[test]
+    fn test_bookmark_shortlist_and_filter_summary() {
+        let mut fs = FilterSettings::default();
+        fs.apply_preset(QuickPreset::JurnalGratis);
+        assert_eq!(
+            fs.summary_text(),
+            "Filter: SINTA 2-6 • Gratis Rp 0 • Semua Bulan"
+        );
+
+        fs.apply_preset(QuickPreset::SkripsiS1);
+        assert_eq!(
+            fs.summary_text(),
+            "Filter: SINTA 3-5 • <= Rp 1,5 jt • Semua Bulan"
+        );
+
+        let rows = vec![
+            UiJournalItem {
+                nama: "Jurnal A".to_string(),
+                url: "https://a.example.ac.id".to_string(),
+                match_score: 80.0,
+                ..Default::default()
+            },
+            UiJournalItem {
+                nama: "Jurnal B".to_string(),
+                url: "https://b.example.ac.id".to_string(),
+                match_score: 70.0,
+                ..Default::default()
+            },
+        ];
+        let mut app_state = AppState::default();
+        assert_eq!(app_state.bookmarked_count(&rows), 0);
+        assert!(app_state.toggle_bookmark(&rows[1]));
+        assert!(!app_state.is_bookmarked(&rows[0]));
+        assert!(app_state.is_bookmarked(&rows[1]));
+        assert_eq!(app_state.bookmarked_count(&rows), 1);
+
+        let shortlisted = filtered_sorted_indices(
+            &rows,
+            "",
+            ApcFilter::All,
+            Some(&app_state.bookmarked_ids),
+            SortColumn::MatchScore,
+            true,
+        );
+        assert_eq!(shortlisted, vec![1]);
     }
 }

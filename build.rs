@@ -7,10 +7,10 @@ fn main() {
         res.set("ProductName", "JSFS - Journal Scraper For Students");
         res.set(
             "FileDescription",
-            "JSFS v4.0.2 Native Desktop - Pencari Jurnal SINTA & Garuda",
+            "JSFS v4.1.0 Native Desktop - Pencari Jurnal SINTA & Garuda",
         );
-        res.set("FileVersion", "4.0.2.0");
-        res.set("ProductVersion", "4.0.2.0");
+        res.set("FileVersion", "4.1.0.0");
+        res.set("ProductVersion", "4.1.0.0");
         res.set_manifest(
             r#"<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0" xmlns:asmv3="urn:schemas-microsoft-com:asm.v3">
   <dependency>

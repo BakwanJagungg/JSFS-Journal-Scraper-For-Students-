@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.1.0] - 2026-11-15
+
+### Added
+- **Shortlist Bookmark (`★` / `☆`) & Filter Pilihan (`src/ui/state.rs`, `src/ui/search_page.rs`, `src/ui/mod.rs`)**:
+  - Added `AppState` (`bookmarked_ids: HashSet<String>`, `only_bookmarked: bool`) with deterministic canonical key matching (`AppState::bookmark_key`) and `FilterSettings::summary_text()`.
+  - Added compact star toggle buttons (`★` / `☆`) in the table **Aksi** column alongside a toolbar filter button **`★ Pilihan (N)`** to isolate shortlisted journals in one click.
+  - Added **`Segoe UI Symbol`** (`seguisym.ttf`) font fallback in `src/ui/theme.rs` so Unicode star icons render sharply on Windows.
+- **Quick Export Toolbar (`Salin WA` & `Excel`) (`src/ui/search_page.rs`, `src/ui/mod.rs`)**:
+  - Added **`Salin WA`** (copies visible or shortlisted table rows to clipboard in WhatsApp list format via `format_wa_share_from_ui`) and **`Excel`** (opens the latest exported `.xlsx` workbook via `open_excel_async`) directly in the `Hasil Pencarian` toolbar.
+
+### Improved
+- **Compact Preset Bar & Live Active-Filter Summary (`src/ui/search_page.rs`, `src/ui/state.rs`)**:
+  - Grouped the 4 quick presets with `8.0 px` spacing behind a `Preset:` label, enhanced `accent_soft` active tinting, and added a right-aligned live summary (e.g. `Filter: SINTA 2-6 • Gratis Rp 0 • Semua Bulan`).
+- **Top-Right Toast Placement (`src/ui/mod.rs`)**:
+  - Anchored floating toast notifications to `Align2::RIGHT_TOP` (`(-20.0, 16.0)`) so table `Detail` and `Web` action buttons in lower rows remain unobstructed.
+
+---
+
 ## [4.0.2] - 2026-11-15
 
 ### Improved

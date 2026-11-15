@@ -13,7 +13,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11%20x64-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases)
 
 [Fitur Utama](#fitur-utama) •
-[Evolusi v3 vs v4](#evolusi-arsitektur-v310-vs-v402) •
+[Evolusi v3 vs v4](#evolusi-arsitektur-v310-vs-v410) •
 [Unduh & Jalankan](#unduh--jalankan-langsung) •
 [Arsitektur](#arsitektur-4-fase) •
 [Build dari Source](#build-dari-source-code)
@@ -24,13 +24,13 @@
 
 ## Ringkasan
 
-**JSFS (Journal Scraper For Students) v4.0.2** adalah aplikasi desktop **100% Pure Native Rust** yang dirender langsung di GPU menggunakan **`eframe` / `egui` (`glow` OpenGL)**. Tanpa *browser wrapper*, tanpa WebView2, dan tanpa dependensi Node.js saat runtime, JSFS memindai direktori **SINTA (S1–S6)** dan **Garuda Kemdikbud**, mengaudit biaya publikasi (APC) secara langsung dari halaman OJS jurnal, mendeteksi keaktifan edisi terbit terbaru, serta mencocokkan naskah `.docx`/`.pdf` secara cerdas.
+**JSFS (Journal Scraper For Students) v4.1.0** adalah aplikasi desktop **100% Pure Native Rust** yang dirender langsung di GPU menggunakan **`eframe` / `egui` (`glow` OpenGL)**. Tanpa *browser wrapper*, tanpa WebView2, dan tanpa dependensi Node.js saat runtime, JSFS memindai direktori **SINTA (S1–S6)** dan **Garuda Kemdikbud**, mengaudit biaya publikasi (APC) secara langsung dari halaman OJS jurnal, mendeteksi keaktifan edisi terbit terbaru, serta mencocokkan naskah `.docx`/`.pdf` secara cerdas.
 
 ---
 
-## Evolusi Arsitektur: v3.1.0 vs v4.0.2
+## Evolusi Arsitektur: v3.1.0 vs v4.1.0
 
-| Aspek | v3.1.0 (Tauri + WebView2) | v4.0.2 (Pure Rust Native GPU) |
+| Aspek | v3.1.0 (Tauri + WebView2) | v4.1.0 (Pure Rust Native GPU) |
 | :--- | :--- | :--- |
 | **Rendering Antarmuka** | Edge WebView2 (`HTML` / `CSS` / `JS`) | 100% Pure Rust (`eframe` + `egui` + `glow` OpenGL) |
 | **Model Proses** | Multi-proses IPC (WebView2 + Rust Backend) | **Single Native Binary** tanpa lapisan IPC browser |
@@ -73,7 +73,7 @@
 Pengguna Windows 10/11 (64-bit) dapat langsung menjalankan JSFS tanpa menginstal Rust atau alat pengembang apa pun:
 
 1. Buka halaman **[GitHub Releases](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases)**.
-2. Pada rilis **v4.0.2**, unduh berkas **`jsfs.exe`** atau arsip **`JSFS-v4.0.2-windows-x64-portable.zip`**.
+2. Pada rilis **v4.1.0**, unduh berkas **`jsfs.exe`** atau arsip **`JSFS-v4.1.0-windows-x64-portable.zip`**.
 3. Letakkan `jsfs.exe` pada folder pilihan Anda (folder `.cache/`, `logs/`, dan `output/` akan dibuat otomatis di direktori kerja yang sama) lalu jalankan.
 
 > **Catatan Windows SmartScreen**: Karena executable sumber terbuka ini belum menandatangani sertifikat komersial (*EV Code Signing*), Windows Defender SmartScreen dapat menampilkan dialog *"Windows protected your PC"*. Klik **More info** -> **Run anyway** untuk melanjutkan, atau bangun langsung dari source code di bawah untuk verifikasi mandiri.
@@ -101,7 +101,7 @@ Dokumentasi teknis lengkap tersedia di **[docs/ARCHITECTURE.md](docs/ARCHITECTUR
 │   ├── icon.ico             # Ikon multi-resolusi aplikasi Windows
 │   └── icon.png             # Aset ikon resolusi tinggi untuk README & jendela
 ├── docs/
-│   ├── ARCHITECTURE.md      # Penjelasan arsitektur Pure Rust v4.0.2
+│   ├── ARCHITECTURE.md      # Penjelasan arsitektur Pure Rust v4.1.0
 │   └── CHANGELOG.md         # Riwayat rilis Keep a Changelog
 ├── src/
 │   ├── ai/                  # Cloud AI (Groq/Gemini/OpenAI-compatible) & Ollama lokal
@@ -137,7 +137,7 @@ Dokumentasi teknis lengkap tersedia di **[docs/ARCHITECTURE.md](docs/ARCHITECTUR
 git clone https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-.git
 cd JSFS-Journal-Scraper-For-Students-
 
-# 2. Jalankan seluruh unit test (31 test backend & UI state)
+# 2. Jalankan seluruh unit test (32 test backend & UI state)
 cargo test --locked
 
 # 3. Verifikasi bebas warning dengan Clippy

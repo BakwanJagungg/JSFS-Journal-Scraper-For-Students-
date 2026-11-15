@@ -73,7 +73,7 @@ impl Palette {
                 muted: Color32::from_rgb(0xa1, 0xa1, 0xaa),
                 faint: Color32::from_rgb(0x71, 0x71, 0x7a),
                 accent: Color32::from_rgb(0x0a, 0x84, 0xff),
-                accent_soft: Color32::from_rgba_unmultiplied(0x0a, 0x84, 0xff, 44),
+                accent_soft: Color32::from_rgba_unmultiplied(0x0a, 0x84, 0xff, 64),
                 good: Color32::from_rgb(0x32, 0xd7, 0x4b),
                 good_soft: Color32::from_rgba_unmultiplied(0x32, 0xd7, 0x4b, 34),
                 warn: Color32::from_rgb(0xff, 0xb3, 0x40),
@@ -138,6 +138,19 @@ pub fn load_crisp_fonts(ctx: &Context) {
                 fam.insert(0, "system_sans".to_string());
             }
             break;
+        }
+    }
+    if let Ok(sym_bytes) = std::fs::read(r"C:\Windows\Fonts\seguisym.ttf") {
+        fonts.font_data.insert(
+            "system_symbol".to_string(),
+            Arc::new(FontData::from_owned(sym_bytes)),
+        );
+        if let Some(fam) = fonts.families.get_mut(&FontFamily::Proportional) {
+            let pos = fam
+                .iter()
+                .position(|n| n == "system_sans")
+                .map_or(0, |i| i + 1);
+            fam.insert(pos, "system_symbol".to_string());
         }
     }
     ctx.set_fonts(fonts);
