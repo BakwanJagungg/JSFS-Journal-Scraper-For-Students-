@@ -40,7 +40,11 @@ fn mode_card(
                             ui,
                             badge,
                             if selected { p.accent } else { p.muted },
-                            if selected { p.accent_soft } else { p.control_bg },
+                            if selected {
+                                p.accent_soft
+                            } else {
+                                p.control_bg
+                            },
                         );
                     });
                     ui.label(RichText::new(desc).size(12.0).color(p.muted));

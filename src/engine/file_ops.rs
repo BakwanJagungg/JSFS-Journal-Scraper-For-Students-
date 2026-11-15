@@ -37,7 +37,9 @@ pub fn open_url_with_feedback(url: &str, sink: &EventSink) {
         return;
     }
     match open_with_os(clean) {
-        Ok(()) => sink.send(EngineEvent::Toast("Membuka tautan di browser...".to_string())),
+        Ok(()) => sink.send(EngineEvent::Toast(
+            "Membuka tautan di browser...".to_string(),
+        )),
         Err(e) => sink.send(EngineEvent::Toast(format!("Gagal membuka URL: {e}"))),
     }
 }

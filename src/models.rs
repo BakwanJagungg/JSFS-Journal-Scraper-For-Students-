@@ -107,7 +107,10 @@ impl JournalRecord {
     pub fn sinta_rank_num(&self) -> Option<u8> {
         let up = self.sinta_score.to_uppercase();
         for ch in ['1', '2', '3', '4', '5', '6'] {
-            if up.contains(&format!("S{ch}")) || up.contains(&format!("SINTA {ch}")) || up.trim() == ch.to_string() {
+            if up.contains(&format!("S{ch}"))
+                || up.contains(&format!("SINTA {ch}"))
+                || up.trim() == ch.to_string()
+            {
                 return ch.to_digit(10).map(|d| d as u8);
             }
         }

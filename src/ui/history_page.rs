@@ -87,7 +87,11 @@ pub fn render_history_page(
 
             if let Some(path) = last_excel_path {
                 ui.add_space(6.0);
-                ui.label(RichText::new(format!("Excel terakhir: {path}")).size(11.5).color(p.muted));
+                ui.label(
+                    RichText::new(format!("Excel terakhir: {path}"))
+                        .size(11.5)
+                        .color(p.muted),
+                );
             }
         });
 
@@ -158,10 +162,7 @@ pub fn render_history_page(
                             } else {
                                 for line in logs.iter() {
                                     ui.label(
-                                        RichText::new(line)
-                                            .monospace()
-                                            .size(11.5)
-                                            .color(p.text),
+                                        RichText::new(line).monospace().size(11.5).color(p.text),
                                     );
                                 }
                             }

@@ -3,9 +3,7 @@
 use crate::config::APP_VERSION;
 use crate::engine::file_ops::open_url_with_feedback;
 use crate::engine::EventSink;
-use crate::ui::theme::{
-    accent_button, card, card_divider, page_header, pill_badge, Palette,
-};
+use crate::ui::theme::{accent_button, card, card_divider, page_header, pill_badge, Palette};
 use egui::{RichText, ScrollArea, Ui};
 
 const REPO_URL: &str = "https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-";
@@ -22,7 +20,7 @@ pub fn render_guide_page(ui: &mut Ui, p: &Palette, sink: &EventSink) {
         card(ui, p, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.label(
-                    RichText::new(format!("JSFS v{APP_VERSION} — Pure Rust Native Edition"))
+                    RichText::new(format!("JSFS v{APP_VERSION} - Pure Rust Native Edition"))
                         .size(15.5)
                         .strong()
                         .color(p.text),

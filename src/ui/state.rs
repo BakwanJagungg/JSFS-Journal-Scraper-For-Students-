@@ -401,7 +401,10 @@ pub fn filtered_sorted_indices(
                 .match_score
                 .total_cmp(&rb.match_score)
                 .then_with(|| rb.biaya_sort.cmp(&ra.biaya_sort)),
-            SortColumn::Title => ra.nama.to_ascii_lowercase().cmp(&rb.nama.to_ascii_lowercase()),
+            SortColumn::Title => ra
+                .nama
+                .to_ascii_lowercase()
+                .cmp(&rb.nama.to_ascii_lowercase()),
             SortColumn::Sinta => {
                 let sa = ra.sinta.parse::<u8>().unwrap_or(99);
                 let sb = rb.sinta.parse::<u8>().unwrap_or(99);
@@ -496,7 +499,8 @@ mod tests {
         assert_eq!(activity_badge_label(&rows[1]), "Aktif 2026");
         assert_eq!(activity_badge_label(&rows[0]), "Terakhir 2024");
 
-        let only_free = filtered_sorted_indices(&rows, "", ApcFilter::Free, SortColumn::MatchScore, true);
+        let only_free =
+            filtered_sorted_indices(&rows, "", ApcFilter::Free, SortColumn::MatchScore, true);
         assert_eq!(only_free, vec![1]);
 
         let by_cost = filtered_sorted_indices(&rows, "", ApcFilter::All, SortColumn::Cost, false);

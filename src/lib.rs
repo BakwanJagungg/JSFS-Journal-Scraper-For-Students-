@@ -1,4 +1,4 @@
-//! JSFS v4.0.1 — Pure Rust Native Desktop Journal Scraper For Students.
+//! JSFS v4.0.2 — Pure Rust Native Desktop Journal Scraper For Students.
 
 pub mod ai;
 pub mod cache;

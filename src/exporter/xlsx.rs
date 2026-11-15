@@ -13,7 +13,10 @@ pub struct TopRecommendation<'a> {
     pub reason: String,
 }
 
-pub fn select_top_recommendations(records: &[JournalRecord], top_n: usize) -> Vec<TopRecommendation<'_>> {
+pub fn select_top_recommendations(
+    records: &[JournalRecord],
+    top_n: usize,
+) -> Vec<TopRecommendation<'_>> {
     let cur_month = Local::now().month() as u8;
     let near = [cur_month, (cur_month % 12) + 1, ((cur_month + 1) % 12) + 1];
 
@@ -144,7 +147,9 @@ pub fn write_xlsx(path: &Path, records: &[JournalRecord]) -> Result<(), JsfsErro
         "Focus & Scope",
         "Link OJS",
     ];
-    let widths1 = [5.0, 34.0, 24.0, 10.0, 12.0, 22.0, 26.0, 16.0, 26.0, 18.0, 42.0, 34.0];
+    let widths1 = [
+        5.0, 34.0, 24.0, 10.0, 12.0, 22.0, 26.0, 16.0, 26.0, 18.0, 42.0, 34.0,
+    ];
     for (c, (h, w)) in headers1.iter().zip(widths1.iter()).enumerate() {
         let col = c as u16;
         ws1.write_string_with_format(0, col, *h, &header_fmt)?;
@@ -208,7 +213,12 @@ pub fn write_xlsx(path: &Path, records: &[JournalRecord]) -> Result<(), JsfsErro
         .set_font_name("Segoe UI")
         .set_font_size(13)
         .set_font_color(Color::RGB(0x1B365D));
-    ws2.write_string_with_format(0, 0, "TOP 3 REKOMENDASI JURNAL TERBAIK (AI ADVISOR)", &title_fmt)?;
+    ws2.write_string_with_format(
+        0,
+        0,
+        "TOP 3 REKOMENDASI JURNAL TERBAIK (AI ADVISOR)",
+        &title_fmt,
+    )?;
     let headers2 = [
         "Peringkat",
         "Nama Jurnal",

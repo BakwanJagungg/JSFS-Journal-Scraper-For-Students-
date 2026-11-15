@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.0.2] - 2026-11-15
+
+### Improved
+- **Scrollable Search Workspace & Compact Hero/KPI Layout (`src/ui/search_page.rs`)**:
+  - Wrapped `render_search_page()` in a full-page vertical `ScrollArea` (`search_page_scroll`) and increased the results `TableBuilder` minimum scrolled height to `360.0 px` so both long workspaces and result rows remain smoothly accessible without bottom clipping.
+  - Replaced stacked preset boxes with compact 1-line 32 px preset chips (`preset_chip`, full criteria in hover tooltips), merged the 4 separate KPI cards into a single 44 px horizontal KPI strip (`render_kpi_strip`), and removed the idle manuscript helper caption and subtitle clutter.
+- **High-Contrast JSFS Daylight Theme (`src/ui/theme.rs`)**:
+  - Refined `ThemeMode::Light` with cool slate surfaces (`#eef2f6` canvas, `#f8fafc` sidebar, `#ffffff` cards, `#f1f5f9` inputs, `#cbd5e1` borders), crisp slate foregrounds (`#0f172a` / `#475569`), and high-contrast dark-on-pastel status badge pairs.
+- **UI Copy & Version Synchronization (`src/config.rs`, `Cargo.toml`, `build.rs`, `src/main.rs`, `src/ui/guide_page.rs`, `src/ui/mod.rs`)**:
+  - Replaced decorative em-dash separators in window/header/toast labels with concise single hyphens and bumped `APP_VERSION`, `CACHE_VERSION`, and Win32 `VersionInfo` to `4.0.2`.
+
+---
+
 ## [4.0.1] - 2026-11-15
 
 ### Improved

@@ -34,7 +34,7 @@ fn main() -> eframe::Result<()> {
 
     let mut viewport = egui::ViewportBuilder::default()
         .with_title(format!(
-            "JSFS v{} — Journal Scraper For Students",
+            "JSFS v{} - Journal Scraper For Students",
             config::APP_VERSION
         ))
         .with_inner_size([1240.0, 800.0])

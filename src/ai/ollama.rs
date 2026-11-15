@@ -137,9 +137,13 @@ pub async fn enrich_records_selective<F>(
 
     let src = format!("Ollama:{chosen_model}");
     let model_ref = chosen_model.as_str();
-    run_selective_enrichment(records, &src, cancel_flag, on_progress, |prompt| async move {
-        call_ollama_json(client, model_ref, &prompt).await
-    })
+    run_selective_enrichment(
+        records,
+        &src,
+        cancel_flag,
+        on_progress,
+        |prompt| async move { call_ollama_json(client, model_ref, &prompt).await },
+    )
     .await;
 }
 
@@ -165,6 +169,8 @@ mod tests {
         assert!(
             validate_apc_json(&valid_pub, "Submission 0. Publication fee: Rp 750.000").is_some()
         );
-        assert!(validate_apc_json(&valid_pub, "Submission 0. Publication fee: Rp 500.000").is_none());
+        assert!(
+            validate_apc_json(&valid_pub, "Submission 0. Publication fee: Rp 500.000").is_none()
+        );
     }
 }

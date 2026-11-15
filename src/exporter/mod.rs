@@ -46,7 +46,8 @@ pub fn write_all_exports_sync(
     };
     let stem = format!("JSFS_{slug}_{ts}");
 
-    let want = |ext: &str| formats.is_empty() || formats.iter().any(|f| f.eq_ignore_ascii_case(ext));
+    let want =
+        |ext: &str| formats.is_empty() || formats.iter().any(|f| f.eq_ignore_ascii_case(ext));
 
     let mut bundle = ExportBundle {
         excel_path: None,

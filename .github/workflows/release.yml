@@ -36,7 +36,7 @@ jobs:
       - name: Package Portable Windows Release
         shell: pwsh
         run: |
-          $tag = if ($env:GITHUB_REF_NAME -match '^v') { $env:GITHUB_REF_NAME } else { 'v4.0.1' }
+          $tag = if ($env:GITHUB_REF_NAME -match '^v') { $env:GITHUB_REF_NAME } else { 'v4.0.2' }
           New-Item -ItemType Directory -Path release-pkg -Force | Out-Null
           Copy-Item target\release\jsfs.exe release-pkg\jsfs.exe -Force
           Copy-Item LICENSE release-pkg\LICENSE -Force

@@ -66,9 +66,8 @@ static RE_IDR_JUTA_RIBU: Lazy<Regex> = Lazy::new(|| {
         .expect("valid regex")
 });
 
-static RE_IDR_AMOUNT: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)(?:rp\.?|idr)\s*[:.]?\s*([\d.,]+(?:,-)?)").expect("valid regex")
-});
+static RE_IDR_AMOUNT: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)(?:rp\.?|idr)\s*[:.]?\s*([\d.,]+(?:,-)?)").expect("valid regex"));
 
 static RE_IDR_TRAILING: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
@@ -184,7 +183,10 @@ fn is_fast_track_context(text: &str, start: usize) -> bool {
         .max(start.saturating_sub(120));
     let window = &text[clause_start..start];
 
-    let last_fast = RE_FAST_TRACK_TAG.find_iter(window).last().map(|m| m.start());
+    let last_fast = RE_FAST_TRACK_TAG
+        .find_iter(window)
+        .last()
+        .map(|m| m.start());
     let last_reg = RE_REGULAR_TAG.find_iter(window).last().map(|m| m.start());
 
     match (last_fast, last_reg) {
@@ -352,7 +354,9 @@ fn extract_sentence_evidence(text: &str, focus_start: usize, focus_end: usize) -
         if ch == '.' {
             let prev = text[min_left..abs].chars().next_back();
             let next = text[abs + 1..].chars().next();
-            if next.is_some_and(char::is_whitespace) && prev.is_some_and(|p| !p.is_ascii_digit() && p != 'p' && p != 'P') {
+            if next.is_some_and(char::is_whitespace)
+                && prev.is_some_and(|p| !p.is_ascii_digit() && p != 'p' && p != 'P')
+            {
                 left = abs + 1;
                 break;
             }
@@ -376,8 +380,13 @@ fn extract_sentence_evidence(text: &str, focus_start: usize, focus_end: usize) -
         }
     }
 
-    let raw_snip = text[left..right].split_whitespace().collect::<Vec<_>>().join(" ");
-    let trimmed = raw_snip.trim_start_matches(['-', '•', '*', ' ', ':', ',']).trim();
+    let raw_snip = text[left..right]
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let trimmed = raw_snip
+        .trim_start_matches(['-', '•', '*', ' ', ':', ','])
+        .trim();
     if trimmed.chars().count() <= 140 {
         trimmed.to_string()
     } else {
@@ -400,7 +409,11 @@ pub fn parse_apc_with_evidence(raw_text: &str) -> (ApcParsed, String) {
     let paid_candidates = collect_paid_candidates(&historical_cleaned);
 
     if let Some(reg) = paid_candidates.iter().find(|c| !c.is_fast_track) {
-        let ev = extract_sentence_evidence(&historical_cleaned, reg.start, (reg.start + 24).min(historical_cleaned.len()));
+        let ev = extract_sentence_evidence(
+            &historical_cleaned,
+            reg.start,
+            (reg.start + 24).min(historical_cleaned.len()),
+        );
         return (reg.parsed.clone(), ev);
     }
 
@@ -411,7 +424,11 @@ pub fn parse_apc_with_evidence(raw_text: &str) -> (ApcParsed, String) {
     }
 
     if let Some(ft) = paid_candidates.first() {
-        let ev = extract_sentence_evidence(&historical_cleaned, ft.start, (ft.start + 24).min(historical_cleaned.len()));
+        let ev = extract_sentence_evidence(
+            &historical_cleaned,
+            ft.start,
+            (ft.start + 24).min(historical_cleaned.len()),
+        );
         return (ft.parsed.clone(), ev);
     }
 
@@ -469,7 +486,9 @@ pub fn extract_apc_contextual_html_with_evidence(html: &str) -> (ApcParsed, Opti
                 }
                 let low = cleaned.to_ascii_lowercase();
                 if APC_KEYWORDS.iter().any(|k| low.contains(k))
-                    && !combined_blocks.iter().any(|existing: &String| existing == &cleaned)
+                    && !combined_blocks
+                        .iter()
+                        .any(|existing: &String| existing == &cleaned)
                 {
                     combined_blocks.push(cleaned);
                 }
@@ -533,7 +552,8 @@ mod tests {
             }
         );
 
-        let free_pub = "Article Processing Charge (APC): Rp 0 (Gratis / Free of charge for publication).";
+        let free_pub =
+            "Article Processing Charge (APC): Rp 0 (Gratis / Free of charge for publication).";
         assert_eq!(parse_apc_from_context(free_pub), ApcParsed::Free);
     }
 

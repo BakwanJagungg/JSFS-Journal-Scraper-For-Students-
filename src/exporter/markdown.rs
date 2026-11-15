@@ -6,7 +6,11 @@ use crate::models::JournalRecord;
 use chrono::Local;
 use std::path::Path;
 
-pub fn write_markdown(path: &Path, records: &[JournalRecord], keyword: &str) -> Result<(), JsfsError> {
+pub fn write_markdown(
+    path: &Path,
+    records: &[JournalRecord],
+    keyword: &str,
+) -> Result<(), JsfsError> {
     if let Some(p) = path.parent() {
         std::fs::create_dir_all(p)?;
     }
@@ -24,7 +28,8 @@ pub fn write_markdown(path: &Path, records: &[JournalRecord], keyword: &str) -> 
         String::new(),
         "## Ringkasan Tabel".to_string(),
         String::new(),
-        "| No | Nama Jurnal | SINTA | Cocok | Biaya Publikasi | Jadwal Terbit | Link OJS |".to_string(),
+        "| No | Nama Jurnal | SINTA | Cocok | Biaya Publikasi | Jadwal Terbit | Link OJS |"
+            .to_string(),
         "|---:|---|:---:|:---:|---|---|---|".to_string(),
     ];
 

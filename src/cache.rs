@@ -174,9 +174,13 @@ mod tests {
         assert!(db.get(&complete.website_url).unwrap().is_some());
 
         let incomplete = sample_record("Jurnal Timeout", true);
-        db.put("https://timeout.ac.id/index.php/j", &incomplete).unwrap();
+        db.put("https://timeout.ac.id/index.php/j", &incomplete)
+            .unwrap();
         // Incomplete records must be bypassed on read
-        assert!(db.get("https://timeout.ac.id/index.php/j").unwrap().is_none());
+        assert!(db
+            .get("https://timeout.ac.id/index.php/j")
+            .unwrap()
+            .is_none());
         assert_eq!(db.count_valid().unwrap(), 1);
     }
 

@@ -103,8 +103,7 @@ pub fn parse_json_lenient(raw: &str) -> Result<Value, String> {
     }
     if let (Some(start), Some(end)) = (trimmed.find('{'), trimmed.rfind('}')) {
         if start < end {
-            return serde_json::from_str::<Value>(&trimmed[start..=end])
-                .map_err(|e| e.to_string());
+            return serde_json::from_str::<Value>(&trimmed[start..=end]).map_err(|e| e.to_string());
         }
     }
     Err("invalid json response".to_string())
@@ -219,9 +218,8 @@ pub async fn run_selective_enrichment<F, P, Fut>(
         .iter()
         .enumerate()
         .filter_map(|(i, r)| {
-            let need_focus =
-                (r.focus_and_scope.is_empty() || r.focus_and_scope == INFO_NOT_FOUND)
-                    && !r.apc_raw_text.trim().is_empty();
+            let need_focus = (r.focus_and_scope.is_empty() || r.focus_and_scope == INFO_NOT_FOUND)
+                && !r.apc_raw_text.trim().is_empty();
             let need_apc = (r.apc_status.is_empty() || r.apc_status == APC_UNKNOWN)
                 && !r.apc_raw_text.trim().is_empty();
             if need_focus || need_apc {
@@ -267,11 +265,7 @@ pub async fn run_selective_enrichment<F, P, Fut>(
                                     records[idx].fee_currency = "IDR".to_string();
                                     records[idx].fee_amount = "0".to_string();
                                 } else {
-                                    let idr = if cur == "USD" {
-                                        p * USD_TO_IDR_RATE
-                                    } else {
-                                        p
-                                    };
+                                    let idr = if cur == "USD" { p * USD_TO_IDR_RATE } else { p };
                                     records[idx].publication_fee_idr = Some(idr);
                                     records[idx].fee_currency = cur.clone();
                                     records[idx].fee_amount = p.to_string();

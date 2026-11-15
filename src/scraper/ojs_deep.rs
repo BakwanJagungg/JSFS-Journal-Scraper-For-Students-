@@ -43,7 +43,8 @@ fn extract_html_meta(html: &str) -> HtmlMeta {
         if content.is_empty() {
             continue;
         }
-        if matches!(name.as_str(), "dc.publisher" | "citation_publisher") && meta.publisher.is_empty()
+        if matches!(name.as_str(), "dc.publisher" | "citation_publisher")
+            && meta.publisher.is_empty()
         {
             meta.publisher = sanitize_publisher_name(content);
         } else if matches!(
@@ -89,7 +90,10 @@ fn extract_html_meta(html: &str) -> HtmlMeta {
     meta
 }
 
-fn discover_ojs_links(html: &str, clean_base: &str) -> (Vec<String>, Vec<String>, Vec<String>, Vec<String>) {
+fn discover_ojs_links(
+    html: &str,
+    clean_base: &str,
+) -> (Vec<String>, Vec<String>, Vec<String>, Vec<String>) {
     let doc = Html::parse_document(html);
     let Ok(base_url) = Url::parse(&format!("{clean_base}/")) else {
         return (vec![], vec![], vec![], vec![]);
@@ -148,9 +152,17 @@ fn discover_ojs_links(html: &str, clean_base: &str) -> (Vec<String>, Vec<String>
         {
             fee_links.push(full.clone());
         }
-        if ["contact", "kontak", "hubungi", "about", "editorial team", "editorialteam", "dewan redaksi"]
-            .iter()
-            .any(|k| txt.contains(k) || h_low.contains(k))
+        if [
+            "contact",
+            "kontak",
+            "hubungi",
+            "about",
+            "editorial team",
+            "editorialteam",
+            "dewan redaksi",
+        ]
+        .iter()
+        .any(|k| txt.contains(k) || h_low.contains(k))
             && !contact_links.contains(&full)
         {
             contact_links.push(full.clone());
@@ -162,9 +174,15 @@ fn discover_ojs_links(html: &str, clean_base: &str) -> (Vec<String>, Vec<String>
         {
             scope_links.push(full.clone());
         }
-        if ["issue/archive", "archive", "arsip", "terbitan", "past issues"]
-            .iter()
-            .any(|k| txt.contains(k) || h_low.contains(k))
+        if [
+            "issue/archive",
+            "archive",
+            "arsip",
+            "terbitan",
+            "past issues",
+        ]
+        .iter()
+        .any(|k| txt.contains(k) || h_low.contains(k))
             && !archive_links.contains(&full)
         {
             archive_links.push(full);
@@ -341,7 +359,8 @@ fn absorb_page(
             || is_homepage)
     {
         rec.apc_raw_text.push('\n');
-        rec.apc_raw_text.push_str(&plain.chars().take(1500).collect::<String>());
+        rec.apc_raw_text
+            .push_str(&plain.chars().take(1500).collect::<String>());
     }
 
     // Grab current issue & announcement recency hints on homepage
@@ -435,7 +454,8 @@ pub async fn deep_enrich_record(
                     rec.is_incomplete = true;
                     return;
                 }
-                if home.final_url.starts_with("http") && !home.final_url.contains("kemdiktisaintek") {
+                if home.final_url.starts_with("http") && !home.final_url.contains("kemdiktisaintek")
+                {
                     rec.website_url = normalize_ojs_root_url(&home.final_url);
                 }
                 let effective_base = normalize_ojs_root_url(&rec.website_url);
@@ -448,12 +468,14 @@ pub async fn deep_enrich_record(
                     &mut archive_hints,
                     &mut broken_archive,
                 );
-                let (m_nums_home, m_names_home, sched_home) = month::resolve_schedule_and_frequency(&agg_text);
+                let (m_nums_home, m_names_home, sched_home) =
+                    month::resolve_schedule_and_frequency(&agg_text);
                 if !m_nums_home.is_empty() {
                     rec.publish_month_nums = m_nums_home;
                     rec.publish_months = m_names_home;
                     rec.publish_schedule = sched_home;
-                    rec.next_issue_estimate = month::get_next_issue_estimate_now(&rec.publish_month_nums);
+                    rec.next_issue_estimate =
+                        month::get_next_issue_estimate_now(&rec.publish_month_nums);
                 }
 
                 if (!has_complete_core_data(&rec) || rec.last_issue_year.is_none())
@@ -477,14 +499,18 @@ pub async fn deep_enrich_record(
 
                     let mut visits = 0usize;
                     for sub in candidates {
-                        if visits >= 4 || has_complete_core_data(&rec) || cancel_flag.load(Ordering::Relaxed) {
+                        if visits >= 4
+                            || has_complete_core_data(&rec)
+                            || cancel_flag.load(Ordering::Relaxed)
+                        {
                             break;
                         }
                         if !visited.insert(sub.clone()) {
                             continue;
                         }
                         visits += 1;
-                        if let Ok(sub_out) = safe_fetch_html(client, &breaker, &sub, per_req).await {
+                        if let Ok(sub_out) = safe_fetch_html(client, &breaker, &sub, per_req).await
+                        {
                             if sub_out.status == 200 && !sub_out.cloudflare_blocked {
                                 absorb_page(
                                     &mut rec,
@@ -520,9 +546,15 @@ pub async fn deep_enrich_record(
                                 .first()
                                 .cloned()
                                 .unwrap_or_else(|| format!("{effective_base}/issue/archive"));
-                            if let Ok(arc_out) = safe_fetch_html(client, &breaker, &arc_url, per_req).await {
+                            if let Ok(arc_out) =
+                                safe_fetch_html(client, &breaker, &arc_url, per_req).await
+                            {
                                 if arc_out.status == 200 {
-                                    if arc_out.html.to_ascii_lowercase().contains("navigation.archives") {
+                                    if arc_out
+                                        .html
+                                        .to_ascii_lowercase()
+                                        .contains("navigation.archives")
+                                    {
                                         broken_archive = true;
                                     }
                                     let doc = Html::parse_document(&arc_out.html);
@@ -566,9 +598,11 @@ pub async fn deep_enrich_record(
                     if !sched_str.is_empty() {
                         rec.publish_schedule = sched_str;
                     }
-                    rec.next_issue_estimate = month::get_next_issue_estimate_now(&rec.publish_month_nums);
+                    rec.next_issue_estimate =
+                        month::get_next_issue_estimate_now(&rec.publish_month_nums);
                 } else {
-                    let (m_nums, m_names, sched_str) = month::resolve_schedule_and_frequency(&agg_text);
+                    let (m_nums, m_names, sched_str) =
+                        month::resolve_schedule_and_frequency(&agg_text);
                     if !m_nums.is_empty() {
                         rec.publish_month_nums = m_nums;
                         rec.publish_months = m_names;

@@ -21,7 +21,10 @@ pub fn generate_copypaste_list(records: &[JournalRecord]) -> String {
     }
 
     let mut blocks = Vec::with_capacity(records.len() + 1);
-    blocks.push(format!("📚 *DAFTAR JURNAL REKOMENDASI ({} Jurnal)*", records.len()));
+    blocks.push(format!(
+        "📚 *DAFTAR JURNAL REKOMENDASI ({} Jurnal)*",
+        records.len()
+    ));
 
     for (idx, r) in records.iter().enumerate() {
         let num = idx + 1;
@@ -47,7 +50,10 @@ pub fn generate_copypaste_list(records: &[JournalRecord]) -> String {
         lines.push(format!("   Jadwal Terbit: {sched}"));
 
         if !is_missing(&r.next_issue_estimate) {
-            lines.push(format!("   Terbit Terdekat: {}", r.next_issue_estimate.trim()));
+            lines.push(format!(
+                "   Terbit Terdekat: {}",
+                r.next_issue_estimate.trim()
+            ));
         }
         if !is_missing(&r.email) {
             lines.push(format!("   Email: {}", r.email.trim()));

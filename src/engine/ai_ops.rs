@@ -192,7 +192,9 @@ pub fn save_matcher_config_async(
             Ok(()) => sink.send(EngineEvent::Toast(
                 "Pengaturan Match Engine disimpan.".to_string(),
             )),
-            Err(e) => sink.send(EngineEvent::Toast(format!("Gagal menyimpan config AI: {e}"))),
+            Err(e) => sink.send(EngineEvent::Toast(format!(
+                "Gagal menyimpan config AI: {e}"
+            ))),
         }
     });
 }

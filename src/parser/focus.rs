@@ -170,9 +170,15 @@ pub fn extract_focus_and_scope_from_html(html: &str, is_homepage: bool) -> Strin
             ) && content.len() >= 30
             {
                 let low = content.to_ascii_lowercase();
-                if !["open journal systems", "pkp.sfu.ca", "wordpress", "login to", "register"]
-                    .iter()
-                    .any(|ign| low.contains(ign))
+                if ![
+                    "open journal systems",
+                    "pkp.sfu.ca",
+                    "wordpress",
+                    "login to",
+                    "register",
+                ]
+                .iter()
+                .any(|ign| low.contains(ign))
                     && !is_boilerplate_noise(content)
                 {
                     let norm = normalize_focus_and_scope(content);
@@ -209,9 +215,15 @@ pub fn extract_focus_and_scope_from_html(html: &str, is_homepage: bool) -> Strin
                     .to_string();
                 let low = txt.to_ascii_lowercase();
                 if txt.len() >= 30
-                    && !["open journal systems", "pkp", "login to", "register", "editorial team"]
-                        .iter()
-                        .any(|ign| low.contains(ign))
+                    && ![
+                        "open journal systems",
+                        "pkp",
+                        "login to",
+                        "register",
+                        "editorial team",
+                    ]
+                    .iter()
+                    .any(|ign| low.contains(ign))
                     && !is_boilerplate_noise(&txt)
                 {
                     let norm = normalize_focus_and_scope(&txt);
@@ -260,9 +272,16 @@ pub fn extract_focus_and_scope_from_html(html: &str, is_homepage: bool) -> Strin
             if (35..=900).contains(&p_text.len()) {
                 let p_low = p_text.to_ascii_lowercase();
                 if research_cues.iter().any(|k| p_low.contains(k))
-                    && !["login to", "remember me", "forgot your password", "open journal systems", "pkp.sfu.ca", "developed by"]
-                        .iter()
-                        .any(|ign| p_low.contains(ign))
+                    && ![
+                        "login to",
+                        "remember me",
+                        "forgot your password",
+                        "open journal systems",
+                        "pkp.sfu.ca",
+                        "developed by",
+                    ]
+                    .iter()
+                    .any(|ign| p_low.contains(ign))
                     && !is_boilerplate_noise(&p_text)
                 {
                     let norm = normalize_focus_and_scope(&p_text);

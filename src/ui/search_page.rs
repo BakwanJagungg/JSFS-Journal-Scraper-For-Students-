@@ -46,36 +46,54 @@ fn preset_chip(
 ) -> bool {
     let fill = if active { p.accent_soft } else { p.control_bg };
     let border = if active { p.accent } else { p.line };
+    let title_color = if active { p.accent } else { p.text };
     let resp = Frame::new()
         .fill(fill)
         .stroke(Stroke::new(if active { 1.4 } else { 1.0 }, border))
-        .corner_radius(CornerRadius::same(9))
-        .inner_margin(Margin::symmetric(11, 8))
+        .corner_radius(CornerRadius::same(16))
+        .inner_margin(Margin::symmetric(10, 6))
         .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                let (dot_r, _) = ui.allocate_exact_size(Vec2::splat(9.0), Sense::hover());
-                ui.painter().circle_filled(dot_r.center(), 4.0, accent);
-                ui.vertical(|ui| {
-                    ui.label(RichText::new(title).size(12.5).strong().color(p.text));
-                    ui.label(RichText::new(desc).size(11.0).color(p.muted));
+            ui.allocate_ui(Vec2::new(ui.available_width(), 20.0), |ui| {
+                ui.horizontal_centered(|ui| {
+                    let (dot_r, _) = ui.allocate_exact_size(Vec2::splat(8.0), Sense::hover());
+                    ui.painter().circle_filled(dot_r.center(), 4.0, accent);
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(title).size(12.5).strong().color(title_color),
+                        )
+                        .truncate(),
+                    );
                 });
             });
         })
         .response
-        .interact(Sense::click());
+        .interact(Sense::click())
+        .on_hover_text(desc);
     resp.clicked()
 }
 
-fn kpi_card(ui: &mut Ui, p: &Palette, title: &str, value: usize, color: egui::Color32) {
+fn render_kpi_strip(ui: &mut Ui, p: &Palette, items: [(&str, usize, egui::Color32); 4]) {
     Frame::new()
         .fill(p.card_bg)
         .stroke(Stroke::new(1.0, p.line))
         .corner_radius(CornerRadius::same(9))
-        .inner_margin(Margin::symmetric(12, 9))
+        .inner_margin(Margin::symmetric(14, 6))
         .show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
-            ui.label(RichText::new(title).size(11.0).color(p.muted));
-            ui.label(RichText::new(value.to_string()).size(20.0).strong().color(color));
+            ui.allocate_ui(Vec2::new(ui.available_width(), 32.0), |ui| {
+                ui.columns(4, |cols| {
+                    for (idx, (label, value, color)) in items.into_iter().enumerate() {
+                        cols[idx].horizontal_centered(|ui| {
+                            ui.label(RichText::new(format!("{label}:")).size(12.0).color(p.muted));
+                            ui.label(
+                                RichText::new(value.to_string())
+                                    .size(16.0)
+                                    .strong()
+                                    .color(color),
+                            );
+                        });
+                    }
+                });
+            });
         });
 }
 
@@ -100,12 +118,11 @@ pub fn render_search_page(
 ) -> SearchPageAction {
     let mut action = SearchPageAction::None;
 
-    page_header(
-        ui,
-        p,
-        "Pencarian Jurnal SINTA & Garuda",
-        "Zero-trap verifikasi APC, audit keaktifan terbit, dan pencocokan naskah otomatis.",
-    );
+    ScrollArea::vertical()
+        .id_salt("search_page_scroll")
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            page_header(ui, p, "Pencarian Jurnal SINTA & Garuda", "");
 
     // ── Card 1: Hero Search & Quick Presets ─────────────────────────────────
     card(ui, p, |ui| {
@@ -165,52 +182,46 @@ pub fn render_search_page(
             });
         });
 
-        ui.add_space(6.0);
-        ui.horizontal_wrapped(|ui| {
-            if let Some(ms) = manuscript {
+        if let Some(ms) = manuscript {
+            ui.add_space(6.0);
+            ui.horizontal_wrapped(|ui| {
                 pill_badge(
                     ui,
-                    &format!("Naskah: {} • {} kar.", ms.name, ms.char_count),
+                    &format!("Naskah: {} ({} kar.)", ms.name, ms.char_count),
                     p.good,
                     p.good_soft,
                 );
                 if secondary_button(ui, p, "Hapus Naskah").clicked() {
                     action = SearchPageAction::ClearManuscript;
                 }
-            } else {
-                ui.label(
-                    RichText::new("Opsional: klik Unggah Naskah (.docx / .pdf) agar Match Score dihitung otomatis dari abstrak & isi.")
-                        .size(11.5)
-                        .color(p.muted),
-                );
-            }
-        });
+            });
+        }
 
-        ui.add_space(10.0);
+        ui.add_space(8.0);
         ui.columns(4, |cols| {
             let presets = [
                 (
                     QuickPreset::SkripsiS1,
                     "Target Skripsi S1",
-                    "SINTA 3–5 • <= Rp 1,5 jt",
+                    "SINTA 3-5, APC <= Rp 1,5 jt",
                     p.accent,
                 ),
                 (
                     QuickPreset::JurnalGratis,
                     "Jurnal Gratis (Rp 0)",
-                    "Bebas Biaya Publikasi",
+                    "Bebas biaya publikasi (APC Rp 0)",
                     p.good,
                 ),
                 (
                     QuickPreset::TerbitTerdekat,
                     "Terbit Terdekat",
-                    "Edisi 1–3 Bln Mendatang",
+                    "Jadwal terbit 1-3 bulan ke depan",
                     p.warn,
                 ),
                 (
                     QuickPreset::ReputasiTinggi,
                     "Reputasi Tinggi",
-                    "SINTA 1 & 2 / Nasional A",
+                    "Fokus SINTA 1 & 2 / Nasional A",
                     egui::Color32::from_rgb(0xbf, 0x5a, 0xf2),
                 ),
             ];
@@ -232,9 +243,9 @@ pub fn render_search_page(
         });
     });
 
-    ui.add_space(10.0);
+    ui.add_space(8.0);
 
-    // ── Row 2: 4 KPI Cards ──────────────────────────────────────────────────
+    // ── Row 2: Slim 44px KPI Strip Bar ──────────────────────────────────────
     let kpi_total = if progress.kpi_total > 0 {
         progress.kpi_total
     } else {
@@ -252,12 +263,16 @@ pub fn render_search_page(
     };
     let kpi_fast = progress.kpi_fast;
 
-    ui.columns(4, |cols| {
-        kpi_card(&mut cols[0], p, "Total Jurnal", kpi_total, p.text);
-        kpi_card(&mut cols[1], p, "Gratis Rp 0", kpi_free, p.good);
-        kpi_card(&mut cols[2], p, "Berbayar", kpi_paid, p.warn);
-        kpi_card(&mut cols[3], p, "Terbit 1–3 Bln", kpi_fast, p.accent);
-    });
+    render_kpi_strip(
+        ui,
+        p,
+        [
+            ("Total Jurnal", kpi_total, p.text),
+            ("Gratis Rp 0", kpi_free, p.good),
+            ("Berbayar", kpi_paid, p.warn),
+            ("Terbit 1-3 Bln", kpi_fast, p.accent),
+        ],
+    );
 
     ui.add_space(10.0);
 
@@ -420,8 +435,7 @@ pub fn render_search_page(
                 });
                 ui.add_space(24.0);
             });
-            return;
-        }
+        } else {
 
         let filtered = filtered_sorted_indices(results, table_filter, *apc_filter, *sort_col, *sort_desc);
 
@@ -476,11 +490,12 @@ pub fn render_search_page(
 
         ui.add_space(8.0);
 
-        let avail_h = (ui.available_height() - 52.0).max(220.0);
+        let avail_h = (ui.available_height() - 52.0).clamp(360.0, 560.0);
         ScrollArea::horizontal().show(ui, |ui| {
             let table = TableBuilder::new(ui)
                 .striped(true)
                 .resizable(true)
+                .min_scrolled_height(360.0)
                 .max_scroll_height(avail_h)
                 .cell_layout(Layout::left_to_right(Align::Center))
                 .column(Column::initial(285.0).at_least(210.0).clip(true))
@@ -623,6 +638,8 @@ pub fn render_search_page(
                 });
         });
         ui.add_space(6.0);
+        }
+    });
     });
 
     action

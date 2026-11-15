@@ -14,15 +14,12 @@ use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 
 static RE_SINTA_RANK: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)S(\d)").expect("valid regex"));
-static RE_PISSN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)P-?ISSN\s*:\s*([0-9Xx\-]{4,10})").expect("valid regex")
-});
-static RE_EISSN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)E-?ISSN\s*:\s*([0-9Xx\-]{4,10})").expect("valid regex")
-});
-static RE_SUBJ: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)Subject\s*Area\s*:\s*([^|\n]+)").expect("valid regex")
-});
+static RE_PISSN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)P-?ISSN\s*:\s*([0-9Xx\-]{4,10})").expect("valid regex"));
+static RE_EISSN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)E-?ISSN\s*:\s*([0-9Xx\-]{4,10})").expect("valid regex"));
+static RE_SUBJ: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)Subject\s*Area\s*:\s*([^|\n]+)").expect("valid regex"));
 
 /// Strip `"Published by"`, `"Diterbitkan oleh"`, and SINTA link-bar noise from publisher strings.
 pub fn sanitize_sinta_publisher(raw: &str) -> String {
@@ -44,7 +41,10 @@ pub fn parse_sinta_listing(html: &str) -> Vec<JournalRecord> {
         return Vec::new();
     };
     let sel_title = Selector::parse("div.affil-name a, .affil-name").unwrap();
-    let sel_affil = Selector::parse("div.affil-loc a[href*='affiliations'], div.affil-loc a, div.affil-loc, .affil-abbrev").unwrap();
+    let sel_affil = Selector::parse(
+        "div.affil-loc a[href*='affiliations'], div.affil-loc a, div.affil-loc, .affil-abbrev",
+    )
+    .unwrap();
     let sel_prof = Selector::parse("div.profile-id").unwrap();
     let sel_rank = Selector::parse("span.num-stat.accredited, .accredited").unwrap();
     let sel_anchor = Selector::parse("a[href]").unwrap();
@@ -54,12 +54,7 @@ pub fn parse_sinta_listing(html: &str) -> Vec<JournalRecord> {
         let Some(t_el) = item.select(&sel_title).next() else {
             continue;
         };
-        let title = t_el
-            .text()
-            .collect::<Vec<_>>()
-            .join(" ")
-            .trim()
-            .to_string();
+        let title = t_el.text().collect::<Vec<_>>().join(" ").trim().to_string();
         if title.is_empty() {
             continue;
         }
@@ -126,7 +121,10 @@ pub fn parse_sinta_listing(html: &str) -> Vec<JournalRecord> {
                 garuda_url = h.to_string();
             } else if h.starts_with("http")
                 && !h.contains("kemdiktisaintek.go.id")
-                && (txt.contains("website") || txt.contains("editor") || txt.contains("ojs") || website_url.is_empty())
+                && (txt.contains("website")
+                    || txt.contains("editor")
+                    || txt.contains("ojs")
+                    || website_url.is_empty())
             {
                 website_url = normalize_ojs_root_url(h);
                 if txt.contains("website") || txt.contains("editor") {
@@ -189,7 +187,11 @@ where
     }
     .clamp(3, 60);
 
-    on_page(1, pages_needed, &format!("SINTA '{keyword}' Hal. 1/{pages_needed}"));
+    on_page(
+        1,
+        pages_needed,
+        &format!("SINTA '{keyword}' Hal. 1/{pages_needed}"),
+    );
 
     if pages_needed > 1 && all.len() < pool_target && !cancel_flag.load(Ordering::Relaxed) {
         let sem = Arc::new(Semaphore::new(8));
@@ -213,10 +215,19 @@ where
                 if cf_cancel.load(Ordering::Relaxed) {
                     return None;
                 }
-                let url = format!("{SINTA_JOURNAL_URL}?q={}&page={page}", urlencoding::encode(&kw));
-                let res = safe_fetch_html(&c, &br, &url, Duration::from_secs(10)).await.ok()?;
+                let url = format!(
+                    "{SINTA_JOURNAL_URL}?q={}&page={page}",
+                    urlencoding::encode(&kw)
+                );
+                let res = safe_fetch_html(&c, &br, &url, Duration::from_secs(10))
+                    .await
+                    .ok()?;
                 let d = ctr.fetch_add(1, Ordering::Relaxed) + 1;
-                cb(d.min(pages_needed), pages_needed, &format!("SINTA '{kw}' Hal. {d}/{pages_needed}"));
+                cb(
+                    d.min(pages_needed),
+                    pages_needed,
+                    &format!("SINTA '{kw}' Hal. {d}/{pages_needed}"),
+                );
                 if res.cloudflare_blocked {
                     return Some((page, Vec::new(), true));
                 }
@@ -294,6 +305,9 @@ mod tests {
         assert_eq!(parsed.len(), 2);
         assert_eq!(parsed[0].publisher, "Universitas Diponegoro");
         assert_eq!(parsed[1].publisher, "");
-        assert_eq!(sanitize_sinta_publisher("Google Scholar Website Editor URL"), "");
+        assert_eq!(
+            sanitize_sinta_publisher("Google Scholar Website Editor URL"),
+            ""
+        );
     }
 }

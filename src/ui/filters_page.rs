@@ -2,9 +2,7 @@
 
 use crate::engine::{EngineEvent, EventSink};
 use crate::ui::state::{FilterSettings, QuickPreset, MONTH_NAMES};
-use crate::ui::theme::{
-    card, card_divider, page_header, secondary_button, toggle_row, Palette,
-};
+use crate::ui::theme::{card, card_divider, page_header, secondary_button, toggle_row, Palette};
 use egui::{Align2, CornerRadius, Frame, Margin, RichText, ScrollArea, Sense, Stroke, Ui};
 
 fn selectable_chip(ui: &mut Ui, p: &Palette, active: bool, text: &str) -> bool {

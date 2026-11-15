@@ -20,7 +20,10 @@ pub enum EngineEvent {
     LogLine(String),
     Progress(ProgressEvent),
     ResultBatch(Vec<UiJournalItem>),
-    AutosaveDone { path: String, count: usize },
+    AutosaveDone {
+        path: String,
+        count: usize,
+    },
     SearchComplete {
         results: Vec<UiJournalItem>,
         excel_path: String,

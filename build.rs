@@ -4,13 +4,13 @@ fn main() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         let mut res = winres::WindowsResource::new();
         res.set_icon("assets/icon.ico");
-        res.set("ProductName", "JSFS — Journal Scraper For Students");
+        res.set("ProductName", "JSFS - Journal Scraper For Students");
         res.set(
             "FileDescription",
-            "JSFS v4.0.1 Native Desktop — Pencari Jurnal SINTA & Garuda",
+            "JSFS v4.0.2 Native Desktop - Pencari Jurnal SINTA & Garuda",
         );
-        res.set("FileVersion", "4.0.1.0");
-        res.set("ProductVersion", "4.0.1.0");
+        res.set("FileVersion", "4.0.2.0");
+        res.set("ProductVersion", "4.0.2.0");
         res.set_manifest(
             r#"<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0" xmlns:asmv3="urn:schemas-microsoft-com:asm.v3">
   <dependency>

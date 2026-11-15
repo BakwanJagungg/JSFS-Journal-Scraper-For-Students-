@@ -103,7 +103,12 @@ fn draw_nav_item(
         Stroke::new(0.7, Color32::from_rgba_unmultiplied(255, 255, 255, 64)),
         StrokeKind::Inside,
     );
-    draw_vector_icon(ui.painter(), tile_rect.shrink(3.5), nav_icon(page), Color32::WHITE);
+    draw_vector_icon(
+        ui.painter(),
+        tile_rect.shrink(3.5),
+        nav_icon(page),
+        Color32::WHITE,
+    );
 
     let text_color = if active { Color32::WHITE } else { p.text };
     ui.painter().text(

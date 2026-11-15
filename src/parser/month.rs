@@ -26,14 +26,17 @@ pub const MONTH_SHORT_ID: [&str; 12] = [
 
 static RE_WORDS: Lazy<Regex> = Lazy::new(|| Regex::new(r"[A-Za-z]+").expect("valid regex"));
 static RE_X_PER_YEAR: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)\b(\d{1,2})\s*(?:kali|times?|x)\s*(?:setahun|a\s+year|per\s*(?:year|tahun)|annually)").expect("valid regex")
+    Regex::new(
+        r"(?i)\b(\d{1,2})\s*(?:kali|times?|x)\s*(?:setahun|a\s+year|per\s*(?:year|tahun)|annually)",
+    )
+    .expect("valid regex")
 });
 static RE_EVERY_MONTHS: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)\b(?:every|setiap|tiap)\s*(\d{1,2})\s*(?:months?|bulan)\b").expect("valid regex")
+    Regex::new(r"(?i)\b(?:every|setiap|tiap)\s*(\d{1,2})\s*(?:months?|bulan)\b")
+        .expect("valid regex")
 });
-static RE_ISSUE_YEAR: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\b(20\d{2})\b").expect("valid regex")
-});
+static RE_ISSUE_YEAR: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\b(20\d{2})\b").expect("valid regex"));
 
 pub fn current_local_year() -> u16 {
     Local::now().year().max(2020) as u16
@@ -56,7 +59,11 @@ pub fn extract_max_issue_year(titles: &[String], max_year: u16) -> Option<u16> {
         .max()
 }
 
-fn token_to_month(tok_original: &str, prev_tok: Option<&str>, next_tok: Option<&str>) -> Option<u8> {
+fn token_to_month(
+    tok_original: &str,
+    prev_tok: Option<&str>,
+    next_tok: Option<&str>,
+) -> Option<u8> {
     let low = tok_original.to_ascii_lowercase();
     match low.as_str() {
         "januari" | "january" | "jan" => Some(1),
@@ -71,13 +78,28 @@ fn token_to_month(tok_original: &str, prev_tok: Option<&str>, next_tok: Option<&
             let next_l = next_tok.map(str::to_ascii_lowercase).unwrap_or_default();
             let verb_following = matches!(
                 next_l.as_str(),
-                "be" | "have" | "not" | "submit" | "include" | "use" | "apply" | "also" | "only" | "require" | "vary" | "take" | "publish" | "appear"
+                "be" | "have"
+                    | "not"
+                    | "submit"
+                    | "include"
+                    | "use"
+                    | "apply"
+                    | "also"
+                    | "only"
+                    | "require"
+                    | "vary"
+                    | "take"
+                    | "publish"
+                    | "appear"
             );
             if verb_following {
                 return None;
             }
             let date_context = is_capitalized
-                || matches!(prev_l.as_str(), "in" | "of" | "on" | "month" | "bulan" | "edisi" | "issue" | "and" | "dan")
+                || matches!(
+                    prev_l.as_str(),
+                    "in" | "of" | "on" | "month" | "bulan" | "edisi" | "issue" | "and" | "dan"
+                )
                 || matches!(next_l.as_str(), "and" | "dan" | "to" | "hingga" | "sampai");
             if date_context {
                 Some(5)
@@ -174,21 +196,26 @@ pub fn resolve_schedule_and_frequency(raw_text: &str) -> (Vec<u8>, Vec<String>, 
         }
     }
 
-    let freq_str = if low.contains("quarterly") || low.contains("triwulan") || low.contains("caturwulan") {
-        if low.contains("caturwulan") {
-            "3 kali setahun".to_string()
+    let freq_str =
+        if low.contains("quarterly") || low.contains("triwulan") || low.contains("caturwulan") {
+            if low.contains("caturwulan") {
+                "3 kali setahun".to_string()
+            } else {
+                "4 kali setahun".to_string()
+            }
+        } else if low.contains("biannual")
+            || low.contains("semi-annual")
+            || low.contains("semiannual")
+            || low.contains("twice a year")
+        {
+            "2 kali setahun".to_string()
+        } else if low.contains("monthly") || low.contains("bulanan") {
+            "12 kali setahun".to_string()
+        } else if low.contains("annual") || low.contains("tahunan") {
+            "1 kali setahun".to_string()
         } else {
-            "4 kali setahun".to_string()
-        }
-    } else if low.contains("biannual") || low.contains("semi-annual") || low.contains("semiannual") || low.contains("twice a year") {
-        "2 kali setahun".to_string()
-    } else if low.contains("monthly") || low.contains("bulanan") {
-        "12 kali setahun".to_string()
-    } else if low.contains("annual") || low.contains("tahunan") {
-        "1 kali setahun".to_string()
-    } else {
-        String::new()
-    };
+            String::new()
+        };
 
     (Vec::new(), Vec::new(), freq_str)
 }
@@ -217,7 +244,11 @@ pub fn get_next_issue_estimate(months: &[u8], current_month: u8) -> String {
         let name = MONTH_NAMES_ID[(cur - 1) as usize];
         return format!("{name} (Bulan Ini)");
     }
-    let next = months.iter().copied().find(|&m| m > cur).unwrap_or(months[0]);
+    let next = months
+        .iter()
+        .copied()
+        .find(|&m| m > cur)
+        .unwrap_or(months[0]);
     MONTH_NAMES_ID[(next - 1) as usize].to_string()
 }
 
@@ -243,11 +274,14 @@ mod tests {
 
     #[test]
     fn test_month_parsing_bilingual_and_may_guard() {
-        let m = extract_months_from_text("Published twice a year in Mei and November. Authors may submit anytime.");
+        let m = extract_months_from_text(
+            "Published twice a year in Mei and November. Authors may submit anytime.",
+        );
         assert_eq!(m, vec![5, 11]);
 
         // Lowercase modal verb "may" alone should NOT produce month 5
-        let verb_only = extract_months_from_text("Manuscripts may be submitted online throughout the year.");
+        let verb_only =
+            extract_months_from_text("Manuscripts may be submitted online throughout the year.");
         assert!(verb_only.is_empty());
 
         // Capitalized May + September should match
@@ -257,7 +291,8 @@ mod tests {
 
     #[test]
     fn test_calendar_widget_guard() {
-        let calendar = "January February March April May June July August September October November December";
+        let calendar =
+            "January February March April May June July August September October November December";
         assert!(extract_months_from_text(calendar).is_empty());
 
         let explicit_monthly = "This monthly journal publishes 12 kali (Januari..Desember): January February March April May June July August September October November December";

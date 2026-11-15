@@ -66,7 +66,10 @@ async fn call_cloud_json(
         if !resp.status().is_success() {
             let status = resp.status();
             let err_txt = resp.text().await.unwrap_or_default();
-            return Err(format!("Gemini HTTP {status}: {}", err_txt.chars().take(160).collect::<String>()));
+            return Err(format!(
+                "Gemini HTTP {status}: {}",
+                err_txt.chars().take(160).collect::<String>()
+            ));
         }
         let val: Value = resp.json().await.map_err(|e| e.to_string())?;
         let text = val["candidates"][0]["content"]["parts"][0]["text"]
@@ -155,9 +158,13 @@ pub async fn enrich_records_cloud<F>(
         cfg.normalized_provider(),
         cfg.effective_cloud_model()
     );
-    run_selective_enrichment(records, &src, cancel_flag, on_progress, |prompt| async move {
-        call_cloud_json(client, cfg, &prompt).await
-    })
+    run_selective_enrichment(
+        records,
+        &src,
+        cancel_flag,
+        on_progress,
+        |prompt| async move { call_cloud_json(client, cfg, &prompt).await },
+    )
     .await;
 }
 
@@ -182,7 +189,8 @@ mod tests {
         let gemini = resolve_gemini_url("gemini-2.5-flash", "AIzaTestKey");
         assert!(gemini.contains("gemini-2.5-flash:generateContent?key=AIzaTestKey"));
 
-        let fenced = "```json\n{\"focus_scope\": \"Riset sistem informasi dan bisnis digital.\"}\n```";
+        let fenced =
+            "```json\n{\"focus_scope\": \"Riset sistem informasi dan bisnis digital.\"}\n```";
         let parsed = parse_json_lenient(fenced).unwrap();
         assert_eq!(
             parsed["focus_scope"].as_str(),

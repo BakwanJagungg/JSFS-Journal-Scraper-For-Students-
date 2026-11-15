@@ -148,7 +148,8 @@ impl JsfsNativeApp {
                 }
                 EngineEvent::AutosaveDone { path, count } => {
                     self.last_excel_path = Some(path.clone());
-                    self.logs.push(format!("Autosave sementara ({count} jurnal): {path}"));
+                    self.logs
+                        .push(format!("Autosave sementara ({count} jurnal): {path}"));
                 }
                 EngineEvent::SearchComplete {
                     results,
@@ -172,7 +173,7 @@ impl JsfsNativeApp {
                         format!("Pencarian dihentikan ({} jurnal).", self.results.len())
                     } else {
                         format!(
-                            "Selesai dalam {duration_sec:.1} dtk — {} jurnal valid!",
+                            "Selesai dalam {duration_sec:.1} dtk - {} jurnal valid!",
                             self.results.len()
                         )
                     };
@@ -213,7 +214,9 @@ impl JsfsNativeApp {
                 }
                 EngineEvent::CacheCleared(Ok((cleared, remaining))) => {
                     self.ai_status.cache_count = remaining;
-                    self.logs.push(format!("Cache SQLite dibersihkan: {cleared} entri dihapus."));
+                    self.logs.push(format!(
+                        "Cache SQLite dibersihkan: {cleared} entri dihapus."
+                    ));
                 }
                 EngineEvent::CacheCleared(Err(err)) => {
                     self.set_toast(format!("Gagal membersihkan cache: {err}"));
@@ -431,7 +434,9 @@ impl eframe::App for JsfsNativeApp {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        self.engine.cancel_flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.engine
+            .cancel_flag
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         self.engine.checkpoint_cache();
     }
 }

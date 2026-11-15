@@ -4,9 +4,7 @@
 use crate::engine::file_ops::{format_editor_draft, open_url_with_feedback};
 use crate::engine::{EngineEvent, EventSink};
 use crate::models::UiJournalItem;
-use crate::ui::theme::{
-    accent_button, card, pill_badge, secondary_button, Palette,
-};
+use crate::ui::theme::{accent_button, card, pill_badge, secondary_button, Palette};
 use egui::{Align, CornerRadius, Frame, Layout, Margin, RichText, ScrollArea, Stroke, Ui};
 
 pub fn extract_whatsapp_url(phone: &str) -> Option<String> {
@@ -24,11 +22,20 @@ pub fn extract_whatsapp_url(phone: &str) -> Option<String> {
 
 fn info_kv(ui: &mut Ui, p: &Palette, label: &str, value: &str) {
     ui.horizontal_wrapped(|ui| {
-        ui.label(RichText::new(format!("{label}:")).size(12.0).strong().color(p.muted));
         ui.label(
-            RichText::new(if value.trim().is_empty() { "-" } else { value.trim() })
-                .size(12.5)
-                .color(p.text),
+            RichText::new(format!("{label}:"))
+                .size(12.0)
+                .strong()
+                .color(p.muted),
+        );
+        ui.label(
+            RichText::new(if value.trim().is_empty() {
+                "-"
+            } else {
+                value.trim()
+            })
+            .size(12.5)
+            .color(p.text),
         );
     });
 }
@@ -78,7 +85,8 @@ pub fn render_detail_modal(
                     };
                     pill_badge(ui, &j.activity_status, act_fg, act_bg);
 
-                    let match_lbl = format!("Match {:.0}% • {}", j.match_score, j.kesesuaian_naskah);
+                    let match_lbl =
+                        format!("Match {:.0}% • {}", j.match_score, j.kesesuaian_naskah);
                     pill_badge(ui, &match_lbl, p.good, p.good_soft);
                 });
             });
@@ -93,7 +101,12 @@ pub fn render_detail_modal(
 
         ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
             card(ui, p, |ui| {
-                ui.label(RichText::new("Ringkasan Akurasi & Jadwal").size(13.0).strong().color(p.text));
+                ui.label(
+                    RichText::new("Ringkasan Akurasi & Jadwal")
+                        .size(13.0)
+                        .strong()
+                        .color(p.text),
+                );
                 ui.add_space(4.0);
                 info_kv(ui, p, "Penerbit", &j.penerbit);
                 info_kv(ui, p, "Sumber Portal", &j.sumber);
@@ -138,7 +151,12 @@ pub fn render_detail_modal(
 
             ui.add_space(8.0);
             card(ui, p, |ui| {
-                ui.label(RichText::new("Focus & Scope Jurnal").size(13.0).strong().color(p.text));
+                ui.label(
+                    RichText::new("Focus & Scope Jurnal")
+                        .size(13.0)
+                        .strong()
+                        .color(p.text),
+                );
                 ui.add_space(4.0);
                 let focus_txt = if j.focus_scope.trim().is_empty() {
                     "Belum diambil dari halaman OJS (cek website resmi)."
@@ -158,7 +176,12 @@ pub fn render_detail_modal(
 
             ui.add_space(8.0);
             card(ui, p, |ui| {
-                ui.label(RichText::new("Kontak Redaksi Editor").size(13.0).strong().color(p.text));
+                ui.label(
+                    RichText::new("Kontak Redaksi Editor")
+                        .size(13.0)
+                        .strong()
+                        .color(p.text),
+                );
                 ui.add_space(4.0);
                 ui.horizontal_wrapped(|ui| {
                     ui.label(RichText::new("Email:").size(12.0).strong().color(p.muted));
@@ -169,7 +192,12 @@ pub fn render_detail_modal(
                     }
                 });
                 ui.horizontal_wrapped(|ui| {
-                    ui.label(RichText::new("Telepon / WA:").size(12.0).strong().color(p.muted));
+                    ui.label(
+                        RichText::new("Telepon / WA:")
+                            .size(12.0)
+                            .strong()
+                            .color(p.muted),
+                    );
                     ui.label(RichText::new(&j.telepon).size(12.0).color(p.text));
                     if let Some(wa_url) = extract_whatsapp_url(&j.telepon) {
                         if secondary_button(ui, p, "Buka Chat WA").clicked() {

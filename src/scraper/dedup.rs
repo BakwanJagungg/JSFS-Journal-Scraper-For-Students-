@@ -136,9 +136,21 @@ pub fn deduplicate_and_merge(entries: Vec<JournalRecord>) -> Vec<JournalRecord> 
         let existing_idx = (!e_key.is_empty())
             .then(|| issn_map.get(&e_key).copied())
             .flatten()
-            .or_else(|| (!p_key.is_empty()).then(|| issn_map.get(&p_key).copied()).flatten())
-            .or_else(|| (!u_key.is_empty()).then(|| url_map.get(&u_key).copied()).flatten())
-            .or_else(|| (!t_key.is_empty()).then(|| title_map.get(&t_key).copied()).flatten());
+            .or_else(|| {
+                (!p_key.is_empty())
+                    .then(|| issn_map.get(&p_key).copied())
+                    .flatten()
+            })
+            .or_else(|| {
+                (!u_key.is_empty())
+                    .then(|| url_map.get(&u_key).copied())
+                    .flatten()
+            })
+            .or_else(|| {
+                (!t_key.is_empty())
+                    .then(|| title_map.get(&t_key).copied())
+                    .flatten()
+            });
 
         if let Some(idx) = existing_idx {
             merge_into(&mut merged[idx], rec);

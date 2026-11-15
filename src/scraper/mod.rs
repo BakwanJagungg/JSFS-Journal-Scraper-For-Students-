@@ -22,7 +22,10 @@ static RE_PUB_NOISE_SHARED: Lazy<Regex> = Lazy::new(|| {
 /// Strip portal prefixes (`Published by`, `Diterbitkan oleh`) and link-bar noise from publisher names.
 pub fn sanitize_publisher_name(raw: &str) -> String {
     let without_noise = RE_PUB_NOISE_SHARED.replace_all(raw, " ");
-    let collapsed = without_noise.split_whitespace().collect::<Vec<_>>().join(" ");
+    let collapsed = without_noise
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
     let trimmed = collapsed
         .trim_matches(['|', '-', ':', '/', ',', '•', ';', ' '])
         .trim()

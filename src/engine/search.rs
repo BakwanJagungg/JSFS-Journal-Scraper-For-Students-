@@ -591,7 +591,13 @@ pub fn stop_search(engine: &EngineState) {
 mod tests {
     use super::*;
 
-    fn make_rec(title: &str, apc_status: &str, fee_idr: Option<i64>, sinta: &str, months: Vec<u8>) -> JournalRecord {
+    fn make_rec(
+        title: &str,
+        apc_status: &str,
+        fee_idr: Option<i64>,
+        sinta: &str,
+        months: Vec<u8>,
+    ) -> JournalRecord {
         JournalRecord {
             title: title.to_string(),
             apc_status: apc_status.to_string(),
@@ -604,9 +610,27 @@ mod tests {
 
     #[test]
     fn test_strict_budget_and_only_free_post_filter() {
-        let free_rec = make_rec("Jurnal Gratis", "Gratis (Rp 0)", Some(0), "Sinta 2", vec![3, 9]);
-        let paid_400k = make_rec("Jurbisman", "Rp 400.000", Some(400_000), "Sinta 2", vec![6, 12]);
-        let paid_3m = make_rec("JSINBIS", "Rp 3.000.000", Some(3_000_000), "Sinta 2", vec![6, 12]);
+        let free_rec = make_rec(
+            "Jurnal Gratis",
+            "Gratis (Rp 0)",
+            Some(0),
+            "Sinta 2",
+            vec![3, 9],
+        );
+        let paid_400k = make_rec(
+            "Jurbisman",
+            "Rp 400.000",
+            Some(400_000),
+            "Sinta 2",
+            vec![6, 12],
+        );
+        let paid_3m = make_rec(
+            "JSINBIS",
+            "Rp 3.000.000",
+            Some(3_000_000),
+            "Sinta 2",
+            vec![6, 12],
+        );
         let unknown_rec = make_rec(
             "Jurnal NA",
             crate::config::APC_UNKNOWN,
@@ -667,10 +691,22 @@ mod tests {
 
     #[test]
     fn test_strict_sinta_filter_excludes_unranked_garuda() {
-        let mut s2 = make_rec("Jurnal Sinta 2", "Gratis (Rp 0)", Some(0), "Sinta 2", vec![3, 9]);
+        let mut s2 = make_rec(
+            "Jurnal Sinta 2",
+            "Gratis (Rp 0)",
+            Some(0),
+            "Sinta 2",
+            vec![3, 9],
+        );
         s2.source_portal = "SINTA + Garuda".to_string();
 
-        let mut s5 = make_rec("Jurnal Sinta 5", "Gratis (Rp 0)", Some(0), "Sinta 5", vec![3, 9]);
+        let mut s5 = make_rec(
+            "Jurnal Sinta 5",
+            "Gratis (Rp 0)",
+            Some(0),
+            "Sinta 5",
+            vec![3, 9],
+        );
         s5.source_portal = "SINTA".to_string();
 
         let mut garuda_only = make_rec(
@@ -682,7 +718,13 @@ mod tests {
         );
         garuda_only.source_portal = "Garuda".to_string();
 
-        let mut dormant_s2 = make_rec("Jurnal Dorman 2020", "Gratis (Rp 0)", Some(0), "Sinta 2", vec![3]);
+        let mut dormant_s2 = make_rec(
+            "Jurnal Dorman 2020",
+            "Gratis (Rp 0)",
+            Some(0),
+            "Sinta 2",
+            vec![3],
+        );
         dormant_s2.is_dormant = true;
         dormant_s2.last_issue_year = Some(2020);
 
@@ -693,7 +735,12 @@ mod tests {
         }))
         .unwrap();
 
-        let mut pool = vec![s2.clone(), s5.clone(), garuda_only.clone(), dormant_s2.clone()];
+        let mut pool = vec![
+            s2.clone(),
+            s5.clone(),
+            garuda_only.clone(),
+            dormant_s2.clone(),
+        ];
         apply_strict_filters(&mut pool, &params_strict);
         assert_eq!(pool.len(), 1);
         assert_eq!(pool[0].title, "Jurnal Sinta 2");
@@ -710,7 +757,11 @@ mod tests {
         let titles: Vec<&str> = pool2.iter().map(|r| r.title.as_str()).collect();
         assert_eq!(
             titles,
-            vec!["Jurnal Sinta 2", "Jurnal Garuda Non-SINTA", "Jurnal Dorman 2020"]
+            vec![
+                "Jurnal Sinta 2",
+                "Jurnal Garuda Non-SINTA",
+                "Jurnal Dorman 2020"
+            ]
         );
     }
 }

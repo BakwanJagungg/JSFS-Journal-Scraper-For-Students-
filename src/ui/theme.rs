@@ -2,8 +2,7 @@
 
 use egui::{
     Align, Color32, Context, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Frame,
-    Layout, Margin, Pos2, Rect, Response, RichText, Sense, Stroke, StrokeKind, TextStyle, Ui,
-    Vec2,
+    Layout, Margin, Pos2, Rect, Response, RichText, Sense, Stroke, StrokeKind, TextStyle, Ui, Vec2,
 };
 use std::sync::Arc;
 
@@ -84,27 +83,27 @@ impl Palette {
             },
             ThemeMode::Light => Self {
                 mode,
-                sidebar_bg: Color32::from_rgb(0xe9, 0xe9, 0xee),
-                content_bg: Color32::from_rgb(0xf2, 0xf2, 0xf5),
-                card_bg: Color32::from_rgb(0xff, 0xff, 0xff),
-                control_bg: Color32::from_rgb(0xff, 0xff, 0xff),
-                control_hover: Color32::from_rgb(0xf4, 0xf4, 0xf7),
-                nav_hover: Color32::from_rgba_unmultiplied(0, 0, 0, 14),
-                row_alt: Color32::from_rgb(0xf8, 0xf8, 0xfb),
-                line: Color32::from_rgba_unmultiplied(0, 0, 0, 24),
-                row_line: Color32::from_rgba_unmultiplied(0, 0, 0, 15),
-                track_off: Color32::from_rgba_unmultiplied(0, 0, 0, 34),
-                text: Color32::from_rgb(0x1d, 0x1d, 0x1f),
-                muted: Color32::from_rgb(0x6e, 0x6e, 0x73),
-                faint: Color32::from_rgb(0x8e, 0x8e, 0x93),
-                accent: Color32::from_rgb(0x0a, 0x84, 0xff),
-                accent_soft: Color32::from_rgba_unmultiplied(0x0a, 0x84, 0xff, 30),
-                good: Color32::from_rgb(0x28, 0xa7, 0x45),
-                good_soft: Color32::from_rgba_unmultiplied(0x30, 0xb9, 0x4d, 34),
-                warn: Color32::from_rgb(0xc6, 0x7d, 0x00),
-                warn_soft: Color32::from_rgba_unmultiplied(0xe8, 0xa1, 0x0c, 36),
-                bad: Color32::from_rgb(0xd9, 0x2d, 0x30),
-                bad_soft: Color32::from_rgba_unmultiplied(0xe5, 0x37, 0x3a, 32),
+                sidebar_bg: Color32::from_rgb(248, 250, 252), // #f8fafc
+                content_bg: Color32::from_rgb(238, 242, 246), // #eef2f6
+                card_bg: Color32::from_rgb(255, 255, 255),    // #ffffff
+                control_bg: Color32::from_rgb(241, 245, 249), // #f1f5f9
+                control_hover: Color32::from_rgb(226, 232, 240), // #e2e8f0
+                nav_hover: Color32::from_rgba_unmultiplied(15, 23, 42, 16),
+                row_alt: Color32::from_rgb(248, 250, 252),
+                line: Color32::from_rgb(203, 213, 225), // #cbd5e1
+                row_line: Color32::from_rgb(226, 232, 240),
+                track_off: Color32::from_rgb(203, 213, 225),
+                text: Color32::from_rgb(15, 23, 42),   // #0f172a
+                muted: Color32::from_rgb(71, 85, 105), // #475569
+                faint: Color32::from_rgb(100, 116, 139), // #64748b
+                accent: Color32::from_rgb(29, 78, 216), // #1d4ed8
+                accent_soft: Color32::from_rgb(219, 234, 254), // #dbeafe
+                good: Color32::from_rgb(21, 128, 61),  // #15803d
+                good_soft: Color32::from_rgb(220, 252, 231), // #dcfce7
+                warn: Color32::from_rgb(146, 64, 14),  // #92400e
+                warn_soft: Color32::from_rgb(254, 243, 199), // #fef3c7
+                bad: Color32::from_rgb(185, 28, 28),   // #b91c1c
+                bad_soft: Color32::from_rgb(254, 226, 226), // #fee2e2
             },
         }
     }
@@ -131,9 +130,10 @@ pub fn load_crisp_fonts(ctx: &Context) {
     ];
     for p in candidate_paths {
         if let Ok(bytes) = std::fs::read(p) {
-            fonts
-                .font_data
-                .insert("system_sans".to_string(), Arc::new(FontData::from_owned(bytes)));
+            fonts.font_data.insert(
+                "system_sans".to_string(),
+                Arc::new(FontData::from_owned(bytes)),
+            );
             if let Some(fam) = fonts.families.get_mut(&FontFamily::Proportional) {
                 fam.insert(0, "system_sans".to_string());
             }
@@ -240,8 +240,10 @@ pub fn card(ui: &mut Ui, p: &Palette, add_contents: impl FnOnce(&mut Ui)) {
 pub fn card_divider(ui: &mut Ui, p: &Palette) {
     ui.add_space(4.0);
     let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 1.0), Sense::hover());
-    ui.painter()
-        .line_segment([rect.left_center(), rect.right_center()], Stroke::new(1.0, p.row_line));
+    ui.painter().line_segment(
+        [rect.left_center(), rect.right_center()],
+        Stroke::new(1.0, p.row_line),
+    );
     ui.add_space(4.0);
 }
 
@@ -337,13 +339,7 @@ pub fn toggle_switch(ui: &mut Ui, p: &Palette, value: &mut bool) -> Response {
 }
 
 /// Full-width settings row with title, hint caption, and trailing pill switch.
-pub fn toggle_row(
-    ui: &mut Ui,
-    p: &Palette,
-    value: &mut bool,
-    label: &str,
-    hint: &str,
-) -> Response {
+pub fn toggle_row(ui: &mut Ui, p: &Palette, value: &mut bool, label: &str, hint: &str) -> Response {
     let mut changed_resp = None;
     ui.horizontal(|ui| {
         ui.vertical(|ui| {
@@ -399,7 +395,11 @@ pub fn draw_vector_icon(painter: &egui::Painter, rect: Rect, icon: VectorIcon, c
                 Pos2::new(c.x - s * 0.36, c.y),
                 Pos2::new(c.x - s * 0.11, c.y - s * 0.11),
             ];
-            painter.add(egui::Shape::convex_polygon(pts.to_vec(), color, Stroke::NONE));
+            painter.add(egui::Shape::convex_polygon(
+                pts.to_vec(),
+                color,
+                Stroke::NONE,
+            ));
         }
         VectorIcon::Folder => {
             let folder_r = Rect::from_center_size(

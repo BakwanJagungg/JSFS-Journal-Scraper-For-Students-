@@ -14,7 +14,8 @@ use std::time::Duration;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 
-static RE_PAGE_PARAM: Lazy<Regex> = Lazy::new(|| Regex::new(r"[?&]page=(\d+)").expect("valid regex"));
+static RE_PAGE_PARAM: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"[?&]page=(\d+)").expect("valid regex"));
 static RE_ISSN: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"\b(\d{4}[-\s]?[0-9Xx]{4})\b").expect("valid regex"));
 static RE_SINTA: Lazy<Regex> =
@@ -146,10 +147,14 @@ pub async fn resolve_garuda_detail(
     breaker: &DomainBreaker,
     rec: &mut JournalRecord,
 ) {
-    if !rec.garuda_url.contains("garuda.kemdiktisaintek.go.id/journal/view") {
+    if !rec
+        .garuda_url
+        .contains("garuda.kemdiktisaintek.go.id/journal/view")
+    {
         return;
     }
-    let Ok(out) = safe_fetch_html(client, breaker, &rec.garuda_url, Duration::from_secs(6)).await else {
+    let Ok(out) = safe_fetch_html(client, breaker, &rec.garuda_url, Duration::from_secs(6)).await
+    else {
         return;
     };
     if out.status != 200 || out.cloudflare_blocked {
@@ -158,13 +163,20 @@ pub async fn resolve_garuda_detail(
     let doc = Html::parse_document(&out.html);
     if let Ok(sel_a) = Selector::parse("a[href]") {
         for a in doc.select(&sel_a) {
-            let txt = a.text().collect::<Vec<_>>().join(" ").trim().to_ascii_lowercase();
+            let txt = a
+                .text()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .trim()
+                .to_ascii_lowercase();
             let mut h = a.value().attr("href").unwrap_or("").trim().to_string();
             if h.starts_with("//") {
                 h = format!("https:{h}");
             }
-            if matches!(txt.as_str(), "home page" | "website" | "editor url" | "portal" | "ojs")
-                && h.starts_with("http")
+            if matches!(
+                txt.as_str(),
+                "home page" | "website" | "editor url" | "portal" | "ojs"
+            ) && h.starts_with("http")
                 && !h.contains("kemdiktisaintek")
             {
                 rec.website_url = normalize_ojs_root_url(&h);
@@ -232,13 +244,18 @@ where
     }
 
     let per_page = all.len().max(5);
-    let mut pages_needed = pool_target.div_ceil(per_page) + if sinta_ranks.is_empty() { 2 } else { 4 };
+    let mut pages_needed =
+        pool_target.div_ceil(per_page) + if sinta_ranks.is_empty() { 2 } else { 4 };
     pages_needed = pages_needed.clamp(3, 80);
     if let Some(last_p) = extract_garuda_last_page(&p1.html) {
         pages_needed = pages_needed.min(last_p.max(1));
     }
 
-    on_page(1, pages_needed, &format!("Garuda '{keyword}' Hal. 1/{pages_needed}"));
+    on_page(
+        1,
+        pages_needed,
+        &format!("Garuda '{keyword}' Hal. 1/{pages_needed}"),
+    );
 
     if pages_needed > 1 && all.len() < pool_target && !cancel_flag.load(Ordering::Relaxed) {
         let sem = Arc::new(Semaphore::new(8));
@@ -262,10 +279,19 @@ where
                 if cf_cancel.load(Ordering::Relaxed) {
                     return None;
                 }
-                let url = format!("{GARUDA_JOURNAL_URL}?q={}&page={page}", urlencoding::encode(&kw));
-                let res = safe_fetch_html(&c, &br, &url, Duration::from_secs(12)).await.ok()?;
+                let url = format!(
+                    "{GARUDA_JOURNAL_URL}?q={}&page={page}",
+                    urlencoding::encode(&kw)
+                );
+                let res = safe_fetch_html(&c, &br, &url, Duration::from_secs(12))
+                    .await
+                    .ok()?;
                 let d = ctr.fetch_add(1, Ordering::Relaxed) + 1;
-                cb(d.min(pages_needed), pages_needed, &format!("Garuda '{kw}' Hal. {d}/{pages_needed}"));
+                cb(
+                    d.min(pages_needed),
+                    pages_needed,
+                    &format!("Garuda '{kw}' Hal. {d}/{pages_needed}"),
+                );
                 if res.status == 200 && !res.cloudflare_blocked {
                     Some((page, parse_garuda_listing(&res.html)))
                 } else {
@@ -298,7 +324,8 @@ where
     let sem = Arc::new(Semaphore::new(12));
     let mut det_set = JoinSet::new();
     for (idx, mut rec) in all.into_iter().enumerate() {
-        let need_detail = !rec.website_url.starts_with("http") && rec.garuda_url.contains("/journal/view/");
+        let need_detail =
+            !rec.website_url.starts_with("http") && rec.garuda_url.contains("/journal/view/");
         if !need_detail || cancel_flag.load(Ordering::Relaxed) {
             det_set.spawn(async move { (idx, rec) });
             continue;

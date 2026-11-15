@@ -5,30 +5,26 @@ use regex::Regex;
 use std::collections::HashSet;
 use url::Url;
 
-static RE_CFEMAIL_ATTR: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"data-cfemail=["']([0-9a-fA-F]{6,})["']"#).expect("valid regex")
-});
+static RE_CFEMAIL_ATTR: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"data-cfemail=["']([0-9a-fA-F]{6,})["']"#).expect("valid regex"));
 static RE_CFEMAIL_HREF: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"/cdn-cgi/l/email-protection#([0-9a-fA-F]{6,})"#).expect("valid regex")
 });
-static RE_MAILTO: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?i)mailto:([^\s"'<>?]+)"#).expect("valid regex")
-});
+static RE_MAILTO: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?i)mailto:([^\s"'<>?]+)"#).expect("valid regex"));
 static RE_EMAIL: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,12}"#).expect("valid regex")
 });
 static RE_DEOBF_AT: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"(?i)\s*(?:\[at\]|\(at\)|\{at\}|\s+at\s+)\s*"#).expect("valid regex")
 });
-static RE_DEOBF_DOT: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?i)\s*(?:\[dot\]|\(dot\)|\{dot\})\s*"#).expect("valid regex")
-});
+static RE_DEOBF_DOT: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?i)\s*(?:\[dot\]|\(dot\)|\{dot\})\s*"#).expect("valid regex"));
 static RE_TEL_WA: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"(?i)(?:tel:|wa\.me/|phone=)(\+?[0-9\-\s()]{8,20})"#).expect("valid regex")
 });
-static RE_PHONE_CAND: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?:\+62|62|0)[0-9][0-9\s\-().]{7,18}"#).expect("valid regex")
-});
+static RE_PHONE_CAND: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"(?:\+62|62|0)[0-9][0-9\s\-().]{7,18}"#).expect("valid regex"));
 
 const DUMMY_PREFIXES: &[&str] = &[
     "firstauthor@",
@@ -66,8 +62,20 @@ const VALID_AREA_CODES: &[&str] = &[
 ];
 
 const CONTACT_CUES: &[&str] = &[
-    "tel", "tlp", "phone", "hp", "wa", "whatsapp", "fax", "kontak", "contact", "hubungi",
-    "mobile", "editor", "redaksi", "sekretariat",
+    "tel",
+    "tlp",
+    "phone",
+    "hp",
+    "wa",
+    "whatsapp",
+    "fax",
+    "kontak",
+    "contact",
+    "hubungi",
+    "mobile",
+    "editor",
+    "redaksi",
+    "sekretariat",
 ];
 
 /// Decode Cloudflare's hex XOR obfuscated email (`data-cfemail`).
@@ -222,7 +230,9 @@ pub fn extract_contacts(html: &str, plain_text: &str, ojs_url: &str) -> (String,
 
     email_set.sort_by_key(|em| {
         let dom = em.split('@').nth(1).unwrap_or("");
-        if !base_dom.is_empty() && (dom == base_dom || base_dom.ends_with(dom) || dom.ends_with(&base_dom)) {
+        if !base_dom.is_empty()
+            && (dom == base_dom || base_dom.ends_with(dom) || dom.ends_with(&base_dom))
+        {
             0
         } else if dom.ends_with(".ac.id") || dom.ends_with(".go.id") || dom.ends_with(".edu") {
             1
@@ -303,9 +313,13 @@ mod tests {
             raw.push(b ^ key);
         }
         let hex_s = hex::encode(raw);
-        assert_eq!(decode_cfemail(&hex_s).as_deref(), Some("jurnal@kampus.ac.id"));
+        assert_eq!(
+            decode_cfemail(&hex_s).as_deref(),
+            Some("jurnal@kampus.ac.id")
+        );
 
-        let text = "Hubungi redaksi [at] universitas [dot] ac [dot] id atau firstauthor@example.com";
+        let text =
+            "Hubungi redaksi [at] universitas [dot] ac [dot] id atau firstauthor@example.com";
         let (emails, _) = extract_contacts("", text, "https://ejournal.universitas.ac.id");
         assert_eq!(emails, "redaksi@universitas.ac.id");
     }
