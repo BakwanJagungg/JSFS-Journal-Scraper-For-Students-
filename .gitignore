@@ -1,17 +1,10 @@
-# Rust / Cargo / Tauri
+# Rust / Cargo Build Artifacts
 target/
 **/target/
-src-tauri/gen/
 **/*.rs.bk
 *.pdb
 
-# Node / Frontend
-node_modules/
-dist/
-.npm/
-*.tsbuildinfo
-
-# JSFS Runtime Data & Outputs
+# JSFS Runtime Data, Cache, Logs & Exports
 .cache/
 logs/
 output/
@@ -20,7 +13,7 @@ output/
 *.db-wal
 *.log
 
-# OS / Editor
+# OS / Editor Metadata
 .DS_Store
 Thumbs.db
 desktop.ini

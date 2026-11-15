@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-/// Unified application error type serialized to friendly messages for the Tauri frontend.
+/// Unified application error type formatted cleanly for the native desktop UI.
 #[derive(Debug, Error)]
 pub enum JsfsError {
     #[error("HTTP error: {0}")]

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.0.0] - 2026-11-15
+
+### Added
+- **Pure Rust Native GPU-Rendered GUI (`src/ui/`, `eframe` + `egui` 0.37 + `glow`)**:
+  - Replaced the WebView2 / HTML / CSS / JavaScript frontend with a 100% pure Rust OpenGL desktop interface featuring a TwinDesk-inspired solid sidebar (`src/ui/sidebar.rs`), instant **Dark / Light** theme toggle (`src/ui/theme.rs`), and 5 dedicated views: `Pencarian Jurnal`, `Filter Lanjutan`, `Match Engine & AI`, `Riwayat & Ekspor`, and `Panduan & Tentang`.
+  - Built native virtualized results table (`egui_extras::TableBuilder`), interactive detail modal (`src/ui/detail_modal.rs`) with `apc_evidence`, `last_issue_year`, full Focus & Scope, Cloudflare-decoded editor email/WhatsApp links, and one-click polite WhatsApp draft copy.
+  - Added native OS file pickers (`rfd`) for manuscript uploads (`.docx` / `.pdf`) and custom folder/file opening.
+- **Decoupled Async Engine (`src/engine/`)**:
+  - Replaced Tauri IPC (`commands/*.rs`, `AppHandle`) with pure Rust `Arc<EngineState>` and lock-free `EventSink` channel (`src/engine/{mod,search,manuscript,ai_ops,file_ops,cache_ops}.rs`), keeping UI frames smooth while preserving 100% of v3.1.0 scraping, Zero-Trap APC scanning, strict filter gates, SQLite WAL caching, and 4-format exporters.
+- **Windows High-DPI & Resource Integration (`build.rs`, `src/main.rs`)**:
+  - Embedded multi-resolution `assets/icon.ico`, `PerMonitorV2` DPI awareness manifest, Common Controls v6, and Win32 `VersionInfo` (`4.0.0.0`) directly via `winres` without requiring external WebView2 installers.
+
+### Changed
+- **Zero-Web / Single-Binary Repository Layout**:
+  - Removed `ui/`, `src-tauri/`, `package.json`, and `package-lock.json`; promoted pure Rust `Cargo.toml`, `Cargo.lock`, `build.rs`, `src/`, and `assets/` directly to the repository root.
+  - Updated `.github/workflows/release.yml` to test (`cargo test --locked`), lint (`cargo clippy --all-targets --locked -- -D warnings`), and publish standalone `jsfs.exe` + portable Windows `.zip` releases cleanly.
+  - Bumped `APP_VERSION` and `CACHE_VERSION` in `src/config.rs` to `"4.0.0"`.
+
+---
+
 ## [3.1.0] - 2026-11-15
 
 ### Added

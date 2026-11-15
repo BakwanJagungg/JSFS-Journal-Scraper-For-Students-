@@ -3,50 +3,26 @@
 
 use crate::ai::{cloud, ollama};
 use crate::config::{AUTOSAVE_INTERVAL_ITEMS, MAX_WORKERS};
+use crate::engine::{EngineEvent, EngineState, EventSink};
 use crate::error::JsfsError;
 use crate::exporter;
 use crate::models::{JournalRecord, ProgressEvent, SearchParams, UiJournalItem};
 use crate::parser::{doc_matcher, month};
 use crate::scraper::{dedup, garuda, ojs_deep, sinta, DomainBreaker};
-use crate::AppState;
 use chrono::{Datelike, Local};
-use serde::Serialize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Instant;
-use tauri::{AppHandle, Emitter, State};
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 
-#[derive(Serialize)]
 pub struct StartSearchResp {
     pub ok: bool,
-    pub run_id: String,
     pub message: String,
 }
 
-#[derive(Serialize)]
-pub struct OkResp {
-    pub ok: bool,
-}
-
-#[derive(Clone, Serialize)]
-struct ScrapeCompleteEvent {
-    pub results: Vec<UiJournalItem>,
-    pub excel_path: String,
-    pub duration_sec: f64,
-    pub total_count: usize,
-    pub cancelled: bool,
-}
-
-#[derive(Clone, Serialize)]
-struct AutosaveEvent {
-    pub path: String,
-    pub count: usize,
-}
-
-fn emit_log(app: &AppHandle, msg: impl Into<String>) {
-    let _ = app.emit("log-line", msg.into());
+fn emit_log(sink: &EventSink, msg: impl Into<String>) {
+    sink.send(EngineEvent::LogLine(msg.into()));
 }
 
 fn compute_kpi(items: &[JournalRecord]) -> (usize, usize, usize, usize) {
@@ -64,7 +40,7 @@ fn compute_kpi(items: &[JournalRecord]) -> (usize, usize, usize, usize) {
 
 #[allow(clippy::too_many_arguments)]
 fn emit_progress(
-    app: &AppHandle,
+    sink: &EventSink,
     phase: &str,
     current: usize,
     total: usize,
@@ -90,24 +66,21 @@ fn emit_progress(
         None
     };
 
-    let _ = app.emit(
-        "scrape-progress",
-        ProgressEvent {
-            phase: phase.to_string(),
-            current,
-            total,
-            percent,
-            current_item: current_item.to_string(),
-            eta_seconds,
-            status_text: status_text.to_string(),
-            rate_per_sec: rate,
-            elapsed_seconds: elapsed,
-            kpi_total: kpi.0,
-            kpi_free: kpi.1,
-            kpi_paid: kpi.2,
-            kpi_fast: kpi.3,
-        },
-    );
+    sink.send(EngineEvent::Progress(ProgressEvent {
+        phase: phase.to_string(),
+        current,
+        total,
+        percent,
+        current_item: current_item.to_string(),
+        eta_seconds,
+        status_text: status_text.to_string(),
+        rate_per_sec: rate,
+        elapsed_seconds: elapsed,
+        kpi_total: kpi.0,
+        kpi_free: kpi.1,
+        kpi_paid: kpi.2,
+        kpi_fast: kpi.3,
+    }));
 }
 
 fn filter_sinta_tier(
@@ -156,16 +129,14 @@ pub fn apply_strict_filters(records: &mut Vec<JournalRecord>, params: &SearchPar
     });
 }
 
-#[tauri::command]
-pub async fn start_search(
-    app: AppHandle,
-    state: State<'_, AppState>,
+pub fn start_search(
+    engine: Arc<EngineState>,
+    sink: EventSink,
     params: SearchParams,
 ) -> Result<StartSearchResp, JsfsError> {
-    if state.is_running.load(Ordering::SeqCst) {
+    if engine.is_running.load(Ordering::SeqCst) {
         return Ok(StartSearchResp {
             ok: false,
-            run_id: String::new(),
             message: "Pencarian sedang berjalan.".to_string(),
         });
     }
@@ -177,20 +148,20 @@ pub async fn start_search(
         ));
     }
 
-    let run_id = format!("run_{}", chrono::Utc::now().timestamp_millis());
-    state.cancel_flag.store(false, Ordering::SeqCst);
-    state.is_running.store(true, Ordering::SeqCst);
+    engine.cancel_flag.store(false, Ordering::SeqCst);
+    engine.is_running.store(true, Ordering::SeqCst);
 
-    let client = state.http_client.clone();
-    let cache = state.cache.clone();
-    let cancel_flag = state.cancel_flag.clone();
-    let is_running = state.is_running.clone();
-    let current_results = state.current_results.clone();
-    let last_excel_path = state.last_excel_path.clone();
-    let manuscript_guard = state.manuscript.clone();
-    let matcher_cfg_guard = state.matcher_config.clone();
+    let client = engine.http_client.clone();
+    let cache = engine.cache.clone();
+    let cancel_flag = engine.cancel_flag.clone();
+    let is_running = engine.is_running.clone();
+    let current_results = engine.current_results.clone();
+    let last_excel_path = engine.last_excel_path.clone();
+    let manuscript_guard = engine.manuscript.clone();
+    let matcher_cfg_guard = engine.matcher_config.clone();
+    let app = sink;
 
-    tauri::async_runtime::spawn(async move {
+    engine.runtime.spawn(async move {
         let started_at = Instant::now();
         let target = params.effective_target();
         let sinta_ranks = params.normalized_sinta_ranks();
@@ -290,16 +261,12 @@ pub async fn start_search(
 
         if cancel_flag.load(Ordering::Relaxed) {
             emit_log(&app, "Pencarian dihentikan oleh pengguna.");
-            let _ = app.emit(
-                "scrape-complete",
-                ScrapeCompleteEvent {
-                    results: vec![],
-                    excel_path: String::new(),
-                    duration_sec: started_at.elapsed().as_secs_f64(),
-                    total_count: 0,
-                    cancelled: true,
-                },
-            );
+            app.send(EngineEvent::SearchComplete {
+                results: vec![],
+                excel_path: String::new(),
+                duration_sec: started_at.elapsed().as_secs_f64(),
+                cancelled: true,
+            });
             is_running.store(false, Ordering::SeqCst);
             return;
         }
@@ -374,7 +341,7 @@ pub async fn start_search(
                 );
 
                 if pending_batch.len() >= 10 || done_now == total_deep {
-                    let _ = app.emit("result-batch", std::mem::take(&mut pending_batch));
+                    app.send(EngineEvent::ResultBatch(std::mem::take(&mut pending_batch)));
                 }
 
                 // Incremental auto-save every 50 enriched records
@@ -384,7 +351,7 @@ pub async fn start_search(
                     let fmts = params.formats.clone();
                     let app_s = app.clone();
                     let ex_s = last_excel_path.clone();
-                    tauri::async_runtime::spawn(async move {
+                    tokio::spawn(async move {
                         if let Ok(Ok(bundle)) = tokio::task::spawn_blocking(move || {
                             exporter::write_all_exports_sync(&snap, &kw_s, &fmts, true)
                         })
@@ -395,13 +362,10 @@ pub async fn start_search(
                                 if w.is_none() {
                                     *w = Some(p.clone());
                                 }
-                                let _ = app_s.emit(
-                                    "autosave-done",
-                                    AutosaveEvent {
-                                        path: p,
-                                        count: done_now,
-                                    },
-                                );
+                                app_s.send(EngineEvent::AutosaveDone {
+                                    path: p,
+                                    count: done_now,
+                                });
                             }
                         }
                     });
@@ -417,16 +381,12 @@ pub async fn start_search(
                 *cur_w = enriched_list;
             }
             emit_log(&app, "Pencarian dihentikan; hasil parsial disimpan.");
-            let _ = app.emit(
-                "scrape-complete",
-                ScrapeCompleteEvent {
-                    total_count: ui_partial.len(),
-                    results: ui_partial,
-                    excel_path: String::new(),
-                    duration_sec: started_at.elapsed().as_secs_f64(),
-                    cancelled: true,
-                },
-            );
+            app.send(EngineEvent::SearchComplete {
+                results: ui_partial,
+                excel_path: String::new(),
+                duration_sec: started_at.elapsed().as_secs_f64(),
+                cancelled: true,
+            });
             is_running.store(false, Ordering::SeqCst);
             return;
         }
@@ -608,30 +568,23 @@ pub async fn start_search(
             ),
         );
 
-        let _ = app.emit(
-            "scrape-complete",
-            ScrapeCompleteEvent {
-                total_count: ui_results.len(),
-                results: ui_results,
-                excel_path,
-                duration_sec,
-                cancelled: false,
-            },
-        );
+        app.send(EngineEvent::SearchComplete {
+            results: ui_results,
+            excel_path,
+            duration_sec,
+            cancelled: false,
+        });
         is_running.store(false, Ordering::SeqCst);
     });
 
     Ok(StartSearchResp {
         ok: true,
-        run_id,
         message: "Pencarian dimulai".to_string(),
     })
 }
 
-#[tauri::command]
-pub async fn stop_search(state: State<'_, AppState>) -> Result<OkResp, JsfsError> {
-    state.cancel_flag.store(true, Ordering::SeqCst);
-    Ok(OkResp { ok: true })
+pub fn stop_search(engine: &EngineState) {
+    engine.cancel_flag.store(true, Ordering::SeqCst);
 }
 
 #[cfg(test)]

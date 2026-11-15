@@ -131,7 +131,7 @@ impl JournalRecord {
 }
 
 /// UI-friendly payload serialized to match JSFS v2.4 frontend table columns while keeping v3 keys.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct UiJournalItem {
     pub nama: String,
     pub penerbit: String,

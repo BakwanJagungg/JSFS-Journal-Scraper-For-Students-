@@ -1,63 +1,93 @@
+<div align="center">
+
+<img src="assets/icon.png" alt="JSFS Logo" width="96" height="96" />
+
 # JSFS — Journal Scraper For Students
 
-[![Release](https://img.shields.io/github/v/release/BakwanJagungg/JSFS-Journal-Scraper-For-Students-?style=flat-square&color=2563eb)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
-[![Built with Tauri v2](https://img.shields.io/badge/Tauri-v2-24C8DB?style=flat-square&logo=tauri&logoColor=white)](https://v2.tauri.app/)
-[![Rust](https://img.shields.io/badge/Rust-2021-orange?style=flat-square&logo=rust&logoColor=white)](https://www.rust-lang.org/)
-[![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases)
+**Pure Rust Native Desktop App untuk Pencarian, Audit Akurasi APC, dan Pencocokan Naskah ke Jurnal SINTA & Garuda**
 
-**JSFS (Journal Scraper For Students)** adalah aplikasi desktop native berkecepatan tinggi berbasis **Rust + Tauri v2** untuk membantu mahasiswa, dosen, dan peneliti mencari, memfilter, dan mengevaluasi jurnal ilmiah terakreditasi **SINTA (S1–S6)** serta **Garuda Kemdikbud** secara cepat, akurat, dan bebas *freeze*.
+[![Release](https://img.shields.io/github/v/release/BakwanJagungg/JSFS-Journal-Scraper-For-Students-?style=flat-square&color=0a84ff)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-32d74b?style=flat-square)](LICENSE)
+[![Pure Rust](https://img.shields.io/badge/Rust-2021-orange?style=flat-square&logo=rust&logoColor=white)](https://www.rust-lang.org/)
+[![GUI: eframe + egui](https://img.shields.io/badge/GUI-Pure%20Native%20GPU%20(egui)-0a84ff?style=flat-square)](https://github.com/emilk/egui)
+[![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11%20x64-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases)
+
+[Fitur Utama](#fitur-utama) •
+[Evolusi v3 vs v4](#evolusi-arsitektur-v310-vs-v400) •
+[Unduh & Jalankan](#unduh--jalankan-langsung) •
+[Arsitektur](#arsitektur-4-fase) •
+[Build dari Source](#build-dari-source-code)
+
+</div>
+
+---
+
+## Ringkasan
+
+**JSFS (Journal Scraper For Students) v4.0.0** adalah aplikasi desktop **100% Pure Native Rust** yang dirender langsung di GPU menggunakan **`eframe` / `egui` (`glow` OpenGL)**. Tanpa *browser wrapper*, tanpa WebView2, dan tanpa dependensi Node.js saat runtime, JSFS memindai direktori **SINTA (S1–S6)** dan **Garuda Kemdikbud**, mengaudit biaya publikasi (APC) secara langsung dari halaman OJS jurnal, mendeteksi keaktifan edisi terbit terbaru, serta mencocokkan naskah `.docx`/`.pdf` secara cerdas.
+
+---
+
+## Evolusi Arsitektur: v3.1.0 vs v4.0.0
+
+| Aspek | v3.1.0 (Tauri + WebView2) | v4.0.0 (Pure Rust Native GPU) |
+| :--- | :--- | :--- |
+| **Rendering Antarmuka** | Edge WebView2 (`HTML` / `CSS` / `JS`) | 100% Pure Rust (`eframe` + `egui` + `glow` OpenGL) |
+| **Model Proses** | Multi-proses IPC (WebView2 + Rust Backend) | **Single Native Binary** tanpa lapisan IPC browser |
+| **Dependensi Runtime** | Memerlukan WebView2 Runtime | **Zero Runtime Dependencies** (cukup Windows 10/11 OpenGL) |
+| **Sistem Desain** | Halaman web tunggal & modal DOM | **TwinDesk-Inspired Sidebar Workspace** + Tema Dark/Light Instan |
+| **Tata Letak Navigasi** | Toolbar + modal terpisah | 5 tampilan terstruktur (`Pencarian`, `Filter Lanjutan`, `Match Engine & AI`, `Riwayat & Ekspor`, `Panduan`) |
+| **Ukuran Binary Standalone** | ~9.2 MB (+ WebView2 runtime host) | **~12.1 MB** lengkap ter-embed UI, ikon & *resource manifest* DPI |
 
 ---
 
 ## Fitur Utama
 
-### 1. Mesin Scraping Asinkron Berkecepatan Tinggi
-- **Dual-Source Portal Discovery**: Mengumpulkan daftar jurnal dari **SINTA** dan **Garuda** secara konkuren dengan *rate-limiting* dan *circuit breaker* per domain.
-- **Filter-Before-Deep & Strict SINTA / Activity Gate**: Menyaring duplikasi ISSN/URL, memvalidasi peringkat SINTA murni (opsional menyertakan Garuda non-SINTA), dan mendeteksi jurnal dorman (> 2 tahun tidak terbit) secara otomatis.
-- **Deep OJS Crawler & Evidence**: Mengekstrak **Biaya Publikasi (APC)** beserta bukti kutipan kalimatnya (`apc_evidence`), **Bulan, Tahun Terbit Terakhir & Jadwal Terbit**, **Kontak Editor**, serta **Focus & Scope** bebas *privacy statement* langsung dari situs OJS jurnal.
+### 1. Pencarian & Audit Jurnal Real-Time (`Pencarian Jurnal`)
+- **Dual-Source Portal Discovery**: Mengambil daftar kandidat dari **SINTA** dan **Garuda** secara konkuren dengan *circuit breaker* per domain (`DomainBreaker`) dan *rate limiting* asinkron.
+- **Zero-Trap APC Scanner**: Membedakan biaya publikasi reguler (*Article Publication Charge*) dari klausa historis (mis. bebas biaya 2008–2018), klausa gratis pembaca Open Access, dan paket *Fast-Track*. Setiap harga dilengkapi cuplikan bukti kalimat (`apc_evidence`) di modal detail.
+- **Journal Activity & Recency Audit**: Memeriksa tahun terbit edisi terbaru (`last_issue_year`) dan pengumuman pada situs OJS jurnal untuk menandai jurnal aktif (`Aktif`), kurang aktif, hingga dorman (`Dorman / Tidak Terurus`).
+- **Privacy-Statement Cleaner**: Membersihkan kontaminasi teks *Privacy Statement* bawaan OJS dari kolom **Focus & Scope** serta menormalkan nama penerbit secara konsisten.
 
-### 2. Multi-Provider Smart Matcher (Zero-Setup Default)
-- **Built-in Smart Matcher (Default — Tanpa Instalasi)**: Menggunakan mesin **Bilingual BM25 + Academic Synonym Matcher (Indonesia & Inggris)** yang langsung siap pakai (0 detik) tanpa perlu menginstal AI eksternal (memahami padanan seperti *UMKM ↔ SME, pembelajaran ↔ learning, sistem informasi ↔ information system, bisnis ↔ commerce*).
-- **Cloud AI API Opsional (Gratis)**: Mendukung **Groq (`llama-3.1-8b-instant`)**, **Google Gemini (`gemini-2.5-flash`)**, dan **OpenAI-Compatible URL** cukup dengan memasukkan API Key gratis di menu pengaturan.
-- **Ollama Lokal (Power-User)**: Tetap mendukung deteksi otomatis `http://127.0.0.1:11434` bagi pengguna yang mengutamakan LLM lokal privat.
+### 2. Filter Lanjutan & Gate Akurasi (`Filter Lanjutan`)
+- **Preset Satu Klik**: Preset cepat *Gratis Murni*, *Skripsi Ramah Budget (<= Rp 500 rb)*, dan *Semua SINTA Terakreditasi*.
+- **Strict SINTA Gate & Budget Cap**: Penyaringan ulang deterministik **setelah** fase *deep crawl* dan pengayaan selesai sehingga tidak ada jurnal berbayar yang lolos pada mode gratis atau melebihi batas anggaran (`Rp min..maks`).
+- **Filter Bulan Terbit & Dormancy Gate**: Saring target bulan terbit terdekat serta kecualikan jurnal tidak terurus (> 2 tahun tidak terbit) dan Garuda non-SINTA secara default.
 
-### 3. Ekspor Multi-Format Siap Pakai
-Hasil pencarian otomatis tersimpan di folder `output/` dalam 4 format:
-- **Excel (`.xlsx`)**: Workbook 3 sheet terformat rapi (*freeze pane*, *auto-filter*, pembungkus teks, dan tautan aktif).
-- **Markdown (`.md`)**: Ringkasan laporan yang mudah dibaca dan disalin ke catatan riset.
-- **CSV (`.csv`)**: Format mentah (UTF-8 BOM) untuk analisis data lanjutan.
-- **Daftar Share / Draft Email Editor (`.txt`)**: Siap salin langsung dari antarmuka aplikasi.
+### 3. Multi-Provider Smart Matcher (`Match Engine & AI`)
+- **Built-in Smart Matcher (Zero-Setup Default)**: Mesin **Bilingual BM25 + Academic Synonym Dictionary (ID–EN)** murni Rust langsung siap pakai secara offline untuk mencocokkan naskah `.docx`/`.pdf` terhadap *Focus & Scope* jurnal.
+- **Cloud AI API Opsional**: Mendukung **Groq (`llama-3.1-8b-instant`)**, **Google Gemini (`gemini-2.5-flash`)**, atau **OpenAI-Compatible URL** dengan API key pengguna.
+- **Ollama Lokal (Power-User)**: Deteksi otomatis instance Ollama lokal (`http://127.0.0.1:11434`) dilengkapi pembatasan kandidat teratas, *timeout* keras, dan tombol tes koneksi langsung.
 
-### 4. Antarmuka Desktop Native Ringan
-- Dibangun dengan **Tauri v2 + WebView2** (~9.2 MB binary, konsumsi memori ~37 MB saat idle).
-- Streaming progres *real-time* berbasis *event-driven IPC*, paginasi tabel responsif hingga 1.000 jurnal, dan cache lokal **SQLite (WAL mode)**.
-
----
-
-## Unduh & Jalankan Langsung (Tanpa Build)
-
-Bagi pengguna yang ingin langsung menggunakan aplikasi tanpa menginstal Rust atau Node.js:
-
-1. Buka halaman **[Releases](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases)**.
-2. Pada rilis terbaru (**v3.1.0**), unduh salah satu paket berikut:
-   - **Setup Installer Windows** (`*_x64-setup.exe` atau `*.msi`) — disarankan untuk instalasi standar.
-   - **Portable Executable** (`jsfs.exe`) — dapat langsung dijalankan tanpa instalasi.
-3. *(Opsional)* Jika ingin memakai validasi LLM tambahan, Anda dapat memilih mode **Cloud AI (Groq / Gemini API Key gratis)** atau **Ollama Lokal** langsung dari tombol status **Match Engine** di header aplikasi.
+### 4. Riwayat Ekspor & Modal Detail (`Riwayat & Ekspor`)
+- **4 Format Output Otomatis** di folder `output/`:
+  - **Excel (`.xlsx`)**: Workbook 3 sheet berformat rapi (*freeze pane*, *auto-filter*, hyperlink aktif).
+  - **Markdown (`.md`)** & **CSV UTF-8 BOM (`.csv`)** untuk catatan riset dan analisis lanjut.
+  - **Draft & Daftar Share Editor (`.txt`)**: Siap salin langsung bersama template pesan WhatsApp/Email sopan di modal detail jurnal.
+- **SQLite WAL Cache (14 Hari)**: Menyimpan hasil audit per kueri agar pencarian ulang berjalan instan tanpa membebani server OJS berulang kali.
 
 ---
 
-## Arsitektur Teknologi
+## Unduh & Jalankan Langsung
 
-| Komponen | Teknologi |
-| :--- | :--- |
-| **Desktop Shell** | Tauri v2 (`tauri`, `WebView2`) |
-| **Backend & Concurrency** | Rust (Edition 2021), `tokio`, `futures-util`, `dashmap` |
-| **HTTP & HTML Parsing** | `reqwest` (`rustls-tls`, `gzip`, `hickory-dns`), `scraper`, `regex` |
-| **Local Cache** | SQLite WAL Mode (`rusqlite` bundled) |
-| **Document Parsing** | `zip` + `quick-xml` (`.docx`), `pdf-extract` (`.pdf`) |
-| **Export Engine** | `rust_xlsxwriter` (`.xlsx`), native writers (`.md`, `.csv`, `.txt`) |
-| **Frontend UI** | Vanilla HTML5, CSS3, ES6+ (`ui/`) |
+Pengguna Windows 10/11 (64-bit) dapat langsung menjalankan JSFS tanpa menginstal Rust atau alat pengembang apa pun:
+
+1. Buka halaman **[GitHub Releases](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases)**.
+2. Pada rilis **v4.0.0**, unduh berkas **`jsfs.exe`** atau arsip **`JSFS-v4.0.0-windows-x64-portable.zip`**.
+3. Letakkan `jsfs.exe` pada folder pilihan Anda (folder `.cache/`, `logs/`, dan `output/` akan dibuat otomatis di direktori kerja yang sama) lalu jalankan.
+
+> **Catatan Windows SmartScreen**: Karena executable sumber terbuka ini belum menandatangani sertifikat komersial (*EV Code Signing*), Windows Defender SmartScreen dapat menampilkan dialog *"Windows protected your PC"*. Klik **More info** -> **Run anyway** untuk melanjutkan, atau bangun langsung dari source code di bawah untuk verifikasi mandiri.
+
+---
+
+## Arsitektur 4 Fase
+
+1. **Fase 1 — Dual-Source Discovery & Pre-Deep Dedup** (`scraper/sinta.rs`, `scraper/garuda.rs`, `scraper/dedup.rs`): Mengumpulkan kandidat, menghilangkan duplikasi ISSN/URL kanonik lintas portal, dan menyaring peringkat SINTA target sebelum *deep crawl*.
+2. **Fase 2 — Deep OJS Crawler** (`scraper/ojs_deep.rs`, `parser/`): Menelusuri halaman beranda, editorial policy, submission, issue archive, dan contact OJS (konkurensi `Semaphore(32)`, timeout keras `5.5s` per jurnal) untuk mengekstrak APC, kontak terdekode (termasuk Cloudflare XOR email), Focus & Scope, dan tahun edisi terbaru.
+3. **Fase 3 — Multi-Provider Smart Matcher** (`parser/doc_matcher.rs`, `ai/cloud.rs`, `ai/ollama.rs`): Menghitung `Match Score` berbasis naskah dengan BM25 + sinonim akademik ID–EN, lalu opsional diperkaya dengan Cloud AI / Ollama lokal.
+4. **Fase 4 — Strict Post-Filter, SQLite WAL Cache & Export** (`engine/search.rs`, `cache.rs`, `exporter/`): Menegakkan seluruh filter anggaran/SINTA/bulan/keaktifan secara final, menyimpan cache 14 hari, dan mengekspor 4 format laporan sekaligus memperbarui antarmuka native GPU via `EventSink`.
+
+Dokumentasi teknis lengkap tersedia di **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** dan riwayat perubahan versi di **[docs/CHANGELOG.md](docs/CHANGELOG.md)**.
 
 ---
 
@@ -65,71 +95,60 @@ Bagi pengguna yang ingin langsung menggunakan aplikasi tanpa menginstal Rust ata
 
 ```text
 .
-├── .github/workflows/          # GitHub Actions CI/CD rilis Windows otomatis
+├── .github/workflows/
+│   └── release.yml          # CI/CD Windows otomatis (test, clippy, release portable)
+├── assets/
+│   ├── icon.ico             # Ikon multi-resolusi aplikasi Windows
+│   └── icon.png             # Aset ikon resolusi tinggi untuk README & jendela
 ├── docs/
-│   ├── ARCHITECTURE.md         # Penjelasan arsitektur teknis Rust + Tauri v2
-│   └── CHANGELOG.md            # Catatan perubahan versi rilis
-├── src-tauri/
-│   ├── capabilities/           # Konfigurasi izin Tauri v2
-│   ├── icons/                  # Ikon aplikasi
-│   ├── src/
-│   │   ├── ai/                 # Multi-Provider Smart Matcher (Cloud AI API & Ollama)
-│   │   ├── commands/           # Tauri IPC command handlers
-│   │   ├── exporter/           # Generator ekspor .xlsx, .md, .csv, .txt
-│   │   ├── parser/             # Ekstraktor APC, kontak, bulan terbit, fokus, doc matcher
-│   │   ├── scraper/            # Scraper SINTA, Garuda, OJS Deep, & deduplikasi
-│   │   ├── cache.rs            # SQLite WAL cache engine
-│   │   ├── config.rs           # Konfigurasi & direktori runtime
-│   │   ├── lib.rs              # Registrasi Tauri builder & state
-│   │   └── main.rs             # Entry point aplikasi desktop
-│   ├── Cargo.toml              # Dependensi & profil rilis Rust
-│   └── tauri.conf.json         # Konfigurasi jendela & bundling installer
-├── ui/                         # Antarmuka frontend (HTML, CSS, JS)
-├── package.json                # Skrip npm untuk dev & build Tauri
-├── Jalankan_JSFS_v3.bat        # Peluncur cepat Windows
-├── .gitignore                  # Pengecualian file build, cache, dan log
-└── LICENSE                     # Lisensi MIT
+│   ├── ARCHITECTURE.md      # Penjelasan arsitektur Pure Rust v4.0.0
+│   └── CHANGELOG.md         # Riwayat rilis Keep a Changelog
+├── src/
+│   ├── ai/                  # Cloud AI (Groq/Gemini/OpenAI-compatible) & Ollama lokal
+│   ├── engine/              # Orkerstrasi pencarian, naskah, AI ops, cache & file (EventSink)
+│   ├── exporter/            # Generator ekspor .xlsx, .md, .csv, .txt
+│   ├── parser/              # Parser APC, bulan terbit, kontak, Focus & Scope, BM25 matcher
+│   ├── scraper/             # Scraper SINTA, Garuda, OJS deep crawler & deduplikasi
+│   ├── ui/                  # Antarmuka Pure Native GPU (theme, sidebar, 5 view & modal)
+│   ├── cache.rs             # SQLite WAL mode cache (TTL 14 hari)
+│   ├── config.rs            # Konstanta versi & direktori runtime
+│   ├── error.rs             # Tipe error terstruktur (thiserror)
+│   ├── models.rs            # Model data & parameter filter
+│   ├── lib.rs               # Modul pustaka & unit test core
+│   └── main.rs              # Entry point Windows Subsystem + ikon & DPI PerMonitorV2
+├── build.rs                 # Integrasi ikon & VersionInfo Win32 via winres
+├── Cargo.toml               # Konfigurasi crate Pure Rust & profil rilis LTO
+├── Cargo.lock               # Lockfile dependensi teruji
+├── .gitignore               # Pengecualian target/, cache, log & hasil ekspor
+└── LICENSE                  # Lisensi MIT
 ```
-
-Untuk detail teknis alur data dan modul internal, lihat **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** dan riwayat rilis di **[docs/CHANGELOG.md](docs/CHANGELOG.md)**.
 
 ---
 
 ## Build dari Source Code
 
 ### Prasyarat
-- **Rust Toolchain** (`rustc` & `cargo` terbaru) — [rustup.rs](https://rustup.rs/)
-- **Node.js** (v18+) — [nodejs.org](https://nodejs.org/)
-- **Microsoft Edge WebView2 Runtime** (bawaan Windows 10/11)
+- **Rust Toolchain** terbaru (`rustc` >= 1.75 / Edition 2021, termasuk `cargo` dan `clippy`) via [rustup.rs](https://rustup.rs/)
+- Pada Windows: **MSVC Build Tools** (*Desktop development with C++* / Windows SDK untuk linking resource `winres`)
 
-### Langkah Instalasi & Build
+### Langkah Build & Verifikasi
 ```bash
 # 1. Clone repositori
 git clone https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-.git
 cd JSFS-Journal-Scraper-For-Students-
 
-# 2. Instal dependensi CLI
-npm install
+# 2. Jalankan seluruh unit test (30 test backend & UI state)
+cargo test --locked
 
-# 3. Jalankan mode pengembangan (live hot-reload)
-npm run tauri dev
+# 3. Verifikasi bebas warning dengan Clippy
+cargo clippy --all-targets --locked -- -D warnings
 
-# 4. Build installer & executable produksi
-npm run tauri build
-# atau hanya standalone executable tanpa installer:
-npx tauri build --no-bundle
-```
-
-### Pengujian & Linting
-```bash
-cd src-tauri
-cargo test
-cargo clippy --all-targets -- -D warnings
+# 4. Build executable rilis teroptimasi (output: target/release/jsfs.exe)
+cargo build --release --locked
 ```
 
 ---
 
-## Kontribusi & Lisensi
+## Lisensi
 
-Kontribusi, laporan bug, dan permintaan fitur sangat terbuka melalui *Issues* maupun *Pull Requests*.  
-Proyek ini dirilis di bawah lisensi **MIT** — lihat berkas [LICENSE](LICENSE) untuk detail selengkapnya.
+Proyek ini dirilis di bawah lisensi **MIT** — lihat berkas [LICENSE](LICENSE) untuk informasi selengkapnya.
