@@ -79,3 +79,34 @@ pub fn write_all_exports_sync(
 
     Ok(bundle)
 }
+
+/// Synchronously write a single targeted export format (`.xlsx`, `.md`, or `.csv`) into `output/`.
+pub fn write_single_export_sync(
+    records: &[JournalRecord],
+    keyword: &str,
+    ext: &str,
+    scope_slug: &str,
+) -> Result<String, JsfsError> {
+    let out = output_dir();
+    std::fs::create_dir_all(&out)?;
+    let slug = sanitize_slug(keyword);
+    let ts = Local::now().format("%Y%m%d_%H%M%S").to_string();
+    let tag = if scope_slug.trim().is_empty() {
+        String::new()
+    } else {
+        format!("_{}", sanitize_slug(scope_slug))
+    };
+    let clean_ext = ext.trim().trim_start_matches('.').to_ascii_lowercase();
+    let path: PathBuf = out.join(format!("JSFS_{slug}{tag}_{ts}.{clean_ext}"));
+    match clean_ext.as_str() {
+        "xlsx" => xlsx::write_xlsx(&path, records)?,
+        "md" => markdown::write_markdown(&path, records, keyword)?,
+        "csv" => csv_writer::write_csv(&path, records)?,
+        other => {
+            return Err(JsfsError::InvalidInput(format!(
+                "Format ekspor tidak didukung: .{other}"
+            )));
+        }
+    }
+    Ok(path.to_string_lossy().into_owned())
+}

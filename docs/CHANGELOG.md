@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.2.0] - 2026-11-15
+
+### Added
+- **Search & Filter Session History (`src/ui/state.rs`, `src/ui/history_page.rs`, `src/ui/mod.rs`)**:
+  - Added `SearchHistoryEntry` auto-persisted to `.cache/search_history.json` (up to 15 most recent sessions) capturing keyword, timestamp, filter summary, `FilterSettings` snapshot, total/free counts, and result records.
+  - Added **"Riwayat Pencarian & Filter"** card in `Riwayat & Ekspor` with **`Muat Hasil`** (restores results directly without re-scraping) and **`Terapkan Filter`** (restores historical filter settings).
+- **Targeted Export & Bulk Editorial Email Copy (`src/ui/history_page.rs`, `src/engine/file_ops.rs`, `src/exporter/mod.rs`, `src/models.rs`)**:
+  - Added `ExportScope` selector (`Semua Hasil`, `Hanya ★ Pilihan`, `Hanya Gratis (Rp 0)`, `Sesuai Filter Aktif di Tabel`) with direct **`Ekspor Excel (.xlsx)`**, **`Ekspor Markdown (.md)`**, **`Ekspor CSV (.csv)`**, and **`Salin Email Redaksi`** actions.
+
+### Improved
+- **Spacious Results Table & Fixed `Aksi` Column (`src/ui/search_page.rs`)**:
+  - Adjusted `TableBuilder` columns (`Column::remainder().at_least(280.0)`, `SINTA 84`, `Match 68`, `Biaya APC 132`, `Keaktifan & Terbit 168`, `Aksi 154`) and compact button padding so `☆`, `Detail`, and `Web` render unclipped.
+  - Added auto-compact 1-line progress summary once searches finish and raised table scroll bounds (`min_scrolled_height(460.0)`, `max_scroll_height` up to `780.0`) so more journal rows fit on screen.
+
+---
+
 ## [4.1.0] - 2026-11-15
 
 ### Added
@@ -42,7 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Improved
 - **Rebranding & Native Windows Segoe UI Typography (`src/ui/theme.rs`, `src/ui/sidebar.rs`, `src/exporter/markdown.rs`)**:
-  - Removed all leftover `"TwinDesk"` theme/brand references and standardized theme names to **`JSFS Dark`** and **`JSFS Daylight`**.
+  - Removed all leftover legacy prototype theme/brand references and standardized theme names to **`JSFS Dark`** and **`JSFS Daylight`**.
   - Loaded Windows native **`Segoe UI`** regular system font (`C:\Windows\Fonts\segoeui.ttf`) with proportional typography scale (`Heading: 21px`, `Subheading: 15px`, `Body/Button: 13.5px`, `Small: 11.5px`) and generous `item_spacing`.
   - Replaced hardcoded `"JSFS v3.1.0"` in Markdown export headers with `crate::config::APP_VERSION`.
 - **Search Toolbar & Results Table Alignment (`src/ui/search_page.rs`, `src/ui/filters_page.rs`, `src/ui/match_engine_page.rs`, `src/ui/state.rs`)**:

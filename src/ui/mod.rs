@@ -18,12 +18,13 @@ use crate::models::UiJournalItem;
 use crate::ui::detail_modal::render_detail_modal;
 use crate::ui::filters_page::render_filters_page;
 use crate::ui::guide_page::render_guide_page;
-use crate::ui::history_page::render_history_page;
+use crate::ui::history_page::{render_history_page, HistoryPageAction};
 use crate::ui::match_engine_page::render_match_engine_page;
 use crate::ui::search_page::{render_search_page, SearchPageAction};
 use crate::ui::sidebar::{render_sidebar, NavPage, SidebarProps};
 use crate::ui::state::{
-    ApcFilter, AppState, FilterSettings, MatcherFormState, SearchProgressView, SortColumn,
+    load_search_history, record_search_history, ApcFilter, AppState, FilterSettings,
+    MatcherFormState, SearchHistoryEntry, SearchProgressView, SortColumn,
 };
 use crate::ui::theme::{apply_theme, load_crisp_fonts, Palette, ThemeMode};
 use egui::{Align2, CentralPanel, CornerRadius, Frame, Margin, Panel, RichText, Stroke, Vec2};
@@ -58,6 +59,7 @@ pub struct JsfsNativeApp {
     logs: Vec<String>,
     show_logs: bool,
     last_excel_path: Option<String>,
+    search_history: Vec<SearchHistoryEntry>,
 
     ai_status: AiStatusExtended,
     matcher_form: MatcherFormState,
@@ -103,6 +105,7 @@ impl JsfsNativeApp {
             logs: Vec::new(),
             show_logs: false,
             last_excel_path: None,
+            search_history: load_search_history(),
             ai_status: AiStatusExtended {
                 active_engine_label: "Match Engine: Built-in Smart".to_string(),
                 matcher_mode: "builtin".to_string(),
@@ -153,6 +156,26 @@ impl JsfsNativeApp {
                     self.logs
                         .push(format!("Autosave sementara ({count} jurnal): {path}"));
                 }
+                EngineEvent::TargetedExportDone {
+                    ext,
+                    path,
+                    count,
+                    scope_label,
+                } => {
+                    if ext == "xlsx" {
+                        self.last_excel_path = Some(path.clone());
+                    }
+                    let fname = std::path::Path::new(&path)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or(&path);
+                    self.logs.push(format!(
+                        "Ekspor .{ext} ({count} jurnal - {scope_label}): {path}"
+                    ));
+                    self.set_toast(format!(
+                        "Ekspor .{ext} ({count} jurnal - {scope_label}) tersimpan: {fname}"
+                    ));
+                }
                 EngineEvent::SearchComplete {
                     results,
                     excel_path,
@@ -162,6 +185,14 @@ impl JsfsNativeApp {
                     self.results = results;
                     if !excel_path.trim().is_empty() {
                         self.last_excel_path = Some(excel_path);
+                    }
+                    if !self.results.is_empty() {
+                        record_search_history(
+                            &mut self.search_history,
+                            &self.keyword,
+                            &self.filters,
+                            &self.results,
+                        );
                     }
                     self.progress.elapsed_seconds = duration_sec;
                     self.progress.eta_seconds = None;
@@ -413,18 +444,76 @@ impl eframe::App for JsfsNativeApp {
                     );
                 }
                 NavPage::History => {
-                    render_history_page(
+                    match render_history_page(
                         ui,
                         &p,
                         &self.results,
                         self.selected_idx,
                         &self.keyword,
+                        &mut self.app_state,
+                        &self.table_filter,
+                        self.apc_filter,
+                        self.sort_col,
+                        self.sort_desc,
+                        &self.search_history,
                         self.last_excel_path.as_deref(),
                         self.ai_status.cache_count,
                         &mut self.logs,
                         &self.engine,
                         &self.sink,
-                    );
+                    ) {
+                        HistoryPageAction::LoadHistoryResults(idx) => {
+                            if let Some(entry) = self.search_history.get(idx).cloned() {
+                                self.keyword = entry.keyword.clone();
+                                self.results = entry.records;
+                                self.selected_idx = None;
+                                self.detail_open_idx = None;
+                                let kpi_total = self.results.len();
+                                let kpi_free = self
+                                    .results
+                                    .iter()
+                                    .filter(|r| r.apc_category == "free")
+                                    .count();
+                                let kpi_paid = self
+                                    .results
+                                    .iter()
+                                    .filter(|r| r.apc_category == "paid")
+                                    .count();
+                                self.progress = SearchProgressView {
+                                    phase: "fase4_export".to_string(),
+                                    status_text: format!("Riwayat dimuat ({kpi_total} jurnal)"),
+                                    current_item: format!("Sesi {}", entry.timestamp),
+                                    kpi_total,
+                                    kpi_free,
+                                    kpi_paid,
+                                    kpi_fast: 0,
+                                    ..Default::default()
+                                };
+                                self.current_page = NavPage::Search;
+                                self.set_toast(format!(
+                                    "Memuat {kpi_total} jurnal untuk '{}'.",
+                                    entry.keyword
+                                ));
+                            }
+                        }
+                        HistoryPageAction::ApplyHistoryFilter(idx) => {
+                            if let Some(entry) = self.search_history.get(idx).cloned() {
+                                self.filters = entry.filter_snapshot;
+                                self.target_text = self.filters.target_count.to_string();
+                                if self.keyword.trim().is_empty()
+                                    && !entry.keyword.trim().is_empty()
+                                {
+                                    self.keyword = entry.keyword;
+                                }
+                                self.current_page = NavPage::Filters;
+                                self.set_toast(format!(
+                                    "Filter riwayat diterapkan: {}",
+                                    self.filters.summary_text()
+                                ));
+                            }
+                        }
+                        HistoryPageAction::None => {}
+                    }
                 }
                 NavPage::Guide => {
                     render_guide_page(ui, &p, &self.sink);

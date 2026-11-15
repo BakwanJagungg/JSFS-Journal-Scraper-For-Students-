@@ -24,6 +24,12 @@ pub enum EngineEvent {
         path: String,
         count: usize,
     },
+    TargetedExportDone {
+        ext: String,
+        path: String,
+        count: usize,
+        scope_label: String,
+    },
     SearchComplete {
         results: Vec<UiJournalItem>,
         excel_path: String,

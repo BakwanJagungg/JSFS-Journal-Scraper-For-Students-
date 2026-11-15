@@ -278,78 +278,101 @@ pub fn render_search_page(
 
     ui.add_space(10.0);
 
-    // ── Row 3: Dual Progress Strip + Log Drawer Toggle ──────────────────────
+    // ── Row 3: Dual Progress Strip (Auto-Compact After Finish) + Log Drawer ──
     card(ui, p, |ui| {
-        let phase1_frac = match progress.phase.as_str() {
-            "fase1_portal" => 0.18,
-            "fase2_deep" if progress.total > 0 => {
-                (progress.current as f32 / progress.total as f32).clamp(0.0, 1.0)
-            }
-            "fase3_ai" | "fase4_export" => 1.0,
-            _ if !results.is_empty() => 1.0,
-            _ => 0.0,
-        };
-        let phase2_frac = match progress.phase.as_str() {
-            "fase3_ai" if progress.total > 0 => {
-                (progress.current as f32 / progress.total as f32).clamp(0.1, 0.95)
-            }
-            "fase4_export" => 1.0,
-            _ if !is_searching && !results.is_empty() => 1.0,
-            _ => 0.0,
-        };
-
-        ui.columns(2, |cols| {
-            cols[0].horizontal(|ui| {
-                ui.label(RichText::new("Portal & Deep OJS:").size(11.5).color(p.muted));
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.label(
-                        RichText::new(format!("{} / {}", progress.current, progress.total))
-                            .size(11.5)
-                            .color(p.text),
-                    );
-                });
-            });
-            cols[0].add(ProgressBar::new(phase1_frac).fill(p.accent).desired_height(6.0));
-
-            cols[1].horizontal(|ui| {
-                ui.label(RichText::new("Match Engine & Validasi:").size(11.5).color(p.muted));
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.label(RichText::new(&progress.status_text).size(11.0).color(p.muted));
-                });
-            });
-            cols[1].add(ProgressBar::new(phase2_frac).fill(p.good).desired_height(6.0));
-        });
-
-        ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            ui.add(
-                egui::Label::new(
-                    RichText::new(&progress.current_item)
-                        .size(11.5)
-                        .color(p.muted),
-                )
-                .truncate(),
-            );
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let log_lbl = if *show_logs {
-                    "Tutup Log"
-                } else {
-                    "Log Teknis"
-                };
-                if secondary_button(ui, p, log_lbl).clicked() {
-                    *show_logs = !*show_logs;
-                }
+        if !is_searching && !results.is_empty() {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 8.0;
+                pill_badge(ui, &progress.status_text, p.good, p.good_soft);
                 let rate_txt = format!(
-                    "{}  |  ~{:.1}/dtk",
+                    "{} | ~{:.1}/dtk",
                     format_duration(progress.elapsed_seconds),
                     progress.rate_per_sec
                 );
                 pill_badge(ui, &rate_txt, p.muted, p.control_bg);
-                if let Some(eta) = progress.eta_seconds {
-                    pill_badge(ui, &format!("ETA {eta}s"), p.accent, p.accent_soft);
-                }
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let log_lbl = if *show_logs {
+                        "Tutup Log"
+                    } else {
+                        "Log Teknis"
+                    };
+                    if secondary_button(ui, p, log_lbl).clicked() {
+                        *show_logs = !*show_logs;
+                    }
+                });
             });
-        });
+        } else {
+            let phase1_frac = match progress.phase.as_str() {
+                "fase1_portal" => 0.18,
+                "fase2_deep" if progress.total > 0 => {
+                    (progress.current as f32 / progress.total as f32).clamp(0.0, 1.0)
+                }
+                "fase3_ai" | "fase4_export" => 1.0,
+                _ if !results.is_empty() => 1.0,
+                _ => 0.0,
+            };
+            let phase2_frac = match progress.phase.as_str() {
+                "fase3_ai" if progress.total > 0 => {
+                    (progress.current as f32 / progress.total as f32).clamp(0.1, 0.95)
+                }
+                "fase4_export" => 1.0,
+                _ if !is_searching && !results.is_empty() => 1.0,
+                _ => 0.0,
+            };
+
+            ui.columns(2, |cols| {
+                cols[0].horizontal(|ui| {
+                    ui.label(RichText::new("Portal & Deep OJS:").size(11.5).color(p.muted));
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.label(
+                            RichText::new(format!("{} / {}", progress.current, progress.total))
+                                .size(11.5)
+                                .color(p.text),
+                        );
+                    });
+                });
+                cols[0].add(ProgressBar::new(phase1_frac).fill(p.accent).desired_height(6.0));
+
+                cols[1].horizontal(|ui| {
+                    ui.label(RichText::new("Match Engine & Validasi:").size(11.5).color(p.muted));
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.label(RichText::new(&progress.status_text).size(11.0).color(p.muted));
+                    });
+                });
+                cols[1].add(ProgressBar::new(phase2_frac).fill(p.good).desired_height(6.0));
+            });
+
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::Label::new(
+                        RichText::new(&progress.current_item)
+                            .size(11.5)
+                            .color(p.muted),
+                    )
+                    .truncate(),
+                );
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let log_lbl = if *show_logs {
+                        "Tutup Log"
+                    } else {
+                        "Log Teknis"
+                    };
+                    if secondary_button(ui, p, log_lbl).clicked() {
+                        *show_logs = !*show_logs;
+                    }
+                    let rate_txt = format!(
+                        "{}  |  ~{:.1}/dtk",
+                        format_duration(progress.elapsed_seconds),
+                        progress.rate_per_sec
+                    );
+                    pill_badge(ui, &rate_txt, p.muted, p.control_bg);
+                    if let Some(eta) = progress.eta_seconds {
+                        pill_badge(ui, &format!("ETA {eta}s"), p.accent, p.accent_soft);
+                    }
+                });
+            });
+        }
 
         if *show_logs {
             ui.add_space(8.0);
@@ -539,20 +562,20 @@ pub fn render_search_page(
 
         ui.add_space(8.0);
 
-        let avail_h = (ui.available_height() - 52.0).clamp(360.0, 560.0);
+        let avail_h = (ui.available_height() - 40.0).clamp(460.0, 780.0);
         ScrollArea::horizontal().show(ui, |ui| {
             let table = TableBuilder::new(ui)
                 .striped(true)
                 .resizable(true)
-                .min_scrolled_height(360.0)
+                .min_scrolled_height(460.0)
                 .max_scroll_height(avail_h)
                 .cell_layout(Layout::left_to_right(Align::Center))
-                .column(Column::initial(260.0).at_least(200.0).clip(true))
-                .column(Column::exact(96.0))
-                .column(Column::exact(82.0))
-                .column(Column::initial(156.0).at_least(125.0).clip(true))
-                .column(Column::initial(148.0).at_least(125.0).clip(true))
-                .column(Column::exact(168.0));
+                .column(Column::remainder().at_least(280.0).clip(true))
+                .column(Column::exact(84.0))
+                .column(Column::exact(68.0))
+                .column(Column::exact(132.0))
+                .column(Column::exact(168.0))
+                .column(Column::exact(154.0));
 
             table
                 .header(28.0, |mut header| {
@@ -667,46 +690,50 @@ pub fn render_search_page(
                         });
 
                         row.col(|ui| {
-                            table_cell(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    ui.spacing_mut().item_spacing.x = 5.0;
-                                    let starred = app_state.is_bookmarked(item);
-                                    let (star_txt, star_fg, star_fill, star_border) = if starred {
-                                        ("★", p.warn, p.warn_soft, p.warn)
-                                    } else {
-                                        ("☆", p.muted, p.control_bg, p.line)
-                                    };
-                                    let star_btn = egui::Button::new(
-                                        RichText::new(star_txt).size(14.0).color(star_fg),
-                                    )
-                                    .fill(star_fill)
-                                    .stroke(Stroke::new(1.0, star_border))
-                                    .corner_radius(CornerRadius::same(7))
-                                    .min_size(Vec2::new(28.0, 28.0));
-                                    if ui
-                                        .add(star_btn)
-                                        .on_hover_text(if starred {
-                                            "Hapus dari shortlist pilihan"
-                                        } else {
-                                            "Simpan ke shortlist pilihan"
-                                        })
-                                        .clicked()
-                                    {
-                                        app_state.toggle_bookmark(item);
-                                    }
-                                    if secondary_button(ui, p, "Detail").clicked() {
-                                        action = SearchPageAction::OpenDetail(real_idx);
-                                    }
-                                    if secondary_button(ui, p, "Web").clicked() {
-                                        let target = if item.url.starts_with("http") {
-                                            &item.url
-                                        } else {
-                                            &item.garuda_url
-                                        };
-                                        open_url_with_feedback(target, sink);
-                                    }
+                            Frame::new()
+                                .inner_margin(Margin::symmetric(6, 2))
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.spacing_mut().item_spacing.x = 6.0;
+                                        ui.spacing_mut().button_padding = Vec2::new(7.0, 4.0);
+                                        let starred = app_state.is_bookmarked(item);
+                                        let (star_txt, star_fg, star_fill, star_border) =
+                                            if starred {
+                                                ("★", p.warn, p.warn_soft, p.warn)
+                                            } else {
+                                                ("☆", p.muted, p.control_bg, p.line)
+                                            };
+                                        let star_btn = egui::Button::new(
+                                            RichText::new(star_txt).size(13.5).color(star_fg),
+                                        )
+                                        .fill(star_fill)
+                                        .stroke(Stroke::new(1.0, star_border))
+                                        .corner_radius(CornerRadius::same(7))
+                                        .min_size(Vec2::new(26.0, 26.0));
+                                        if ui
+                                            .add(star_btn)
+                                            .on_hover_text(if starred {
+                                                "Hapus dari shortlist pilihan"
+                                            } else {
+                                                "Simpan ke shortlist pilihan"
+                                            })
+                                            .clicked()
+                                        {
+                                            app_state.toggle_bookmark(item);
+                                        }
+                                        if secondary_button_h(ui, p, "Detail", 26.0).clicked() {
+                                            action = SearchPageAction::OpenDetail(real_idx);
+                                        }
+                                        if secondary_button_h(ui, p, "Web", 26.0).clicked() {
+                                            let target = if item.url.starts_with("http") {
+                                                &item.url
+                                            } else {
+                                                &item.garuda_url
+                                            };
+                                            open_url_with_feedback(target, sink);
+                                        }
+                                    });
                                 });
-                            });
                         });
                     });
                 });

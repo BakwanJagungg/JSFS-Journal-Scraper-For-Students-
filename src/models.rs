@@ -134,7 +134,8 @@ impl JournalRecord {
 }
 
 /// UI-friendly payload serialized to match JSFS v2.4 frontend table columns while keeping v3 keys.
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct UiJournalItem {
     pub nama: String,
     pub penerbit: String,
@@ -252,6 +253,70 @@ impl From<&JournalRecord> for UiJournalItem {
             },
             is_dormant: r.is_dormant,
             apc_evidence: r.apc_evidence.clone(),
+        }
+    }
+}
+
+impl From<&UiJournalItem> for JournalRecord {
+    fn from(it: &UiJournalItem) -> Self {
+        let fee_idr = if it.apc_category == "free" {
+            Some(0)
+        } else {
+            it.biaya_publikasi
+        };
+        let website_url = if it.url.trim().is_empty() {
+            it.garuda_url.clone()
+        } else {
+            it.url.clone()
+        };
+        Self {
+            title: it.nama.clone(),
+            publisher: if it.penerbit == "-" {
+                String::new()
+            } else {
+                it.penerbit.clone()
+            },
+            issn: it.issn.clone(),
+            eissn: it.eissn.clone(),
+            garuda_url: it.garuda_url.clone(),
+            website_url,
+            sinta_url: it.sinta_url.clone(),
+            source_portal: it.sumber.clone(),
+            sinta_score: if it.sinta.trim().is_empty() {
+                String::new()
+            } else {
+                format!("Sinta {}", it.sinta.trim())
+            },
+            focus_and_scope: it.focus_scope.clone(),
+            publication_fee: if it.apc_category == "free" {
+                "Gratis (Rp 0)".to_string()
+            } else {
+                it.apc_label.clone()
+            },
+            publication_fee_idr: fee_idr,
+            apc_status: it.apc_label.clone(),
+            apc_evidence: it.apc_evidence.clone(),
+            email: it.email.clone(),
+            phone: it.telepon.clone(),
+            publish_schedule: if it.jadwal_terbit == "-" {
+                String::new()
+            } else {
+                it.jadwal_terbit.clone()
+            },
+            next_issue_estimate: if it.terbit_terdekat == "-" {
+                String::new()
+            } else {
+                it.terbit_terdekat.clone()
+            },
+            ai_validated: it.ai_validated,
+            ai_source: it.ai_source.clone(),
+            match_score: it.match_score,
+            match_label: it.kesesuaian_naskah.clone(),
+            match_reasons: it.match_reasons.clone(),
+            last_issue_year: it.last_issue_year,
+            activity_status: it.activity_status.clone(),
+            is_dormant: it.is_dormant,
+            ..Default::default()
         }
     }
 }

@@ -1,12 +1,12 @@
-# Arsitektur Sistem — JSFS v4.1.0 (Pure Rust Native Desktop)
+# Arsitektur Sistem — JSFS v4.2.0 (Pure Rust Native Desktop)
 
-Dokumen ini menjelaskan arsitektur teknis **JSFS (Journal Scraper For Students) v4.1.0** yang berjalan sebagai aplikasi desktop **100% Pure Rust** dengan antarmuka GPU native (`eframe` / `egui` + `glow` OpenGL), sepenuhnya bebas dari lapisan WebView2, Tauri, maupun Node.js.
+Dokumen ini menjelaskan arsitektur teknis **JSFS (Journal Scraper For Students) v4.2.0** yang berjalan sebagai aplikasi desktop **100% Pure Rust** dengan antarmuka GPU native (`eframe` / `egui` + `glow` OpenGL), sepenuhnya bebas dari lapisan WebView2, Tauri, maupun Node.js.
 
 ---
 
 ## 1. Gambaran Umum Arsitektur
 
-JSFS v4.1.0 memisahkan rendering GPU immediate-mode dari mesin komputasi asinkron (`tokio`) menggunakan batas arsitektur berbasis **`Arc<EngineState>`** dan saluran pesan satu arah **`EventSink`**:
+JSFS v4.2.0 memisahkan rendering GPU immediate-mode dari mesin komputasi asinkron (`tokio`) menggunakan batas arsitektur berbasis **`Arc<EngineState>`** dan saluran pesan satu arah **`EventSink`**:
 
 ```text
 +-----------------------------------------------------------------------+
@@ -63,7 +63,7 @@ Setiap tugas berat (permintaan HTTP konkuren, parsing dokumen OOXML/PDF, dan que
 
 ### Fase 4 — Strict Post-Filter, SQLite WAL Cache & Ekspor (`engine/search.rs`, `cache.rs`, `exporter/`)
 - Menegakkan ulang seluruh aturan ketat (*strict SINTA gate*, `only_free`, `min_rp..=max_rp`, `include_na`, target bulan terbit, dan `exclude_dormant`) **setelah** fase pengayaan agar tidak ada hasil melanggar filter.
-- Menyimpan hasil di **SQLite WAL mode** (`.cache/jsfs_cache.db`, TTL 14 hari) dengan pembatalan otomatis saat `CACHE_VERSION` berubah (`"4.1.0"`).
+- Menyimpan hasil di **SQLite WAL mode** (`.cache/jsfs_cache.db`, TTL 14 hari) dengan pembatalan otomatis saat `CACHE_VERSION` berubah (`"4.2.0"`).
 - Mengekspor laporan ke folder `output/` dalam 4 format (**`.xlsx`**, **`.md`**, **`.csv`**, **`.txt`**) dan mengirimkan event selesai ke UI native melalui `EventSink`.
 
 ---
@@ -71,4 +71,4 @@ Setiap tugas berat (permintaan HTTP konkuren, parsing dokumen OOXML/PDF, dan que
 ## 3. Windows DPI & Resource Embedding (`build.rs` & `main.rs`)
 
 - Di Windows, `main.rs` menerapkan `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]` agar executable rilis berjalan langsung tanpa jendela konsol.
-- `build.rs` mengompilasi `assets/icon.ico`, `VersionInfo` (`4.1.0.0`), *Common Controls v6*, serta manifes **`PerMonitorV2`** DPI awareness melalui `winres` sehingga teks dan layout tetap tajam di layar Full HD, 2K, maupun 4K.
+- `build.rs` mengompilasi `assets/icon.ico`, `VersionInfo` (`4.2.0.0`), *Common Controls v6*, serta manifes **`PerMonitorV2`** DPI awareness melalui `winres` sehingga teks dan layout tetap tajam di layar Full HD, 2K, maupun 4K.

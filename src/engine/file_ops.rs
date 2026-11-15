@@ -143,3 +143,82 @@ di {title}.\n\n\
 Terima kasih banyak atas perhatian dan informasinya."
     )
 }
+
+/// Collects deduplicated valid editorial email addresses from selected journal items.
+pub fn collect_valid_emails(items: &[&UiJournalItem]) -> (String, usize) {
+    let mut seen = std::collections::HashSet::new();
+    let mut emails = Vec::new();
+    for item in items {
+        for raw in item.email.split([',', ';', '\n']) {
+            let trimmed = raw.trim();
+            let lower = trimmed.to_ascii_lowercase();
+            if trimmed.is_empty()
+                || trimmed.contains(' ')
+                || !trimmed.contains('@')
+                || !trimmed.contains('.')
+                || lower.contains("tidak ditemukan")
+                || lower.contains("belum terdata")
+            {
+                continue;
+            }
+            if seen.insert(lower) {
+                emails.push(trimmed.to_string());
+            }
+        }
+    }
+    let count = emails.len();
+    (emails.join(", "), count)
+}
+
+/// Exports a targeted subset of UI results to `.xlsx`, `.md`, or `.csv` asynchronously.
+pub fn export_targeted_async(
+    engine: Arc<EngineState>,
+    sink: EventSink,
+    items: Vec<UiJournalItem>,
+    keyword: String,
+    ext: &'static str,
+    scope_slug: &'static str,
+    scope_label: &'static str,
+) {
+    if items.is_empty() {
+        sink.send(EngineEvent::Toast(format!(
+            "Tidak ada jurnal pada cakupan '{scope_label}' untuk diekspor."
+        )));
+        return;
+    }
+    let count = items.len();
+    let rt = engine.runtime.handle().clone();
+    rt.spawn(async move {
+        let engine_ref = engine.clone();
+        let res = tokio::task::spawn_blocking(move || {
+            let records: Vec<JournalRecord> = items.iter().map(JournalRecord::from).collect();
+            let kw = if keyword.trim().is_empty() {
+                "jurnal"
+            } else {
+                keyword.trim()
+            };
+            crate::exporter::write_single_export_sync(&records, kw, ext, scope_slug)
+        })
+        .await;
+
+        match res {
+            Ok(Ok(path)) => {
+                if ext == "xlsx" {
+                    *engine_ref.last_excel_path.write().await = Some(path.clone());
+                }
+                sink.send(EngineEvent::TargetedExportDone {
+                    ext: ext.to_string(),
+                    path,
+                    count,
+                    scope_label: scope_label.to_string(),
+                });
+            }
+            Ok(Err(e)) => {
+                sink.send(EngineEvent::Toast(format!("Gagal ekspor .{ext}: {e}")));
+            }
+            Err(e) => {
+                sink.send(EngineEvent::Toast(format!("Ekspor .{ext} dibatalkan: {e}")));
+            }
+        }
+    });
+}

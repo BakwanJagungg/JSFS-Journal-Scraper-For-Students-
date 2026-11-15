@@ -3,13 +3,52 @@
 use crate::engine::ai_ops::AiStatusExtended;
 use crate::engine::manuscript::ManuscriptSummary;
 use crate::models::{SearchParams, UiJournalItem};
-use chrono::Datelike;
+use chrono::{Datelike, Local};
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::path::Path;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ExportScope {
+    #[default]
+    All,
+    BookmarkedOnly,
+    FreeOnly,
+    TableFiltered,
+}
+
+impl ExportScope {
+    pub const ALL: [Self; 4] = [
+        Self::All,
+        Self::BookmarkedOnly,
+        Self::FreeOnly,
+        Self::TableFiltered,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::All => "Semua Hasil",
+            Self::BookmarkedOnly => "Hanya ★ Pilihan",
+            Self::FreeOnly => "Hanya Gratis (Rp 0)",
+            Self::TableFiltered => "Sesuai Filter Aktif di Tabel",
+        }
+    }
+
+    pub fn slug(self) -> &'static str {
+        match self {
+            Self::All => "",
+            Self::BookmarkedOnly => "pilihan",
+            Self::FreeOnly => "gratis",
+            Self::TableFiltered => "filtered",
+        }
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct AppState {
     pub bookmarked_ids: HashSet<String>,
     pub only_bookmarked: bool,
+    pub export_scope: ExportScope,
 }
 
 impl AppState {
@@ -48,7 +87,7 @@ pub const MONTH_NAMES: [&str; 12] = [
     "Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des",
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum QuickPreset {
     SkripsiS1,
     JurnalGratis,
@@ -85,7 +124,8 @@ pub enum SortColumn {
     Activity,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct FilterSettings {
     pub active_preset: QuickPreset,
     pub target_count: usize,
@@ -553,6 +593,116 @@ pub fn manuscript_status_text(ms: Option<&ManuscriptSummary>) -> String {
     }
 }
 
+pub const MAX_SEARCH_HISTORY: usize = 15;
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SearchHistoryEntry {
+    pub id: String,
+    pub timestamp: String,
+    pub keyword: String,
+    pub filter_summary: String,
+    pub filter_snapshot: FilterSettings,
+    pub total_found: usize,
+    pub free_count: usize,
+    pub records: Vec<UiJournalItem>,
+}
+
+pub fn load_search_history_from(path: &Path) -> Vec<SearchHistoryEntry> {
+    if let Ok(raw) = std::fs::read_to_string(path) {
+        if let Ok(mut items) = serde_json::from_str::<Vec<SearchHistoryEntry>>(&raw) {
+            items.truncate(MAX_SEARCH_HISTORY);
+            return items;
+        }
+    }
+    Vec::new()
+}
+
+pub fn save_search_history_to(path: &Path, entries: &[SearchHistoryEntry]) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let slice = if entries.len() > MAX_SEARCH_HISTORY {
+        &entries[..MAX_SEARCH_HISTORY]
+    } else {
+        entries
+    };
+    let json = serde_json::to_string_pretty(slice)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    std::fs::write(path, json)
+}
+
+pub fn load_search_history() -> Vec<SearchHistoryEntry> {
+    load_search_history_from(&crate::config::search_history_path())
+}
+
+pub fn push_search_history_entry(
+    history: &mut Vec<SearchHistoryEntry>,
+    keyword: &str,
+    filters: &FilterSettings,
+    results: &[UiJournalItem],
+) {
+    let now = Local::now();
+    let entry = SearchHistoryEntry {
+        id: now.format("%Y%m%d%H%M%S%3f").to_string(),
+        timestamp: now.format("%d %b %Y %H:%M").to_string(),
+        keyword: keyword.trim().to_string(),
+        filter_summary: filters.summary_text(),
+        filter_snapshot: filters.clone(),
+        total_found: results.len(),
+        free_count: results.iter().filter(|r| r.apc_category == "free").count(),
+        records: results.to_vec(),
+    };
+    history.insert(0, entry);
+    history.truncate(MAX_SEARCH_HISTORY);
+}
+
+pub fn record_search_history(
+    history: &mut Vec<SearchHistoryEntry>,
+    keyword: &str,
+    filters: &FilterSettings,
+    results: &[UiJournalItem],
+) {
+    push_search_history_entry(history, keyword, filters, results);
+    let _ = save_search_history_to(&crate::config::search_history_path(), history);
+}
+
+pub fn select_records_for_scope<'a>(
+    results: &'a [UiJournalItem],
+    scope: ExportScope,
+    app_state: &AppState,
+    table_filter: &str,
+    apc_filter: ApcFilter,
+    sort_col: SortColumn,
+    sort_desc: bool,
+) -> Vec<&'a UiJournalItem> {
+    match scope {
+        ExportScope::All => results.iter().collect(),
+        ExportScope::BookmarkedOnly => results
+            .iter()
+            .filter(|r| app_state.is_bookmarked(r))
+            .collect(),
+        ExportScope::FreeOnly => results
+            .iter()
+            .filter(|r| r.apc_category == "free")
+            .collect(),
+        ExportScope::TableFiltered => {
+            let bm_filter = app_state
+                .only_bookmarked
+                .then_some(&app_state.bookmarked_ids);
+            let indices = filtered_sorted_indices(
+                results,
+                table_filter,
+                apc_filter,
+                bm_filter,
+                sort_col,
+                sort_desc,
+            );
+            indices.into_iter().filter_map(|i| results.get(i)).collect()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -677,5 +827,86 @@ mod tests {
             true,
         );
         assert_eq!(shortlisted, vec![1]);
+    }
+
+    #[test]
+    fn test_search_history_persistence_and_targeted_scope() {
+        let mut fs = FilterSettings::default();
+        fs.apply_preset(QuickPreset::JurnalGratis);
+
+        let rows = vec![
+            UiJournalItem {
+                nama: "Jurnal Gratis Favorit".to_string(),
+                url: "https://gratis.example.ac.id".to_string(),
+                apc_category: "free".to_string(),
+                email: "editor@gratis.ac.id, invalid-email".to_string(),
+                ..Default::default()
+            },
+            UiJournalItem {
+                nama: "Jurnal Berbayar".to_string(),
+                url: "https://berbayar.example.ac.id".to_string(),
+                apc_category: "paid".to_string(),
+                email: "editor@gratis.ac.id; redaksi@berbayar.ac.id".to_string(),
+                ..Default::default()
+            },
+        ];
+
+        let mut app_state = AppState::default();
+        app_state.toggle_bookmark(&rows[0]);
+
+        let all = select_records_for_scope(
+            &rows,
+            ExportScope::All,
+            &app_state,
+            "",
+            ApcFilter::All,
+            SortColumn::MatchScore,
+            true,
+        );
+        assert_eq!(all.len(), 2);
+
+        let bm = select_records_for_scope(
+            &rows,
+            ExportScope::BookmarkedOnly,
+            &app_state,
+            "",
+            ApcFilter::All,
+            SortColumn::MatchScore,
+            true,
+        );
+        assert_eq!(bm.len(), 1);
+        assert_eq!(bm[0].nama, "Jurnal Gratis Favorit");
+
+        let free = select_records_for_scope(
+            &rows,
+            ExportScope::FreeOnly,
+            &app_state,
+            "",
+            ApcFilter::All,
+            SortColumn::MatchScore,
+            true,
+        );
+        assert_eq!(free.len(), 1);
+
+        let (emails_str, email_count) = crate::engine::file_ops::collect_valid_emails(&all);
+        assert_eq!(email_count, 2);
+        assert_eq!(emails_str, "editor@gratis.ac.id, redaksi@berbayar.ac.id");
+
+        let tmp = std::env::temp_dir().join("jsfs_test_history_v420.json");
+        let _ = std::fs::remove_file(&tmp);
+        let mut hist = Vec::new();
+        for i in 0..20 {
+            push_search_history_entry(&mut hist, &format!("topik {i}"), &fs, &rows);
+        }
+        assert_eq!(hist.len(), MAX_SEARCH_HISTORY);
+        assert_eq!(hist[0].keyword, "topik 19");
+        save_search_history_to(&tmp, &hist).unwrap();
+
+        let loaded = load_search_history_from(&tmp);
+        assert_eq!(loaded.len(), MAX_SEARCH_HISTORY);
+        assert_eq!(loaded[0].keyword, "topik 19");
+        assert_eq!(loaded[0].free_count, 1);
+        assert_eq!(loaded[0].records.len(), 2);
+        let _ = std::fs::remove_file(&tmp);
     }
 }
