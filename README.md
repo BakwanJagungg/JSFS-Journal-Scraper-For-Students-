@@ -12,13 +12,35 @@
 [![GUI: eframe + egui](https://img.shields.io/badge/GUI-Pure%20Native%20GPU%20(egui)-0a84ff?style=flat-square)](https://github.com/emilk/egui)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11%20x64-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases)
 
+[Unduh Langsung](#unduh-langsung-windows-1011-64-bit) •
 [Fitur Utama](#fitur-utama) •
 [Evolusi v3 vs v4](#evolusi-arsitektur-v310-vs-v430) •
-[Unduh & Jalankan](#unduh--jalankan-langsung) •
 [Arsitektur](#arsitektur-4-fase) •
 [Build dari Source](#build-dari-source-code)
 
 </div>
+
+---
+
+## Unduh Langsung (Windows 10/11 64-bit)
+
+<div align="center">
+
+[![Download jsfs.exe](https://img.shields.io/badge/Download_jsfs.exe-v4.3.0_(12.3_MB)-2563eb?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/jsfs.exe)
+[![Download Portable ZIP](https://img.shields.io/badge/Download_Portable_ZIP-Windows_x64-059669?style=for-the-badge&logo=github&logoColor=white)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/JSFS-windows-x64-portable.zip)
+
+</div>
+
+**Cara Pakai (2 Langkah Tanpa Instalasi):**
+1. Klik tombol **Download `jsfs.exe`** di atas (atau kunjungi [GitHub Releases](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest) untuk seluruh berkas rilis).
+2. Letakkan di folder pilihan Anda lalu **klik ganda `jsfs.exe`** untuk langsung menjalankan aplikasi — folder `.cache/`, `logs/`, dan `output/` akan dibuat otomatis.
+
+| Paket Unduhan | Isi Berkas | Cocok Untuk |
+| :--- | :--- | :--- |
+| **[`jsfs.exe` (Standalone)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/jsfs.exe)** | Aplikasi tunggal Windows x64 (~12.3 MB, *zero runtime dependencies*) | Langsung unduh & jalankan dalam 1 klik |
+| **[`JSFS-windows-x64-portable.zip`](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/JSFS-windows-x64-portable.zip)** | `jsfs.exe` + `README.md` + `LICENSE` dalam arsip portabel | Dibagikan ke teman, lab kampus, atau arsip *flashdisk* |
+
+> **Catatan Windows SmartScreen:** Karena aplikasi indie sumber terbuka ini belum memakai sertifikat komersial berbayar *EV Code Signing*, Windows Defender SmartScreen dapat memunculkan dialog *"Windows protected your PC"*. Klik **More info** -> **Run anyway** untuk menjalankan, atau kompilasi langsung dari kode sumber di bagian bawah README ini.
 
 ---
 
@@ -65,18 +87,6 @@
   - **Markdown (`.md`)** & **CSV UTF-8 BOM (`.csv`)** untuk catatan riset dan analisis lanjut.
   - **Draft & Daftar Share Editor (`.txt`)**: Siap salin langsung bersama template pesan WhatsApp/Email sopan di modal detail jurnal.
 - **SQLite WAL Cache (14 Hari)**: Menyimpan hasil audit per kueri agar pencarian ulang berjalan instan tanpa membebani server OJS berulang kali.
-
----
-
-## Unduh & Jalankan Langsung
-
-Pengguna Windows 10/11 (64-bit) dapat langsung menjalankan JSFS tanpa menginstal Rust atau alat pengembang apa pun:
-
-1. Buka halaman **[GitHub Releases](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases)**.
-2. Pada rilis **v4.3.0**, unduh berkas **`jsfs.exe`** atau arsip **`JSFS-v4.3.0-windows-x64-portable.zip`**.
-3. Letakkan `jsfs.exe` pada folder pilihan Anda (folder `.cache/`, `logs/`, dan `output/` akan dibuat otomatis di direktori kerja yang sama) lalu jalankan.
-
-> **Catatan Windows SmartScreen**: Karena executable sumber terbuka ini belum menandatangani sertifikat komersial (*EV Code Signing*), Windows Defender SmartScreen dapat menampilkan dialog *"Windows protected your PC"*. Klik **More info** -> **Run anyway** untuk melanjutkan, atau bangun langsung dari source code di bawah untuk verifikasi mandiri.
 
 ---
 

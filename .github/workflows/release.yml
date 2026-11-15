@@ -36,13 +36,17 @@ jobs:
       - name: Package Portable Windows Release
         shell: pwsh
         run: |
-          $tag = if ($env:GITHUB_REF_NAME -match '^v') { $env:GITHUB_REF_NAME } else { 'v4.2.0' }
+          $tag = if ($env:GITHUB_REF_NAME -match '^v') { $env:GITHUB_REF_NAME } else { 'v4.3.0' }
           New-Item -ItemType Directory -Path release-pkg -Force | Out-Null
           Copy-Item target\release\jsfs.exe release-pkg\jsfs.exe -Force
+          Copy-Item README.md release-pkg\README.md -Force
           Copy-Item LICENSE release-pkg\LICENSE -Force
-          $zipName = "JSFS-$tag-windows-x64-portable.zip"
-          Compress-Archive -Path release-pkg\jsfs.exe, release-pkg\LICENSE -DestinationPath $zipName -Force
-          Write-Output "ZIP_NAME=$zipName" >> $env:GITHUB_ENV
+          $zipVersioned = "JSFS-$tag-windows-x64-portable.zip"
+          $zipStable = "JSFS-windows-x64-portable.zip"
+          Compress-Archive -Path release-pkg\jsfs.exe, release-pkg\README.md, release-pkg\LICENSE -DestinationPath $zipVersioned -Force
+          Copy-Item $zipVersioned $zipStable -Force
+          Write-Output "ZIP_VERSIONED=$zipVersioned" >> $env:GITHUB_ENV
+          Write-Output "ZIP_STABLE=$zipStable" >> $env:GITHUB_ENV
 
       - name: Upload Portable EXE & ZIP to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -50,5 +54,6 @@ jobs:
         with:
           files: |
             target/release/jsfs.exe
-            ${{ env.ZIP_NAME }}
+            ${{ env.ZIP_STABLE }}
+            ${{ env.ZIP_VERSIONED }}
           generate_release_notes: true
