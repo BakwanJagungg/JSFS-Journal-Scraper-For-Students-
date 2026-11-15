@@ -1,9 +1,51 @@
-//! Cover Letter, Editor Pre-Submission Inquiry Email, and Supervisor Brief Generators (JSFS v4.5).
+//! Cover Letter, Editor Pre-Submission Inquiry Email, Originality Statement, and Supervisor Brief Generators (JSFS v4.7).
 
 use crate::engine::manuscript::ManuscriptSummary;
 use crate::models::UiJournalItem;
-use crate::ui::i18n::AppLanguage;
+use crate::ui::i18n::{AppLanguage, AppSettings};
 use chrono::Local;
+
+fn resolve_author_signoff(profile: Option<&AppSettings>, lang: &str) -> (String, String, String) {
+    let is_en = lang.eq_ignore_ascii_case("en");
+    let raw_name = profile.map(|p| p.author_name.trim()).unwrap_or("");
+    let raw_id = profile.map(|p| p.author_id.trim()).unwrap_or("");
+    let raw_aff = profile.map(|p| p.author_affiliation.trim()).unwrap_or("");
+    let raw_email = profile.map(|p| p.author_email.trim()).unwrap_or("");
+
+    let name = if raw_name.is_empty() {
+        if is_en {
+            "[Nama Penulis Korespondensi / Corresponding Author]".to_string()
+        } else {
+            "[Nama Penulis Korespondensi]".to_string()
+        }
+    } else if raw_id.is_empty() {
+        raw_name.to_string()
+    } else {
+        format!("{raw_name} (ID/NIM: {raw_id})")
+    };
+
+    let aff = if raw_aff.is_empty() {
+        if is_en {
+            "[Afiliasi / Universitas / Institution]".to_string()
+        } else {
+            "[Program Studi / Fakultas / Universitas]".to_string()
+        }
+    } else {
+        raw_aff.to_string()
+    };
+
+    let email = if raw_email.is_empty() {
+        if is_en {
+            "[Email Korespondensi / Email Address]".to_string()
+        } else {
+            "[Email & Nomor Kontak]".to_string()
+        }
+    } else {
+        raw_email.to_string()
+    };
+
+    (name, aff, email)
+}
 
 fn resolve_manuscript_fields<'a>(
     fallback_title: &'a str,
@@ -40,17 +82,18 @@ fn resolve_manuscript_fields<'a>(
     (title, keywords, abstract_snippet)
 }
 
-/// Generate a formal academic cover letter for submitting a manuscript to `journal` (`lang` = `"id"` or `"en"`).
-/// Auto-fills title, keywords, and abstract summary when `manuscript` is loaded.
-pub fn generate_cover_letter(
+/// Generate a formal academic cover letter with optional author bio auto-fill from `AppSettings`.
+pub fn generate_cover_letter_with_profile(
     journal: &UiJournalItem,
     manuscript_title: &str,
     manuscript: Option<&ManuscriptSummary>,
+    profile: Option<&AppSettings>,
     lang: &str,
 ) -> String {
     let today = Local::now().format("%d %B %Y").to_string();
     let (title, keywords, abstract_snippet) =
         resolve_manuscript_fields(manuscript_title, manuscript, lang);
+    let (author_name, author_aff, author_email) = resolve_author_signoff(profile, lang);
     let publisher_line = if !journal.penerbit.trim().is_empty() && journal.penerbit != "-" {
         format!("\n{}", journal.penerbit.trim())
     } else {
@@ -98,9 +141,9 @@ Our study aligns closely with the scope of {journal_name} ({scope_snippet}). We 
 All authors have approved the manuscript and agree with its submission to {journal_name}. The authors declare no conflict of interest.\n\n\
 Thank you very much for your time and consideration. We look forward to hearing from you.\n\n\
 Sincerely,\n\n\
-[Nama Penulis Korespondensi / Corresponding Author]\n\
-[Afiliasi / Universitas / Institution]\n\
-[Email Korespondensi / Email Address]",
+{author_name}\n\
+{author_aff}\n\
+{author_email}",
             journal_name = journal.nama.trim()
         )
     } else {
@@ -118,22 +161,35 @@ Topik penelitian kami selaras dengan fokus dan ruang lingkup {journal_name} ({sc
 Seluruh penulis telah membaca dan menyetujui pengiriman naskah ini serta menyatakan tidak terdapat konflik kepentingan (conflict of interest).\n\n\
 Atas perhatian dan kesempatan yang Bapak/Ibu berikan, kami ucapkan terima kasih.\n\n\
 Hormat kami,\n\n\
-[Nama Penulis Korespondensi]\n\
-[Program Studi / Fakultas / Universitas]\n\
-[Email & Nomor Kontak]",
+{author_name}\n\
+{author_aff}\n\
+{author_email}",
             journal_name = journal.nama.trim()
         )
     }
 }
 
-/// Generate a polite pre-submission scope, schedule, and APC inquiry email for the journal editor.
-pub fn generate_editor_inquiry_email(
+/// Generate a formal academic cover letter for submitting a manuscript to `journal` (`lang` = `"id"` or `"en"`).
+/// Auto-fills title, keywords, and abstract summary when `manuscript` is loaded.
+pub fn generate_cover_letter(
     journal: &UiJournalItem,
-    keyword: &str,
+    manuscript_title: &str,
     manuscript: Option<&ManuscriptSummary>,
     lang: &str,
 ) -> String {
+    generate_cover_letter_with_profile(journal, manuscript_title, manuscript, None, lang)
+}
+
+/// Generate a polite pre-submission scope, schedule, and APC inquiry email with optional author bio auto-fill.
+pub fn generate_editor_inquiry_email_with_profile(
+    journal: &UiJournalItem,
+    keyword: &str,
+    manuscript: Option<&ManuscriptSummary>,
+    profile: Option<&AppSettings>,
+    lang: &str,
+) -> String {
     let (title, keywords, abstract_snippet) = resolve_manuscript_fields(keyword, manuscript, lang);
+    let (author_name, author_aff, author_email) = resolve_author_signoff(profile, lang);
     let journal_name = journal.nama.trim();
     let issue_hint = if !journal.terbit_terdekat.trim().is_empty() && journal.terbit_terdekat != "-"
     {
@@ -171,9 +227,9 @@ Before submitting formally through your OJS portal, I would appreciate your brie
 2. Could you confirm the estimated peer-review turnaround time and applicable publication fee (APC: {apc})?\n\n\
 Thank you very much for your time and kind assistance.\n\n\
 Best regards,\n\
-[Nama Lengkap / Full Name]\n\
-[Program Studi / Institution]\n\
-[Email & Nomor WhatsApp]",
+{author_name}\n\
+{author_aff}\n\
+{author_email}",
             apc = journal.apc_label.trim()
         )
     } else {
@@ -189,12 +245,22 @@ Sebelum melakukan submit resmi melalui laman OJS, mohon konfirmasi Bapak/Ibu ter
 2. Mohon informasi perkiraan durasi proses review serta rincian biaya publikasi (data awal: {apc}).\n\n\
 Atas perhatian dan kesediaan Bapak/Ibu meluangkan waktu untuk membalas email ini, saya ucapkan terima kasih.\n\n\
 Hormat saya,\n\
-[Nama Lengkap]\n\
-[Program Studi / Universitas]\n\
-[Email & Nomor WhatsApp]",
+{author_name}\n\
+{author_aff}\n\
+{author_email}",
             apc = journal.apc_label.trim()
         )
     }
+}
+
+/// Generate a polite pre-submission scope, schedule, and APC inquiry email for the journal editor.
+pub fn generate_editor_inquiry_email(
+    journal: &UiJournalItem,
+    keyword: &str,
+    manuscript: Option<&ManuscriptSummary>,
+    lang: &str,
+) -> String {
+    generate_editor_inquiry_email_with_profile(journal, keyword, manuscript, None, lang)
 }
 
 /// Format top-5 scoped journals into a crisp WhatsApp/Email brief for a thesis supervisor (Dosbing).
@@ -304,15 +370,17 @@ pub fn generate_dosbing_brief(records: &[&UiJournalItem], lang: AppLanguage) -> 
     lines.join("\n")
 }
 
-/// Generate a polite follow-up email asking the editor about review status based on `submitted_date`.
-pub fn generate_followup_email(
+/// Generate a polite follow-up email with optional author bio auto-fill from `AppSettings`.
+pub fn generate_followup_email_with_profile(
     journal: &UiJournalItem,
     manuscript_title: &str,
     manuscript: Option<&ManuscriptSummary>,
     submitted_date: &str,
+    profile: Option<&AppSettings>,
     lang: &str,
 ) -> String {
     let (title, _, _) = resolve_manuscript_fields(manuscript_title, manuscript, lang);
+    let (author_name, author_aff, author_email) = resolve_author_signoff(profile, lang);
     let journal_name = journal.nama.trim();
     let date_label = if submitted_date.trim().is_empty() {
         if lang.eq_ignore_ascii_case("en") {
@@ -334,9 +402,10 @@ which was submitted via your OJS portal on {date_label}.\n\n\
 Could you kindly provide a brief update on whether the manuscript is currently in peer review or awaiting an editorial decision? We remain enthusiastic about publishing with {journal_name} and are happy to supply any additional information needed.\n\n\
 Thank you very much for your time and assistance.\n\n\
 Best regards,\n\
-[Nama Lengkap / Corresponding Author]\n\
-[ID Naskah OJS (jika ada)]\n\
-[Email & Nomor WhatsApp]"
+{author_name}\n\
+{author_aff}\n\
+[Manuscript OJS ID (if any)]\n\
+{author_email}"
         )
     } else {
         format!(
@@ -350,9 +419,138 @@ yang telah kami kirimkan melalui sistem OJS pada tanggal {date_label}.\n\n\
 Mohon berkenan Bapak/Ibu memberikan informasi singkat mengenai status terkini naskah tersebut agar kami dapat menyesuaikan jadwal penyempurnaan atau revisi bila diperlukan.\n\n\
 Atas perhatian dan bantuan Bapak/Ibu, kami ucapkan terima kasih banyak.\n\n\
 Hormat saya,\n\
-[Nama Lengkap / Penulis Korespondensi]\n\
+{author_name}\n\
+{author_aff}\n\
 [ID Submission OJS (jika ada)]\n\
-[Email & Nomor WhatsApp]"
+{author_email}"
+        )
+    }
+}
+
+/// Generate a polite follow-up email asking the editor about review status based on `submitted_date`.
+pub fn generate_followup_email(
+    journal: &UiJournalItem,
+    manuscript_title: &str,
+    manuscript: Option<&ManuscriptSummary>,
+    submitted_date: &str,
+    lang: &str,
+) -> String {
+    generate_followup_email_with_profile(
+        journal,
+        manuscript_title,
+        manuscript,
+        submitted_date,
+        None,
+        lang,
+    )
+}
+
+/// Generate a formal Statement of Originality & Anti-Plagiarism (`Surat Pernyataan Keaslian Naskah`)
+/// ready for Materai Rp 10.000 signature.
+pub fn generate_originality_statement(
+    journal: &UiJournalItem,
+    manuscript: Option<&ManuscriptSummary>,
+    profile: Option<&AppSettings>,
+    lang: &str,
+) -> String {
+    let today = Local::now().format("%d %B %Y").to_string();
+    let (title, _, _) = resolve_manuscript_fields("", manuscript, lang);
+    let raw_name = profile.map(|p| p.author_name.trim()).unwrap_or("");
+    let raw_id = profile.map(|p| p.author_id.trim()).unwrap_or("");
+    let raw_aff = profile.map(|p| p.author_affiliation.trim()).unwrap_or("");
+    let raw_email = profile.map(|p| p.author_email.trim()).unwrap_or("");
+
+    let is_en = lang.eq_ignore_ascii_case("en");
+    let author_name = if raw_name.is_empty() {
+        if is_en {
+            "[Full Name / Author]"
+        } else {
+            "[Nama Lengkap Penulis]"
+        }
+    } else {
+        raw_name
+    };
+    let author_id = if raw_id.is_empty() {
+        if is_en {
+            "[Student/Researcher ID]"
+        } else {
+            "[NIM / NIDN / NIP]"
+        }
+    } else {
+        raw_id
+    };
+    let author_aff = if raw_aff.is_empty() {
+        if is_en {
+            "[Department / Institution]"
+        } else {
+            "[Program Studi / Afiliasi Kampus]"
+        }
+    } else {
+        raw_aff
+    };
+    let author_email = if raw_email.is_empty() {
+        if is_en {
+            "[Email Address]"
+        } else {
+            "[Email Korespondensi]"
+        }
+    } else {
+        raw_email
+    };
+
+    if is_en {
+        format!(
+            "STATEMENT OF ORIGINALITY AND ETHICAL COMPLIANCE\n\n\
+I, the undersigned Corresponding Author:\n\
+Name               : {author_name}\n\
+Student / ID No.   : {author_id}\n\
+Affiliation        : {author_aff}\n\
+Email              : {author_email}\n\n\
+hereby solemnly declare that the manuscript entitled:\n\
+\"{title}\"\n\
+submitted for publication to:\n\
+Journal            : {journal_name}\n\
+ISSN / e-ISSN      : {issn} / {eissn}\n\n\
+1. Is the original scientific work of the author(s), written independently without plagiarism, fabrication, or falsification of data.\n\
+2. Has not been published previously in any peer-reviewed journal or conference proceedings in whole or in part.\n\
+3. Is not currently under consideration or peer-review by any other journal or publisher.\n\
+4. Has obtained approval from all co-authors (if applicable) for submission and copyright transfer upon acceptance.\n\n\
+This statement is made truthfully for academic and editorial purposes.\n\n\
+[City], {today}\n\
+Corresponding Author,\n\n\
+[ Stamp Duty / Materai Rp 10.000 ]\n\n\
+({author_name})\n\
+ID: {author_id}",
+            journal_name = journal.nama.trim(),
+            issn = if journal.issn.trim().is_empty() { "-" } else { journal.issn.trim() },
+            eissn = if journal.eissn.trim().is_empty() { "-" } else { journal.eissn.trim() },
+        )
+    } else {
+        format!(
+            "SURAT PERNYATAAN KEASLIAN NASKAH & BEBAS PLAGIARISME\n\n\
+Yang bertanda tangan di bawah ini (Penulis Korespondensi):\n\
+Nama Lengkap       : {author_name}\n\
+NIM / NIDN         : {author_id}\n\
+Program Studi/Univ : {author_aff}\n\
+Email Korespondensi: {author_email}\n\n\
+dengan ini menyatakan secara sadar dan sebenar-benarnya bahwa naskah artikel ilmiah berjudul:\n\
+\"{title}\"\n\
+yang diajukan untuk dipublikasikan pada:\n\
+Nama Jurnal        : {journal_name}\n\
+ISSN / e-ISSN      : {issn} / {eissn}\n\n\
+1. Merupakan karya ilmiah asli (orisinal) penulis, bukan hasil plagiarisme, duplikasi, maupun fabrikasi data.\n\
+2. Belum pernah dipublikasikan sebelumnya pada jurnal ilmiah, prosiding, maupun media publikasi lainnya.\n\
+3. Tidak sedang dikirimkan atau berada dalam proses peninjauan (under review) di jurnal atau penerbit lain secara bersamaan.\n\
+4. Seluruh penulis pendamping (bila ada) telah menyetujui isi naskah dan pengajuan publikasi ini.\n\n\
+Apabila di kemudian hari ditemukan pelanggaran etika publikasi akademik, penulis bersedia menerima sanksi pembatalan maupun penarikan artikel sesuai ketentuan redaksi jurnal.\n\n\
+[Kota], {today}\n\
+Hormat saya, Yang Membuat Pernyataan,\n\n\
+[ Materai Rp 10.000 ]\n\n\
+({author_name})\n\
+NIM/NIDN: {author_id}",
+            journal_name = journal.nama.trim(),
+            issn = if journal.issn.trim().is_empty() { "-" } else { journal.issn.trim() },
+            eissn = if journal.eissn.trim().is_empty() { "-" } else { journal.eissn.trim() },
         )
     }
 }
@@ -392,6 +590,25 @@ mod tests {
 
         let empty_letter = generate_cover_letter(&item, "", None, "id");
         assert!(empty_letter.contains("[Judul Naskah Anda]"));
+
+        let profile = AppSettings {
+            author_name: "Siti Aminah".to_string(),
+            author_id: "2101001122".to_string(),
+            author_affiliation: "Ilmu Komputer, Universitas Merdeka".to_string(),
+            author_email: "siti@merdeka.ac.id".to_string(),
+            ..Default::default()
+        };
+        let auto_cover =
+            generate_cover_letter_with_profile(&item, "Fallback", Some(&ms), Some(&profile), "id");
+        assert!(auto_cover.contains("Siti Aminah (ID/NIM: 2101001122)"));
+        assert!(auto_cover.contains("Ilmu Komputer, Universitas Merdeka"));
+        assert!(auto_cover.contains("siti@merdeka.ac.id"));
+
+        let stmt = generate_originality_statement(&item, Some(&ms), Some(&profile), "id");
+        assert!(stmt.contains("SURAT PERNYATAAN KEASLIAN NASKAH"));
+        assert!(stmt.contains("Materai Rp 10.000"));
+        assert!(stmt.contains("Siti Aminah"));
+        assert!(stmt.contains("2101001122"));
     }
 
     #[test]

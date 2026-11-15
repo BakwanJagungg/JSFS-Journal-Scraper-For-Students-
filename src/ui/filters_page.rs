@@ -3,7 +3,9 @@
 use crate::engine::{EngineEvent, EventSink};
 use crate::ui::i18n::{t, AppLanguage};
 use crate::ui::state::{FilterSettings, QuickPreset, MONTH_NAMES};
-use crate::ui::theme::{card, card_divider, page_header, secondary_button, toggle_row, Palette};
+use crate::ui::theme::{
+    card_divider, card_padded, page_header, secondary_button, toggle_row, Palette,
+};
 use egui::{Align2, CornerRadius, Frame, Margin, RichText, ScrollArea, Sense, Stroke, Ui};
 
 fn selectable_chip(ui: &mut Ui, p: &Palette, active: bool, text: &str) -> bool {
@@ -36,14 +38,20 @@ pub fn render_filters_page(
 
     ScrollArea::vertical().show(ui, |ui| {
         // Card 1: SINTA, Q1–Q4 & Portal Sources
-        card(ui, p, |ui| {
+        card_padded(ui, p, 14, |ui| {
+            ui.spacing_mut().item_spacing.y = 8.0;
             ui.label(
                 RichText::new(txt.filters_card1)
                     .size(13.5)
                     .strong()
                     .color(p.text),
             );
-            ui.add_space(8.0);
+            ui.label(
+                RichText::new("Tentukan peringkat akreditasi SINTA/Q1–Q4, jumlah target jurnal, serta portal sumber pencarian.")
+                    .size(11.5)
+                    .color(p.muted),
+            );
+            ui.add_space(4.0);
 
             ui.horizontal_wrapped(|ui| {
                 for rank in 0..6 {
@@ -137,10 +145,11 @@ pub fn render_filters_page(
             );
         });
 
-        ui.add_space(12.0);
+        ui.add_space(14.0);
 
         // Card 2: Publish Months (12-month grid)
-        card(ui, p, |ui| {
+        card_padded(ui, p, 14, |ui| {
+            ui.spacing_mut().item_spacing.y = 8.0;
             ui.horizontal(|ui| {
                 ui.label(
                     RichText::new(txt.filters_months_card)
@@ -163,8 +172,12 @@ pub fn render_filters_page(
                     }
                 });
             });
-
-            ui.add_space(8.0);
+            ui.label(
+                RichText::new("Saring jadwal terbit bulanan agar selaras dengan target sidang, wisuda, dan batas waktu review.")
+                    .size(11.5)
+                    .color(p.muted),
+            );
+            ui.add_space(4.0);
             ui.columns(6, |cols| {
                 for (m_idx, m_name) in MONTH_NAMES.iter().enumerate() {
                     let col = &mut cols[m_idx % 6];
@@ -238,17 +251,23 @@ pub fn render_filters_page(
             });
         });
 
-        ui.add_space(12.0);
+        ui.add_space(14.0);
 
         // Card 3: Budget APC & Activity Quality Gate
-        card(ui, p, |ui| {
+        card_padded(ui, p, 14, |ui| {
+            ui.spacing_mut().item_spacing.y = 8.0;
             ui.label(
                 RichText::new(txt.filters_budget_card)
                     .size(13.5)
                     .strong()
                     .color(p.text),
             );
-            ui.add_space(8.0);
+            ui.label(
+                RichText::new("Atur batas anggaran biaya publikasi (APC) serta filter jurnal gratis atau non-aktif.")
+                    .size(11.5)
+                    .color(p.muted),
+            );
+            ui.add_space(4.0);
 
             ui.columns(2, |cols| {
                 cols[0].label(RichText::new("Minimum Biaya (Rp)").size(12.0).color(p.muted));
@@ -312,17 +331,23 @@ pub fn render_filters_page(
             );
         });
 
-        ui.add_space(12.0);
+        ui.add_space(14.0);
 
         // Card 4: AI & Export Formats
-        card(ui, p, |ui| {
+        card_padded(ui, p, 14, |ui| {
+            ui.spacing_mut().item_spacing.y = 8.0;
             ui.label(
                 RichText::new(txt.filters_ai_card)
                     .size(13.5)
                     .strong()
                     .color(p.text),
             );
-            ui.add_space(6.0);
+            ui.label(
+                RichText::new("Sesuaikan pencocokan naskah, pengayaan AI, mode cache offline, dan format ekspor berkas.")
+                    .size(11.5)
+                    .color(p.muted),
+            );
+            ui.add_space(4.0);
 
             toggle_row(
                 ui,

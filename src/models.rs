@@ -66,7 +66,7 @@ pub struct JournalRecord {
     #[serde(default)]
     pub apc_idr_numeric: Option<u64>,
     #[serde(default)]
-    pub submission_fee_idr: Option<i64>,
+    pub submission_fee_idr: Option<u64>,
     #[serde(default)]
     pub publish_month_nums: Vec<u8>,
     #[serde(default)]
@@ -77,6 +77,12 @@ pub struct JournalRecord {
     pub activity_status: String,
     #[serde(default)]
     pub is_dormant: bool,
+    #[serde(default)]
+    pub bot_protected: bool,
+    #[serde(default)]
+    pub issn_valid: bool,
+    #[serde(default)]
+    pub extra_indexes: Vec<String>,
     #[serde(default)]
     pub apc_evidence: String,
     #[serde(default)]
@@ -126,6 +132,11 @@ pub fn compute_activity_status(
 impl JournalRecord {
     /// Update `activity_status` and `is_dormant` from `self.last_issue_year`.
     pub fn refresh_activity_status(&mut self, broken_archive: bool, current_year: u16) {
+        if self.bot_protected && self.last_issue_year.is_none() && !broken_archive {
+            self.activity_status = "Proteksi Bot (Buka Web)".to_string();
+            self.is_dormant = false;
+            return;
+        }
         let (status, dormant) =
             compute_activity_status(self.last_issue_year, broken_archive, current_year);
         self.activity_status = status;
@@ -294,6 +305,14 @@ pub struct UiJournalItem {
     pub word_limit: Option<(u32, u32)>,
     pub cited_count: u32,
     pub submission_open: Option<bool>,
+    #[serde(default)]
+    pub submission_fee_idr: Option<u64>,
+    #[serde(default)]
+    pub bot_protected: bool,
+    #[serde(default)]
+    pub issn_valid: bool,
+    #[serde(default)]
+    pub extra_indexes: Vec<String>,
 }
 
 impl From<&JournalRecord> for UiJournalItem {
@@ -311,9 +330,11 @@ impl From<&JournalRecord> for UiJournalItem {
             .to_string();
         let submit_label = match r.submission_fee_idr {
             Some(0) => "Gratis (Submission)".to_string(),
-            Some(v) if v > 0 => format_idr_short(v),
+            Some(v) if v > 0 => format_idr_short(v as i64),
             _ => "-".to_string(),
         };
+        let issn_valid =
+            r.issn_valid || crate::parser::heuristics::has_valid_issn_pair(&r.issn, &r.eissn);
         let health_warning = r.is_incomplete
             || ((r.email.trim().is_empty() || r.email.contains("tidak ditemukan"))
                 && r.publish_month_nums.is_empty());
@@ -375,7 +396,11 @@ impl From<&JournalRecord> for UiJournalItem {
             health_warning,
             last_issue_year: r.last_issue_year,
             activity_status: if r.activity_status.is_empty() {
-                "Belum Terdeteksi".to_string()
+                if r.bot_protected {
+                    "Proteksi Bot (Buka Web)".to_string()
+                } else {
+                    "Belum Terdeteksi".to_string()
+                }
             } else {
                 r.activity_status.clone()
             },
@@ -392,6 +417,10 @@ impl From<&JournalRecord> for UiJournalItem {
             word_limit: r.word_limit,
             cited_count: r.cited_count,
             submission_open: r.submission_open,
+            submission_fee_idr: r.submission_fee_idr,
+            bot_protected: r.bot_protected,
+            issn_valid,
+            extra_indexes: r.extra_indexes.clone(),
         }
     }
 }
@@ -427,6 +456,7 @@ impl From<&UiJournalItem> for JournalRecord {
             publication_fee: it.apc_label.clone(),
             publication_fee_idr: fee_idr,
             apc_idr_numeric: apc_numeric,
+            submission_fee_idr: it.submission_fee_idr,
             apc_status: it.apc_label.clone(),
             apc_evidence: it.apc_evidence.clone(),
             email: it.email.clone(),
@@ -449,6 +479,9 @@ impl From<&UiJournalItem> for JournalRecord {
             last_issue_year: it.last_issue_year,
             activity_status: it.activity_status.clone(),
             is_dormant: it.is_dormant,
+            bot_protected: it.bot_protected,
+            issn_valid: it.issn_valid,
+            extra_indexes: it.extra_indexes.clone(),
             quartile: it.quartile.clone(),
             is_international: it.is_international,
             turnaround_weeks: it.turnaround_weeks,
@@ -799,4 +832,202 @@ pub struct AiStatus {
     pub task_running: bool,
     pub task_percent: f64,
     pub task_message: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ReadinessReport {
+    pub score: u8,
+    pub checklist: Vec<(bool, String)>,
+}
+
+/// Calculate Pre-Submission Readiness Score (0–100%) and checklist `[✓]`/`[!]`.
+pub fn compute_submission_readiness(
+    item: &UiJournalItem,
+    ms_word_count: Option<usize>,
+    ms_imrad_complete: Option<bool>,
+    is_en: bool,
+) -> ReadinessReport {
+    let mut score: f64 = 0.0;
+    let mut checklist = Vec::new();
+
+    // 1. Topic similarity (BM25) — max 40 pts
+    let topic_pts = (item.match_score.clamp(0.0, 100.0) * 0.40).round();
+    score += topic_pts;
+    let topic_ok = item.match_score >= 55.0;
+    checklist.push((
+        topic_ok,
+        if is_en {
+            format!("Topic relevance (BM25): {:.0}%", item.match_score)
+        } else {
+            format!("Kesesuaian topik (BM25): {:.0}%", item.match_score)
+        },
+    ));
+
+    // 2. Word limit FitStatus — max 25 pts
+    match ms_word_count {
+        Some(wc) => {
+            let wc_u32 = wc.min(u32::MAX as usize) as u32;
+            match crate::parser::doc_matcher::check_manuscript_word_fit(wc_u32, item.word_limit) {
+                Some(FitStatus::Sesuai) => {
+                    score += 25.0;
+                    checklist.push((
+                        true,
+                        if is_en {
+                            format!("Word count ({wc} words) matches journal limit")
+                        } else {
+                            format!("Panjang kata ({wc} kata) sesuai syarat jurnal")
+                        },
+                    ));
+                }
+                Some(FitStatus::TerlaluPendek) => {
+                    score += 8.0;
+                    let req = item
+                        .word_limit
+                        .map(|(a, b)| format!("{a}-{b}"))
+                        .unwrap_or_default();
+                    checklist.push((
+                        false,
+                        if is_en {
+                            format!("Word count too short ({wc} vs {req} words)")
+                        } else {
+                            format!("Naskah terlalu pendek ({wc} vs {req} kata)")
+                        },
+                    ));
+                }
+                Some(FitStatus::MelebihiBatas) => {
+                    score += 8.0;
+                    let req = item
+                        .word_limit
+                        .map(|(_, b)| format!("<= {b}"))
+                        .unwrap_or_default();
+                    checklist.push((
+                        false,
+                        if is_en {
+                            format!("Word count exceeds limit ({wc} vs {req} words)")
+                        } else {
+                            format!("Panjang kata melebihi batas ({wc} vs {req} kata)")
+                        },
+                    ));
+                }
+                None => {
+                    score += 18.0;
+                    checklist.push((
+                        true,
+                        if is_en {
+                            format!("Manuscript loaded ({wc} words; no hard journal cap detected)")
+                        } else {
+                            format!(
+                                "Naskah termuat ({wc} kata; jurnal tidak mencantumkan batas ketat)"
+                            )
+                        },
+                    ));
+                }
+            }
+        }
+        None => {
+            checklist.push((
+                false,
+                if is_en {
+                    "Upload manuscript (.docx/.pdf) to verify word-count fit".to_string()
+                } else {
+                    "Unggah naskah (.docx/.pdf) untuk validasi batas kata".to_string()
+                },
+            ));
+        }
+    }
+
+    // 3. IMRAD structure completeness — max 25 pts
+    match ms_imrad_complete {
+        Some(true) => {
+            score += 25.0;
+            checklist.push((
+                true,
+                if is_en {
+                    "IMRAD structure & references complete".to_string()
+                } else {
+                    "Struktur IMRAD & daftar pustaka lengkap".to_string()
+                },
+            ));
+        }
+        Some(false) => {
+            score += 10.0;
+            checklist.push((
+                false,
+                if is_en {
+                    "IMRAD structure incomplete (review Introduction/Method/Results/References)"
+                        .to_string()
+                } else {
+                    "Struktur IMRAD belum lengkap (cek Pendahuluan/Metode/Hasil/Pustaka)"
+                        .to_string()
+                },
+            ));
+        }
+        None => {
+            checklist.push((
+                false,
+                if is_en {
+                    "Upload manuscript to verify IMRAD structure".to_string()
+                } else {
+                    "Unggah naskah untuk audit kelengkapan struktur IMRAD".to_string()
+                },
+            ));
+        }
+    }
+
+    // 4. Portal activity & submission gate — max 10 pts
+    let portal_ok = !item.is_dormant && item.submission_open != Some(false);
+    if portal_ok {
+        score += 10.0;
+    }
+    checklist.push((
+        portal_ok,
+        if item.submission_open == Some(false) {
+            if is_en {
+                "Journal submission appears closed".to_string()
+            } else {
+                "Pendaftaran naskah jurnal sedang tutup".to_string()
+            }
+        } else if item.is_dormant {
+            if is_en {
+                "Journal appears dormant — verify latest issue before submitting".to_string()
+            } else {
+                "Jurnal terindikasi dorman — cek arsip terbaru sebelum submit".to_string()
+            }
+        } else if is_en {
+            "Journal portal active / open for submission".to_string()
+        } else {
+            "Portal jurnal aktif / terbuka untuk pengajuan".to_string()
+        },
+    ));
+
+    ReadinessReport {
+        score: score.clamp(0.0, 100.0).round() as u8,
+        checklist,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_readiness_score_and_integrity_mapping() {
+        let item = UiJournalItem {
+            nama: "Jurnal Informatika Nusantara".to_string(),
+            match_score: 85.0,
+            word_limit: Some((4000, 7000)),
+            submission_open: Some(true),
+            is_dormant: false,
+            submission_fee_idr: Some(150_000),
+            apc_idr_numeric: Some(500_000),
+            ..Default::default()
+        };
+        let rep = compute_submission_readiness(&item, Some(5200), Some(true), false);
+        assert_eq!(rep.score, 94);
+        assert!(rep.checklist.iter().all(|(ok, _)| *ok));
+
+        let rep_short = compute_submission_readiness(&item, Some(2200), Some(false), false);
+        assert!(rep_short.score < 70);
+        assert!(rep_short.checklist.iter().any(|(ok, _)| !*ok));
+    }
 }

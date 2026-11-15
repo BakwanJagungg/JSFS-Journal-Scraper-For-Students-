@@ -69,6 +69,10 @@ fn merge_into(dst: &mut JournalRecord, src: JournalRecord) {
     let src_has_sinta = src.sinta_rank_num().is_some();
     let src_quartile_rank = src.quartile_rank_num();
     let src_apc_known = src.apc_category() != "unknown";
+    let dst_paid =
+        dst.apc_category() == "paid" || dst.resolved_apc_idr_numeric().is_some_and(|v| v > 0);
+    let src_paid =
+        src.apc_category() == "paid" || src.resolved_apc_idr_numeric().is_some_and(|v| v > 0);
 
     dst.is_international = dst.is_international || src.is_international;
     if let Some(src_q) = src_quartile_rank {
@@ -77,14 +81,19 @@ fn merge_into(dst: &mut JournalRecord, src: JournalRecord) {
             dst.quartile = src.quartile;
         }
     }
-    if dst.apc_category() == "unknown" && src_apc_known {
+    // Paid APC (e.g. verified OJS editorialPolicies) MUST never stay overwritten by older DOAJ Free (Rp 0)
+    if (dst.apc_category() == "unknown" && src_apc_known) || (!dst_paid && src_paid) {
         dst.apc_status = src.apc_status;
         dst.publication_fee = src.publication_fee;
         dst.publication_fee_idr = src.publication_fee_idr;
+        dst.apc_idr_numeric = src.apc_idr_numeric;
         dst.fee_currency = src.fee_currency;
         dst.fee_amount = src.fee_amount;
         if !src.apc_evidence.is_empty() {
             dst.apc_evidence = src.apc_evidence;
+        }
+        if dst.apc_raw_text.is_empty() && !src.apc_raw_text.is_empty() {
+            dst.apc_raw_text = src.apc_raw_text;
         }
     }
     if dst.last_issue_year.is_none() && src.last_issue_year.is_some() {
@@ -136,6 +145,20 @@ fn merge_into(dst: &mut JournalRecord, src: JournalRecord) {
         && !dst.source_portal.contains(&src.source_portal)
     {
         dst.source_portal = format!("{} + {}", dst.source_portal, src.source_portal);
+    }
+    if dst.submission_fee_idr.is_none() && src.submission_fee_idr.is_some() {
+        dst.submission_fee_idr = src.submission_fee_idr;
+    }
+    dst.bot_protected = dst.bot_protected || src.bot_protected;
+    dst.issn_valid = dst.issn_valid || src.issn_valid;
+    for idx_name in src.extra_indexes {
+        if !dst
+            .extra_indexes
+            .iter()
+            .any(|x| x.eq_ignore_ascii_case(&idx_name))
+        {
+            dst.extra_indexes.push(idx_name);
+        }
     }
     if dst.turnaround_weeks.is_none() && src.turnaround_weeks.is_some() {
         dst.turnaround_weeks = src.turnaround_weeks;
@@ -211,6 +234,13 @@ pub fn deduplicate_and_merge(entries: Vec<JournalRecord>) -> Vec<JournalRecord> 
         }
     }
 
+    for rec in &mut merged {
+        rec.issn_valid = crate::parser::heuristics::has_valid_issn_pair(&rec.issn, &rec.eissn);
+        if rec.source_portal.contains("DOAJ") && !rec.extra_indexes.iter().any(|x| x == "DOAJ") {
+            rec.extra_indexes.push("DOAJ".to_string());
+        }
+    }
+
     merged
 }
 
@@ -244,5 +274,30 @@ mod tests {
         assert_eq!(out[0].publisher, "UNDIP");
         assert!(out[0].website_url.contains("undip.ac.id"));
         assert!(out[0].source_portal.contains("SINTA + Garuda"));
+
+        // Verify Paid OJS evidence always overrides DOAJ Free metadata
+        let doaj_free = JournalRecord {
+            title: "Jurnal Maliyah".to_string(),
+            eissn: "2502-2377".to_string(),
+            apc_status: "Gratis (Rp 0)".to_string(),
+            publication_fee_idr: Some(0),
+            apc_idr_numeric: Some(0),
+            source_portal: "DOAJ".to_string(),
+            ..Default::default()
+        };
+        let ojs_paid = JournalRecord {
+            title: "Jurnal Maliyah".to_string(),
+            eissn: "2502-2377".to_string(),
+            apc_status: "Rp 2.220.000".to_string(),
+            publication_fee: "Rp 2.220.000".to_string(),
+            publication_fee_idr: Some(2_220_000),
+            apc_idr_numeric: Some(2_220_000),
+            source_portal: "SINTA".to_string(),
+            ..Default::default()
+        };
+        let paid_merged = deduplicate_and_merge(vec![doaj_free, ojs_paid]);
+        assert_eq!(paid_merged.len(), 1);
+        assert_eq!(paid_merged[0].apc_category(), "paid");
+        assert_eq!(paid_merged[0].apc_idr_numeric, Some(2_220_000));
     }
 }

@@ -991,8 +991,21 @@ pub fn extract_manuscript_title_and_keywords(text: &str) -> (String, String, Vec
     (extracted_title, joined, flat_tokens)
 }
 
+pub const MAX_MANUSCRIPT_BYTES: usize = 50 * 1024 * 1024;
+
 pub fn build_manuscript_meta(filename: &str, bytes: &[u8]) -> Result<ManuscriptMeta, JsfsError> {
+    if bytes.len() > MAX_MANUSCRIPT_BYTES {
+        return Err(JsfsError::InvalidInput(
+            "Ukuran file naskah melebihi batas maksimal 50 MB.".to_string(),
+        ));
+    }
     let low = filename.to_ascii_lowercase();
+    if low.ends_with(".docm") {
+        return Err(JsfsError::InvalidInput(
+            "File .docm (macro-enabled) ditolak demi keamanan; gunakan .docx atau .pdf standar."
+                .to_string(),
+        ));
+    }
     let extracted_text = if low.ends_with(".docx") {
         extract_text_from_docx_bytes(bytes)?
     } else if low.ends_with(".pdf") {
@@ -2141,5 +2154,17 @@ Daftar Pustaka\n\
         assert!(topics.iter().all(|t| t.split_whitespace().count() <= 2));
         assert!(topics.contains(&"e-commerce".to_string()));
         assert!(topics.contains(&"live streaming".to_string()));
+    }
+
+    #[test]
+    fn test_manuscript_docm_and_size_limit_guards() {
+        let err_docm = build_manuscript_meta("naskah_skripsi.docm", b"PK\x03\x04dummy");
+        assert!(err_docm.is_err());
+        assert!(err_docm.unwrap_err().to_string().contains(".docm"));
+
+        let oversized = vec![b'a'; MAX_MANUSCRIPT_BYTES + 1];
+        let err_big = build_manuscript_meta("big_paper.docx", &oversized);
+        assert!(err_big.is_err());
+        assert!(err_big.unwrap_err().to_string().contains("50 MB"));
     }
 }

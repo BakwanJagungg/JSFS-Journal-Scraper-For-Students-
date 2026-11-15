@@ -10,8 +10,84 @@ use dashmap::DashMap;
 use futures_util::StreamExt;
 use once_cell::sync::Lazy;
 use regex::Regex;
-use std::time::Duration;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Mutex;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use url::Url;
+
+pub const MAX_STREAM_CONTENT_LENGTH_BYTES: u64 = 2 * 1024 * 1024; // 2 MB guard
+pub const POLITE_BOT_USER_AGENT: &str =
+    "JSFS-Academic-Research-Tool/4.7 (+https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-)";
+
+const BROWSER_USER_AGENTS: [&str; 4] = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36 Edg/133.0.0.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.0.0",
+];
+
+static POLITE_BOT_MODE: AtomicBool = AtomicBool::new(false);
+static UA_ROTATION_IDX: AtomicUsize = AtomicUsize::new(0);
+static HOST_RATE_SLOTS: Lazy<Mutex<HashMap<String, tokio::time::Instant>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+pub fn set_polite_bot_mode(enabled: bool) {
+    POLITE_BOT_MODE.store(enabled, Ordering::Relaxed);
+}
+
+pub fn is_polite_bot_mode() -> bool {
+    POLITE_BOT_MODE.load(Ordering::Relaxed)
+}
+
+pub fn next_user_agent() -> &'static str {
+    if is_polite_bot_mode() {
+        POLITE_BOT_USER_AGENT
+    } else {
+        let idx = UA_ROTATION_IDX.fetch_add(1, Ordering::Relaxed);
+        BROWSER_USER_AGENTS[idx % BROWSER_USER_AGENTS.len()]
+    }
+}
+
+fn zero_dep_jitter_ms(min_ms: u64, max_ms: u64) -> u64 {
+    let span = max_ms.saturating_sub(min_ms).saturating_add(1);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.subsec_nanos() as u64)
+        .unwrap_or(0);
+    let seq = UA_ROTATION_IDX.load(Ordering::Relaxed) as u64;
+    let mixed = nanos ^ seq.wrapping_mul(2_654_435_761);
+    min_ms + (mixed % span)
+}
+
+/// Per-host politeness limiter: ensures max 1 request per 150–300 ms + 50–120 ms random jitter per domain.
+pub async fn enforce_host_rate_limit(url: &str) {
+    let Some(host) = DomainBreaker::host_key(url) else {
+        return;
+    };
+    if host.contains("kemdiktisaintek.go.id") {
+        return;
+    }
+    let wait_until = {
+        let mut map = match HOST_RATE_SLOTS.lock() {
+            Ok(g) => g,
+            Err(_) => return,
+        };
+        let now = tokio::time::Instant::now();
+        let base_ms = if is_polite_bot_mode() { 260 } else { 180 };
+        let gap = Duration::from_millis(base_ms + zero_dep_jitter_ms(50, 120));
+        let next_allowed = match map.get(&host).copied() {
+            Some(prev) if prev + gap > now => prev + gap,
+            _ => now,
+        };
+        map.insert(host, next_allowed);
+        next_allowed
+    };
+    let now = tokio::time::Instant::now();
+    if wait_until > now {
+        tokio::time::sleep_until(wait_until).await;
+    }
+}
 
 static RE_PUB_NOISE_SHARED: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
@@ -109,13 +185,20 @@ pub struct FetchOutcome {
     pub timed_out: bool,
 }
 
-pub fn is_cloudflare_html(status: u16, html: &str) -> bool {
+pub fn is_cloudflare_response(status: u16, server_header: &str, html: &str) -> bool {
+    let srv_low = server_header.to_ascii_lowercase();
     if matches!(status, 403 | 503) {
+        if srv_low.contains("cloudflare") {
+            return true;
+        }
         let low = html.to_ascii_lowercase();
         if low.contains("just a moment")
             || low.contains("cf-browser-verification")
             || low.contains("turnstile")
             || low.contains("challenge-running")
+            || low.contains("attention required")
+            || low.contains("cloudflare ray id")
+            || low.contains("ddos-guard")
         {
             return true;
         }
@@ -127,7 +210,37 @@ pub fn is_cloudflare_html(status: u16, html: &str) -> bool {
         || (low.contains("<title>just a moment") && low.contains("cloudflare"))
 }
 
-/// Stream HTML up to `MAX_HTML_BYTES` (1.5 MB guard) with strict wall-clock timeout and DomainBreaker integration.
+pub fn is_cloudflare_html(status: u16, html: &str) -> bool {
+    is_cloudflare_response(status, "", html)
+}
+
+pub fn is_disallowed_stream_headers(
+    content_type: Option<&str>,
+    content_length: Option<u64>,
+) -> Result<(), String> {
+    if let Some(cl) = content_length {
+        if cl > MAX_STREAM_CONTENT_LENGTH_BYTES {
+            return Err(format!("content_too_large:{cl}"));
+        }
+    }
+    if let Some(ct) = content_type {
+        let low = ct.to_ascii_lowercase();
+        if low.contains("application/pdf")
+            || low.contains("octet-stream")
+            || low.contains("zip")
+            || low.contains("image/")
+            || low.contains("video/")
+            || low.contains("audio/")
+            || (!low.contains("html") && !low.contains("xml") && !low.contains("text"))
+        {
+            return Err(format!("non_html_content:{low}"));
+        }
+    }
+    Ok(())
+}
+
+/// Stream HTML up to `MAX_HTML_BYTES` (1.5 MB / <= 2 MB header guard) with strict wall-clock timeout,
+/// DomainBreaker protection, and polite per-host rate limiting.
 pub async fn safe_fetch_html(
     client: &reqwest::Client,
     breaker: &DomainBreaker,
@@ -141,9 +254,13 @@ pub async fn safe_fetch_html(
         });
     }
 
+    enforce_host_rate_limit(url).await;
+    let ua = next_user_agent();
+
     let req_fut = async {
         let resp = client
             .get(url)
+            .header(reqwest::header::USER_AGENT, ua)
             .header(
                 "Accept",
                 "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -161,21 +278,24 @@ pub async fn safe_fetch_html(
 
         let status = resp.status().as_u16();
         let final_url = resp.url().to_string();
+        let server_hdr = resp
+            .headers()
+            .get(reqwest::header::SERVER)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        let ct_hdr = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok());
+        is_disallowed_stream_headers(ct_hdr, resp.content_length())?;
 
-        if let Some(ct) = resp.headers().get(reqwest::header::CONTENT_TYPE) {
-            if let Ok(ct_str) = ct.to_str() {
-                let low = ct_str.to_ascii_lowercase();
-                if !low.contains("html") && !low.contains("xml") && !low.contains("text") {
-                    return Err(format!("non_html_content:{low}"));
-                }
-            }
-        }
-
+        let cap_bytes = MAX_HTML_BYTES.min(MAX_STREAM_CONTENT_LENGTH_BYTES as usize);
         let mut buf = Vec::with_capacity(32 * 1024);
         let mut stream = resp.bytes_stream();
         while let Some(chunk_res) = stream.next().await {
             let chunk = chunk_res.map_err(|e| format!("stream:{e}"))?;
-            let remaining = MAX_HTML_BYTES.saturating_sub(buf.len());
+            let remaining = cap_bytes.saturating_sub(buf.len());
             if remaining == 0 {
                 break;
             }
@@ -187,8 +307,8 @@ pub async fn safe_fetch_html(
         }
 
         let html = String::from_utf8_lossy(&buf).into_owned();
-        let cf = is_cloudflare_html(status, &html);
-        Ok(FetchOutcome {
+        let cf = is_cloudflare_response(status, &server_hdr, &html);
+        Ok::<FetchOutcome, String>(FetchOutcome {
             status,
             html,
             final_url,
@@ -214,5 +334,40 @@ pub async fn safe_fetch_html(
             breaker.record(url, DomainHealth::Timeout);
             Err("timeout".to_string())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_stream_guards_and_bot_challenge_detection() {
+        assert!(is_disallowed_stream_headers(Some("application/pdf"), Some(1024)).is_err());
+        assert!(is_disallowed_stream_headers(Some("application/octet-stream"), Some(100)).is_err());
+        assert!(
+            is_disallowed_stream_headers(Some("text/html; charset=utf-8"), Some(3_000_000))
+                .is_err()
+        );
+        assert!(
+            is_disallowed_stream_headers(Some("text/html; charset=utf-8"), Some(64_000)).is_ok()
+        );
+
+        assert!(is_cloudflare_response(403, "cloudflare", "Access denied"));
+        assert!(is_cloudflare_response(
+            503,
+            "",
+            "<title>Just a moment...</title>"
+        ));
+        assert!(!is_cloudflare_response(
+            200,
+            "nginx",
+            "<html><body>OJS Journal</body></html>"
+        ));
+
+        set_polite_bot_mode(true);
+        assert_eq!(next_user_agent(), POLITE_BOT_USER_AGENT);
+        set_polite_bot_mode(false);
+        assert!(next_user_agent().contains("Mozilla/5.0"));
     }
 }

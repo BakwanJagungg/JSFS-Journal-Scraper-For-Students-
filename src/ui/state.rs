@@ -565,7 +565,9 @@ pub fn format_duration(secs: f64) -> String {
 }
 
 pub fn activity_badge_label(item: &UiJournalItem) -> String {
-    if item.is_dormant {
+    if item.bot_protected && item.last_issue_year.is_none() {
+        "Proteksi Bot (Buka Web)".to_string()
+    } else if item.is_dormant {
         item.last_issue_year
             .map(|y| format!("Dorman {y}"))
             .unwrap_or_else(|| "Dorman".to_string())

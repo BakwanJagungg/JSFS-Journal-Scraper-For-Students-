@@ -91,7 +91,9 @@ fn filter_accreditation_tier(
     filter_quartiles: bool,
 ) -> bool {
     if rec.is_international {
-        if !filter_quartiles && allowed_quartiles.is_empty() {
+        if (!filter_quartiles && allowed_quartiles.is_empty())
+            || (rec.quartile.is_none() && allowed_quartiles.len() >= 4)
+        {
             return true;
         }
         return rec.quartile.as_deref().is_some_and(|q| {
@@ -405,6 +407,27 @@ pub fn start_search(
                         .await
                     });
                 }
+                if params.openalex || params.doaj {
+                    let c = client.clone();
+                    let kw_c = kw.clone();
+                    let cf = cancel_flag.clone();
+                    let app_c = app.clone();
+                    portal_tasks.spawn(async move {
+                        international::scrape_crossref(&c, &kw_c, cf, |d, t, msg| {
+                            emit_progress(
+                                &app_c,
+                                "fase1_portal",
+                                d,
+                                t,
+                                msg,
+                                "Mengakses Crossref Journals API...",
+                                started_at,
+                                (0, 0, 0, 0),
+                            );
+                        })
+                        .await
+                    });
+                }
             }
 
             while let Some(joined) = portal_tasks.join_next().await {
@@ -442,19 +465,102 @@ pub fn start_search(
             let deep_cap = (target * 2).clamp(40, 1200);
             deep_pool.truncate(deep_cap);
 
-            emit_log(
-                &app,
-                format!(
-                    "Fase 2: Deep Crawl OJS ({} jurnal kandidat setelah deduplikasi & pre-filter SINTA)...",
-                    deep_pool.len()
-                ),
-            );
-
-            // PHASE 2: Concurrent OJS Deep Crawl (CPU-adaptive semaphore) + Auto-Save
+            // Smart Cache Hit Partition (< 14 days SQLite WAL): bypass HTTP crawl entirely for cached journals
             let total_deep = deep_pool.len();
+            let mut enriched: Vec<JournalRecord> = Vec::with_capacity(total_deep);
+            let mut to_crawl: Vec<JournalRecord> = Vec::with_capacity(total_deep);
+            let mut cache_hits = 0usize;
+
+            {
+                let mut cached_batch: Vec<UiJournalItem> = Vec::new();
+                let db_hit_map: Vec<Option<JournalRecord>> = if let Ok(guard) = cache.lock() {
+                    if let Some(ref db) = *guard {
+                        deep_pool
+                            .iter()
+                            .map(|r| {
+                                if r.website_url.starts_with("http")
+                                    && !r.website_url.contains("kemdiktisaintek.go.id")
+                                {
+                                    db.get(&r.website_url).ok().flatten()
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect()
+                    } else {
+                        vec![None; deep_pool.len()]
+                    }
+                } else {
+                    vec![None; deep_pool.len()]
+                };
+
+                for (rec, hit_opt) in deep_pool.into_iter().zip(db_hit_map) {
+                    if let Some(mut cached) = hit_opt {
+                        cache_hits += 1;
+                        if cached.sinta_rank_num().is_none() && rec.sinta_rank_num().is_some() {
+                            cached.sinta_score = rec.sinta_score.clone();
+                        }
+                        if cached.sinta_url.is_empty() && !rec.sinta_url.is_empty() {
+                            cached.sinta_url = rec.sinta_url.clone();
+                        }
+                        if cached.garuda_url.is_empty() && !rec.garuda_url.is_empty() {
+                            cached.garuda_url = rec.garuda_url.clone();
+                        }
+                        if params.match_enabled {
+                            let ms_ref = manuscript_guard.read().await;
+                            let (sc, lbl, rsn) =
+                                doc_matcher::compute_match_score(&cached, &keywords, ms_ref.as_ref());
+                            cached.match_score = sc;
+                            cached.match_label = lbl;
+                            cached.match_reasons = rsn;
+                        }
+                        cached.apply_display_currency(params.display_currency, params.usd_to_idr);
+                        cached_batch.push(UiJournalItem::from(&cached));
+                        enriched.push(cached);
+                    } else {
+                        to_crawl.push(rec);
+                    }
+                }
+
+                if !cached_batch.is_empty() {
+                    let kpi = compute_kpi(&enriched);
+                    emit_progress(
+                        &app,
+                        "fase2_deep",
+                        enriched.len(),
+                        total_deep,
+                        "Memuat data terverifikasi dari cache lokal...",
+                        &format!(
+                            "Smart Cache Hit: {cache_hits}/{total_deep} jurnal dimuat instan..."
+                        ),
+                        started_at,
+                        kpi,
+                    );
+                    app.send(EngineEvent::ResultBatch(cached_batch));
+                }
+            }
+
+            if cache_hits > 0 {
+                emit_log(
+                    &app,
+                    format!(
+                        "⚡ Smart Cache Hit: {cache_hits} dari {total_deep} jurnal dimuat instan dari SQLite (< 14 hari); deep crawl OJS untuk {} jurnal baru...",
+                        to_crawl.len()
+                    ),
+                );
+            } else {
+                emit_log(
+                    &app,
+                    format!(
+                        "Fase 2: Deep Crawl OJS ({total_deep} jurnal kandidat setelah deduplikasi & pre-filter SINTA)...",
+                    ),
+                );
+            }
+
+            // PHASE 2: Concurrent OJS Deep Crawl for cache misses (CPU-adaptive semaphore) + Auto-Save
             let sem = Arc::new(Semaphore::new(effective_max_workers()));
             let mut deep_set = JoinSet::new();
-            for (idx, rec) in deep_pool.into_iter().enumerate() {
+            for (idx, rec) in to_crawl.into_iter().enumerate() {
                 let c = client.clone();
                 let br = breaker.clone();
                 let db = cache.clone();
@@ -475,7 +581,6 @@ pub fn start_search(
                 });
             }
 
-            let mut enriched: Vec<JournalRecord> = Vec::with_capacity(total_deep);
             let mut pending_batch: Vec<UiJournalItem> = Vec::new();
             while let Some(joined) = deep_set.join_next().await {
                 if let Ok((_idx, mut rec)) = joined {

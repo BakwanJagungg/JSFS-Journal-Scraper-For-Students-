@@ -254,7 +254,7 @@ pub async fn run_selective_enrichment<F, P, Fut>(
                         GLOBAL_AI_BREAKER.record_success();
                         if let Some((sub, pub_fee, cur)) = validate_apc_json(&val, &raw_snip) {
                             if let Some(s) = sub {
-                                records[idx].submission_fee_idr = Some(s);
+                                records[idx].submission_fee_idr = Some(s.max(0) as u64);
                             }
                             if let Some(p) = pub_fee {
                                 records[idx].ai_validated = true;

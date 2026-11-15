@@ -6,10 +6,12 @@ use crate::engine::file_ops::{format_editor_draft, open_url_with_feedback};
 use crate::engine::manuscript::ManuscriptSummary;
 use crate::engine::{EngineEvent, EventSink};
 use crate::exporter::templates::{
-    generate_cover_letter, generate_editor_inquiry_email, generate_followup_email,
+    generate_cover_letter_with_profile, generate_editor_inquiry_email_with_profile,
+    generate_followup_email_with_profile, generate_originality_statement,
 };
-use crate::models::{FitStatus, UiJournalItem};
+use crate::models::{compute_submission_readiness, FitStatus, UiJournalItem};
 use crate::parser::doc_matcher::check_manuscript_word_fit;
+use crate::ui::i18n::{AppLanguage, AppSettings};
 use crate::ui::state::AppState;
 use crate::ui::theme::{
     accent_button, card, pill_badge, quartile_pill_colors, secondary_button, Palette,
@@ -21,6 +23,7 @@ pub enum DetailModalAction {
     Close,
     FindSimilar(usize),
     SaveTrack(SubmissionTrack),
+    ExportBundle(usize),
 }
 
 pub const SUBMISSION_STATUS_OPTIONS: [&str; 7] = [
@@ -74,12 +77,14 @@ pub fn render_detail_modal(
     item: Option<&UiJournalItem>,
     keyword: &str,
     manuscript: Option<&ManuscriptSummary>,
+    app_settings: &AppSettings,
     app_state: &mut AppState,
     sink: &EventSink,
 ) -> DetailModalAction {
     let Some(j) = item else {
         return DetailModalAction::Close;
     };
+    let is_en = app_settings.language == AppLanguage::En;
 
     let canonical_key = SubmissionTrack::canonical_key(&j.url, &j.nama);
     if app_state.active_track_edit.journal_key != canonical_key {
@@ -99,13 +104,13 @@ pub fn render_detail_modal(
     let mut action = DetailModalAction::None;
     let mut close_requested = false;
     let modal_resp = egui::Modal::new(egui::Id::unique("journal_detail_modal")).show(ctx, |ui| {
-        ui.set_width(660.0_f32.min(ctx.content_rect().width() - 48.0));
-        ui.set_max_height(ctx.content_rect().height() - 64.0);
+        ui.set_width(680.0_f32.min(ctx.content_rect().width() - 48.0));
+        ui.set_max_height(ctx.content_rect().height() - 56.0);
 
         // Header
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
-                ui.set_max_width(540.0);
+                ui.set_max_width(560.0);
                 ui.label(RichText::new(&j.nama).size(17.5).strong().color(p.text));
                 ui.horizontal_wrapped(|ui| {
                     if let Some(q) = j
@@ -126,6 +131,8 @@ pub fn render_detail_modal(
 
                     let act_fg = if j.is_dormant {
                         p.bad
+                    } else if j.bot_protected && j.last_issue_year.is_none() {
+                        p.warn
                     } else if j.activity_status.contains("Aktif") {
                         p.good
                     } else {
@@ -133,12 +140,26 @@ pub fn render_detail_modal(
                     };
                     let act_bg = if j.is_dormant {
                         p.bad_soft
+                    } else if j.bot_protected && j.last_issue_year.is_none() {
+                        p.warn_soft
                     } else if j.activity_status.contains("Aktif") {
                         p.good_soft
                     } else {
                         p.warn_soft
                     };
                     pill_badge(ui, &j.activity_status, act_fg, act_bg);
+
+                    if !j.issn.trim().is_empty() || !j.eissn.trim().is_empty() {
+                        if j.issn_valid {
+                            pill_badge(ui, "ISSN Valid", p.good, p.good_soft);
+                        } else {
+                            pill_badge(ui, "ISSN Cek Checksum", p.warn, p.warn_soft);
+                        }
+                    }
+
+                    for idx_badge in &j.extra_indexes {
+                        pill_badge(ui, idx_badge, p.accent, p.accent_soft);
+                    }
 
                     if !j.turnaround_label.trim().is_empty() {
                         pill_badge(
@@ -157,8 +178,7 @@ pub fn render_detail_modal(
                         );
                     }
 
-                    let match_lbl =
-                        format!("Match {:.0}% • {}", j.match_score, j.kesesuaian_naskah);
+                    let match_lbl = format!("Match {:.0}%", j.match_score);
                     pill_badge(ui, &match_lbl, p.good, p.good_soft);
 
                     if j.cited_count > 0 {
@@ -188,6 +208,45 @@ pub fn render_detail_modal(
         ui.add_space(10.0);
 
         ScrollArea::vertical().max_height(430.0).show(ui, |ui| {
+            // Pre-Submission Readiness Score (0-100%) Card
+            let readiness = compute_submission_readiness(
+                j,
+                manuscript.map(|m| m.word_count),
+                manuscript.map(|m| m.imrad_complete),
+                is_en,
+            );
+            let (rd_fg, rd_bg) = if readiness.score >= 80 {
+                (p.good, p.good_soft)
+            } else if readiness.score >= 55 {
+                (p.warn, p.warn_soft)
+            } else {
+                (p.bad, p.bad_soft)
+            };
+            card(ui, p, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(if is_en {
+                            "Pre-Submission Readiness Score"
+                        } else {
+                            "Skor Kesiapan Pengajuan (Pre-Submission Readiness)"
+                        })
+                        .size(13.0)
+                        .strong()
+                        .color(p.text),
+                    );
+                    pill_badge(ui, &format!("{}%", readiness.score), rd_fg, rd_bg);
+                });
+                ui.add_space(4.0);
+                for (ok, msg) in &readiness.checklist {
+                    let (mark, col) = if *ok { ("[✓]", p.good) } else { ("[!]", p.warn) };
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(RichText::new(mark).size(12.0).strong().color(col));
+                        ui.label(RichText::new(msg).size(12.0).color(p.text));
+                    });
+                }
+            });
+            ui.add_space(10.0);
+
             if let Some(ref warn) = j.risk_warning {
                 Frame::new()
                     .fill(p.bad_soft)
@@ -197,14 +256,14 @@ pub fn render_detail_modal(
                     .show(ui, |ui| {
                         ui.set_min_width(ui.available_width());
                         ui.label(
-                            RichText::new("⚠ Peringatan Audit Keamanan / Predatory Detector")
+                            RichText::new("⚠ Peringatan Audit Keamanan / Predatory & Cloned Detector")
                                 .size(12.0)
                                 .strong()
                                 .color(p.bad),
                         );
                         ui.label(RichText::new(warn).size(12.0).color(p.text));
                     });
-                ui.add_space(8.0);
+                ui.add_space(10.0);
             }
 
             card(ui, p, |ui| {
@@ -223,16 +282,33 @@ pub fn render_detail_modal(
                     (true, false) => format!("e-ISSN {}", j.eissn),
                     (false, false) => format!("{} / e-ISSN {}", j.issn, j.eissn),
                 };
-                info_kv(ui, p, "ISSN", &issn_disp);
+                let issn_note = if j.issn_valid {
+                    format!("{issn_disp} (Checksum ISO 3297 Valid)")
+                } else if issn_disp != "-" {
+                    format!("{issn_disp} (Cek Validitas Manual)")
+                } else {
+                    issn_disp
+                };
+                info_kv(ui, p, "ISSN", &issn_note);
+                if !j.extra_indexes.is_empty() {
+                    info_kv(ui, p, "Indeks Sekunder", &j.extra_indexes.join(", "));
+                }
                 let year_disp = j
                     .last_issue_year
                     .map(|y| format!("{y} ({})", j.activity_status))
                     .unwrap_or_else(|| j.activity_status.clone());
                 info_kv(ui, p, "Tahun Edisi Terakhir", &year_disp);
                 info_kv(ui, p, "Biaya Publikasi (APC)", &j.apc_label);
-                if j.submit_label != "-" {
-                    info_kv(ui, p, "Submission Fee", &j.submit_label);
-                }
+                let sub_disp = match j.submission_fee_idr {
+                    Some(0) => "Gratis (Rp 0 — tidak ada biaya submit)".to_string(),
+                    Some(v) => format!(
+                        "{} (terpisah dari APC publikasi)",
+                        crate::models::format_idr_short(v as i64)
+                    ),
+                    None if j.submit_label != "-" => j.submit_label.clone(),
+                    None => "Tidak dicantumkan / Tidak dipungut".to_string(),
+                };
+                info_kv(ui, p, "Biaya Submit (Submission Fee)", &sub_disp);
                 if let Some(open) = j.submission_open {
                     info_kv(
                         ui,
@@ -269,7 +345,7 @@ pub fn render_detail_modal(
                 || j.cited_count > 0
                 || manuscript.is_some()
             {
-                ui.add_space(8.0);
+                ui.add_space(10.0);
                 card(ui, p, |ui| {
                     ui.label(
                         RichText::new("Syarat Naskah & Pre-Flight Fit")
@@ -333,7 +409,7 @@ pub fn render_detail_modal(
             }
 
             if !j.apc_evidence.trim().is_empty() {
-                ui.add_space(8.0);
+                ui.add_space(10.0);
                 Frame::new()
                     .fill(p.accent_soft)
                     .stroke(Stroke::new(1.0, p.accent))
@@ -351,7 +427,7 @@ pub fn render_detail_modal(
                     });
             }
 
-            ui.add_space(8.0);
+            ui.add_space(10.0);
             card(ui, p, |ui| {
                 ui.label(
                     RichText::new("Pelacak Status Pengiriman Naskah (Tersimpan Lokal)")
@@ -388,11 +464,12 @@ pub fn render_detail_modal(
                         .on_hover_text("Salin draf email sopan menanyakan status review ke editor")
                         .clicked()
                     {
-                        let body = generate_followup_email(
+                        let body = generate_followup_email_with_profile(
                             j,
                             keyword,
                             manuscript,
                             &app_state.active_track_edit.submitted_date,
+                            Some(app_settings),
                             "id",
                         );
                         ctx.copy_text(body);
@@ -404,11 +481,12 @@ pub fn render_detail_modal(
                         .on_hover_text("Copy polite English review-status follow-up email")
                         .clicked()
                     {
-                        let body = generate_followup_email(
+                        let body = generate_followup_email_with_profile(
                             j,
                             keyword,
                             manuscript,
                             &app_state.active_track_edit.submitted_date,
+                            Some(app_settings),
                             "en",
                         );
                         ctx.copy_text(body);
@@ -428,7 +506,7 @@ pub fn render_detail_modal(
                 });
             });
 
-            ui.add_space(8.0);
+            ui.add_space(10.0);
             card(ui, p, |ui| {
                 ui.label(
                     RichText::new("Focus & Scope Jurnal")
@@ -453,7 +531,96 @@ pub fn render_detail_modal(
                 }
             });
 
-            ui.add_space(8.0);
+            ui.add_space(10.0);
+            card(ui, p, |ui| {
+                ui.label(
+                    RichText::new("Draf Surat & Email ke Editor (Auto-Fill Profil)")
+                        .size(13.0)
+                        .strong()
+                        .color(p.text),
+                );
+                ui.add_space(4.0);
+                ui.horizontal_wrapped(|ui| {
+                    if secondary_button(ui, p, "Cover Letter (ID)").clicked() {
+                        let letter = generate_cover_letter_with_profile(
+                            j,
+                            keyword,
+                            manuscript,
+                            Some(app_settings),
+                            "id",
+                        );
+                        ctx.copy_text(letter);
+                        sink.send(EngineEvent::Toast(
+                            "Surat Pengantar (Cover Letter Bahasa Indonesia) disalin ke clipboard."
+                                .to_string(),
+                        ));
+                    }
+                    if secondary_button(ui, p, "Cover Letter (EN)").clicked() {
+                        let letter = generate_cover_letter_with_profile(
+                            j,
+                            keyword,
+                            manuscript,
+                            Some(app_settings),
+                            "en",
+                        );
+                        ctx.copy_text(letter);
+                        sink.send(EngineEvent::Toast(
+                            "English Cover Letter copied to clipboard.".to_string(),
+                        ));
+                    }
+                    if secondary_button(ui, p, "Surat Keaslian")
+                        .on_hover_text("Salin Surat Pernyataan Keaslian Naskah bermaterai Rp 10.000")
+                        .clicked()
+                    {
+                        let stmt = generate_originality_statement(
+                            j,
+                            manuscript,
+                            Some(app_settings),
+                            if is_en { "en" } else { "id" },
+                        );
+                        ctx.copy_text(stmt);
+                        sink.send(EngineEvent::Toast(
+                            "Surat Pernyataan Keaslian Naskah disalin ke clipboard.".to_string(),
+                        ));
+                    }
+                    if secondary_button(ui, p, "Email Editor (ID)")
+                        .on_hover_text("Salin email konsultasi pra-submit (Subjek + Isi) siap kirim")
+                        .clicked()
+                    {
+                        let email = generate_editor_inquiry_email_with_profile(
+                            j,
+                            keyword,
+                            manuscript,
+                            Some(app_settings),
+                            "id",
+                        );
+                        ctx.copy_text(email);
+                        sink.send(EngineEvent::Toast(
+                            "Draf Email Inquiry Editor (ID) disalin ke clipboard.".to_string(),
+                        ));
+                    }
+                    if secondary_button(ui, p, "Email Editor (EN)")
+                        .on_hover_text(
+                            "Copy pre-submission inquiry email (Subject + Body) to clipboard",
+                        )
+                        .clicked()
+                    {
+                        let email = generate_editor_inquiry_email_with_profile(
+                            j,
+                            keyword,
+                            manuscript,
+                            Some(app_settings),
+                            "en",
+                        );
+                        ctx.copy_text(email);
+                        sink.send(EngineEvent::Toast(
+                            "English Editor Inquiry Email copied to clipboard.".to_string(),
+                        ));
+                    }
+                });
+            });
+
+            ui.add_space(10.0);
             card(ui, p, |ui| {
                 ui.label(
                     RichText::new("Kontak Redaksi Editor & Dokumen")
@@ -500,7 +667,7 @@ pub fn render_detail_modal(
         });
 
         ui.add_space(10.0);
-        ui.horizontal_wrapped(|ui| {
+        ui.horizontal(|ui| {
             ui.set_min_width(ui.available_width());
             if secondary_button(ui, p, "Salin Draf WA").clicked() {
                 let draft = format_editor_draft(&j.nama, keyword);
@@ -509,42 +676,13 @@ pub fn render_detail_modal(
                     "Draf pesan sopan ke editor disalin ke clipboard.".to_string(),
                 ));
             }
-            if secondary_button(ui, p, "Cover Letter (ID)").clicked() {
-                let letter = generate_cover_letter(j, keyword, manuscript, "id");
-                ctx.copy_text(letter);
-                sink.send(EngineEvent::Toast(
-                    "Surat Pengantar (Cover Letter Bahasa Indonesia) disalin ke clipboard."
-                        .to_string(),
-                ));
-            }
-            if secondary_button(ui, p, "Cover Letter (EN)").clicked() {
-                let letter = generate_cover_letter(j, keyword, manuscript, "en");
-                ctx.copy_text(letter);
-                sink.send(EngineEvent::Toast(
-                    "English Cover Letter copied to clipboard.".to_string(),
-                ));
-            }
-            if secondary_button(ui, p, "Email Editor (ID)")
-                .on_hover_text("Salin email konsultasi pra-submit (Subjek + Isi) siap kirim")
+            if secondary_button(ui, p, "Paket Pengajuan (.zip)")
+                .on_hover_text("Bundel .zip berisi Cover Letter, Surat Pernyataan Keaslian, dan Ringkasan Aturan Jurnal")
                 .clicked()
             {
-                let email = generate_editor_inquiry_email(j, keyword, manuscript, "id");
-                ctx.copy_text(email);
-                sink.send(EngineEvent::Toast(
-                    "Draf Email Inquiry Editor (ID) disalin ke clipboard.".to_string(),
-                ));
+                action = DetailModalAction::ExportBundle(item_idx);
             }
-            if secondary_button(ui, p, "Email Editor (EN)")
-                .on_hover_text("Copy pre-submission inquiry email (Subject + Body) to clipboard")
-                .clicked()
-            {
-                let email = generate_editor_inquiry_email(j, keyword, manuscript, "en");
-                ctx.copy_text(email);
-                sink.send(EngineEvent::Toast(
-                    "English Editor Inquiry Email copied to clipboard.".to_string(),
-                ));
-            }
-            if secondary_button(ui, p, "🔍 Cari Jurnal Mirip")
+            if secondary_button(ui, p, "Cari Jurnal Mirip")
                 .on_hover_text("Urutkan tabel berdasarkan kemiripan topik dengan jurnal ini")
                 .clicked()
             {

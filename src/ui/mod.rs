@@ -84,6 +84,7 @@ impl JsfsNativeApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         load_crisp_fonts(&cc.egui_ctx);
         let app_settings = load_app_settings();
+        crate::scraper::set_polite_bot_mode(app_settings.polite_bot_mode);
         let theme_mode = if app_settings.dark_theme {
             ThemeMode::Dark
         } else {
@@ -648,11 +649,31 @@ impl eframe::App for JsfsNativeApp {
                 item.as_ref(),
                 &self.keyword,
                 self.manuscript.as_ref(),
+                &self.app_settings,
                 &mut self.app_state,
                 &self.sink,
             ) {
                 DetailModalAction::Close => {
                     self.detail_open_idx = None;
+                }
+                DetailModalAction::ExportBundle(target_idx) => {
+                    if let Some(j_item) = self.results.get(target_idx).cloned() {
+                        let lang_code =
+                            if self.app_settings.language == crate::ui::i18n::AppLanguage::En {
+                                "en"
+                            } else {
+                                "id"
+                            };
+                        crate::engine::file_ops::export_submission_bundle_async(
+                            self.engine.clone(),
+                            self.sink.clone(),
+                            j_item,
+                            self.keyword.clone(),
+                            self.manuscript.clone(),
+                            self.app_settings.clone(),
+                            lang_code,
+                        );
+                    }
                 }
                 DetailModalAction::FindSimilar(target_idx) => {
                     let seed_name = self

@@ -1,3 +1,4 @@
+pub mod bundle;
 pub mod citation;
 pub mod csv_writer;
 pub mod list_txt;
@@ -18,7 +19,7 @@ pub struct ExportBundle {
     pub list_path: Option<String>,
 }
 
-fn sanitize_slug(raw: &str) -> String {
+pub(crate) fn sanitize_slug(raw: &str) -> String {
     let s: String = raw
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })

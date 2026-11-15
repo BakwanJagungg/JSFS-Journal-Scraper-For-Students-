@@ -16,6 +16,56 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use url::Url;
 
+/// Normalize an OJS URL to its journal home root by stripping 404-prone sub-paths
+/// such as `/PublicationFees`, `/about/submissions`, `/about/editorialPolicies`, or `/issue/current`.
+pub fn normalize_journal_home_url(raw: &str) -> String {
+    let base = normalize_ojs_root_url(raw);
+    if base.is_empty() || !base.starts_with("http") {
+        return base;
+    }
+    let Ok(mut u) = Url::parse(&base) else {
+        return base;
+    };
+    let segments: Vec<&str> = u.path().split('/').filter(|s| !s.is_empty()).collect();
+    if segments.is_empty() {
+        return base;
+    }
+
+    let cut_idx = segments.iter().position(|seg| {
+        let low = seg.to_ascii_lowercase();
+        matches!(
+            low.as_str(),
+            "about"
+                | "publicationfees"
+                | "publication-fees"
+                | "publicationfee"
+                | "publication-fee"
+                | "author-fees"
+                | "authorfees"
+                | "fees"
+                | "issue"
+                | "article"
+                | "announcement"
+                | "user"
+                | "search"
+                | "login"
+        )
+    });
+
+    if let Some(idx) = cut_idx {
+        let kept = &segments[..idx];
+        let new_path = if kept.is_empty() {
+            String::new()
+        } else {
+            format!("/{}", kept.join("/"))
+        };
+        u.set_path(&new_path);
+        return normalize_ojs_root_url(u.as_str());
+    }
+
+    base
+}
+
 #[derive(Debug, Default)]
 struct HtmlMeta {
     publisher: String,
@@ -319,6 +369,15 @@ fn absorb_page(
     if rec.word_limit.is_none() {
         rec.word_limit = heuristics::extract_word_limit(&plain);
     }
+    for idx_name in heuristics::extract_extra_indexes(html) {
+        if !rec
+            .extra_indexes
+            .iter()
+            .any(|x| x.eq_ignore_ascii_case(&idx_name))
+        {
+            rec.extra_indexes.push(idx_name);
+        }
+    }
     if let Some(open_flag) = heuristics::extract_submission_open(&plain) {
         if rec.submission_open.is_none() || !open_flag {
             rec.submission_open = Some(open_flag);
@@ -440,6 +499,7 @@ pub async fn deep_enrich_record(
         {
             rec.focus_and_scope = focus::synthesize_focus_scope(&rec.title, &rec.subject_area);
         }
+        rec.issn_valid = heuristics::has_valid_issn_pair(&rec.issn, &rec.eissn);
         rec.refresh_activity_status(false, month::current_local_year());
         return rec;
     }
@@ -463,14 +523,21 @@ pub async fn deep_enrich_record(
         }
     }
 
-    let base_root = normalize_ojs_root_url(&rec.website_url);
+    let base_root = normalize_journal_home_url(&rec.website_url);
     let mut broken_archive = false;
     let crawl_fut = async {
         let mut agg_text = String::new();
         let mut archive_hints = Vec::new();
         let per_req = Duration::from_millis(2600);
 
-        let home_res = safe_fetch_html(client, &breaker, &rec.website_url, per_req).await;
+        let mut home_res = safe_fetch_html(client, &breaker, &rec.website_url, per_req).await;
+        // Fallback to normalized OJS root URL if portal pointed to a 404 sub-path (e.g. /PublicationFees)
+        if let Ok(ref resp) = home_res {
+            if resp.status == 404 && base_root != rec.website_url && base_root.starts_with("http") {
+                rec.website_url = base_root.clone();
+                home_res = safe_fetch_html(client, &breaker, &base_root, per_req).await;
+            }
+        }
         match home_res {
             Err(err) => {
                 if err.contains("timeout") {
@@ -482,21 +549,59 @@ pub async fn deep_enrich_record(
                 }
                 rec.is_incomplete = true;
             }
-            Ok(home) => {
-                if home.status >= 400 || home.cloudflare_blocked {
-                    rec.apc_status = if home.status == 403 || home.cloudflare_blocked {
-                        TIMEOUT_APC_LABEL.to_string()
-                    } else {
-                        DEAD_LINK_TEXT.to_string()
-                    };
+            Ok(mut home) => {
+                if home.cloudflare_blocked || home.status == 403 || home.status == 503 {
+                    rec.bot_protected = true;
+                    rec.apc_status = "Proteksi Bot (Buka Web)".to_string();
+                    rec.server_status = "Proteksi Bot / Cloudflare".to_string();
+                    rec.activity_status = "Proteksi Bot (Buka Web)".to_string();
+                    rec.is_dormant = false;
+                    rec.is_incomplete = true;
+                    return;
+                }
+                if home.status >= 400 {
+                    rec.apc_status = DEAD_LINK_TEXT.to_string();
                     rec.is_incomplete = true;
                     return;
                 }
                 if home.final_url.starts_with("http") && !home.final_url.contains("kemdiktisaintek")
                 {
-                    rec.website_url = normalize_ojs_root_url(&home.final_url);
+                    rec.website_url = normalize_journal_home_url(&home.final_url);
+                } else {
+                    rec.website_url = normalize_journal_home_url(&rec.website_url);
                 }
-                let effective_base = normalize_ojs_root_url(&rec.website_url);
+                let plain_home = focus::sanitize_html_text(&home.html);
+                if let Some(redir_url) =
+                    heuristics::extract_html_redirect_url(&home.html, &plain_home, &rec.website_url)
+                {
+                    rec.website_url = normalize_journal_home_url(&redir_url);
+                    if let Ok(redir_out) =
+                        safe_fetch_html(client, &breaker, &redir_url, per_req).await
+                    {
+                        if redir_out.cloudflare_blocked
+                            || redir_out.status == 403
+                            || redir_out.status == 503
+                        {
+                            rec.bot_protected = true;
+                            rec.apc_status = "Proteksi Bot (Buka Web)".to_string();
+                            rec.server_status = "Proteksi Bot / Cloudflare".to_string();
+                            rec.activity_status = "Proteksi Bot (Buka Web)".to_string();
+                            rec.is_dormant = false;
+                            rec.is_incomplete = true;
+                            return;
+                        }
+                        if redir_out.status < 400 {
+                            if redir_out.final_url.starts_with("http")
+                                && !redir_out.final_url.contains("kemdiktisaintek")
+                            {
+                                rec.website_url = normalize_journal_home_url(&redir_out.final_url);
+                            }
+                            home = redir_out;
+                        }
+                    }
+                }
+                let effective_base = normalize_journal_home_url(&rec.website_url);
+                rec.website_url = effective_base.clone();
                 absorb_page(
                     &mut rec,
                     &home.final_url,
@@ -703,6 +808,7 @@ pub async fn deep_enrich_record(
     if rec.risk_warning.is_none() {
         rec.risk_warning = heuristics::evaluate_journal_risk(&rec, "", None, None);
     }
+    rec.issn_valid = heuristics::has_valid_issn_pair(&rec.issn, &rec.eissn);
     rec.refresh_activity_status(broken_archive, month::current_local_year());
 
     if !rec.is_incomplete {
@@ -728,6 +834,7 @@ mod tests {
         let mut rec = JournalRecord {
             title: "Jurnal Teknologi Informasi dan Ekonomi (JTIEMB)".to_string(),
             publisher: "Published by Politeknik Negeri Sriwijaya".to_string(),
+            issn: "2502-2377".to_string(),
             ..Default::default()
         };
         let html = r#"
@@ -742,6 +849,7 @@ mod tests {
           <div class="current_issue">
             <h2>Vol. 4 No. 1 (2020)</h2>
           </div>
+          <footer>Indexed by DOAJ, Copernicus, and Google Scholar</footer>
         </body></html>"#;
 
         let mut agg = String::new();
@@ -757,6 +865,7 @@ mod tests {
             &mut broken,
         );
         rec.publisher = sanitize_publisher_name(&rec.publisher);
+        rec.issn_valid = heuristics::has_valid_issn_pair(&rec.issn, &rec.eissn);
         rec.refresh_activity_status(broken, 2026);
 
         assert_eq!(rec.last_issue_year, Some(2020));
@@ -764,5 +873,49 @@ mod tests {
         assert!(rec.activity_status.contains("Dorman"));
         assert!(rec.activity_status.contains("2020"));
         assert_eq!(rec.publisher, "Politeknik Negeri Sriwijaya");
+        assert!(rec.issn_valid);
+        assert!(rec.extra_indexes.contains(&"DOAJ".to_string()));
+        assert!(rec.extra_indexes.contains(&"Copernicus".to_string()));
+    }
+
+    #[test]
+    fn test_bot_protected_does_not_mark_dormant() {
+        let mut rec = JournalRecord {
+            title: "Jurnal Terproteksi WAF".to_string(),
+            bot_protected: true,
+            apc_status: "Proteksi Bot (Buka Web)".to_string(),
+            ..Default::default()
+        };
+        rec.refresh_activity_status(false, 2026);
+        assert!(!rec.is_dormant);
+        assert_eq!(rec.activity_status, "Proteksi Bot (Buka Web)");
+    }
+
+    #[test]
+    fn test_normalize_journal_home_url_strips_subpaths() {
+        assert_eq!(
+            normalize_journal_home_url(
+                "https://jurnalfebi.uinsa.ac.id/index.php/maliyah/PublicationFees"
+            ),
+            "https://jurnalfebi.uinsa.ac.id/index.php/maliyah"
+        );
+        assert_eq!(
+            normalize_journal_home_url(
+                "https://ejournal.example.ac.id/index.php/jsi/about/editorialPolicies"
+            ),
+            "https://ejournal.example.ac.id/index.php/jsi"
+        );
+        assert_eq!(
+            normalize_journal_home_url(
+                "https://ejournal.example.ac.id/index.php/jsi/about/submissions?lang=id"
+            ),
+            "https://ejournal.example.ac.id/index.php/jsi"
+        );
+        assert_eq!(
+            normalize_journal_home_url(
+                "https://ejournal.example.ac.id/index.php/jsi/issue/current/"
+            ),
+            "https://ejournal.example.ac.id/index.php/jsi"
+        );
     }
 }

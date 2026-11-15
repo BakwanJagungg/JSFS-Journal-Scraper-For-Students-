@@ -38,6 +38,11 @@ pub struct AppSettings {
     pub default_doaj: bool,
     pub usd_to_idr: i64,
     pub display_currency: DisplayCurrency,
+    pub polite_bot_mode: bool,
+    pub author_name: String,
+    pub author_id: String,
+    pub author_affiliation: String,
+    pub author_email: String,
 }
 
 impl Default for AppSettings {
@@ -51,6 +56,11 @@ impl Default for AppSettings {
             default_doaj: true,
             usd_to_idr: crate::config::USD_TO_IDR_RATE,
             display_currency: DisplayCurrency::Idr,
+            polite_bot_mode: false,
+            author_name: String::new(),
+            author_id: String::new(),
+            author_affiliation: String::new(),
+            author_email: String::new(),
         }
     }
 }
@@ -60,6 +70,10 @@ impl AppSettings {
         if self.usd_to_idr < 1_000 {
             self.usd_to_idr = crate::config::USD_TO_IDR_RATE;
         }
+        self.author_name = self.author_name.trim().to_string();
+        self.author_id = self.author_id.trim().to_string();
+        self.author_affiliation = self.author_affiliation.trim().to_string();
+        self.author_email = self.author_email.trim().to_string();
         self
     }
 }
@@ -453,6 +467,11 @@ mod tests {
             default_doaj: false,
             usd_to_idr: 16_800,
             display_currency: DisplayCurrency::Usd,
+            polite_bot_mode: true,
+            author_name: "Ahmad Mahasiswa".to_string(),
+            author_id: "210123456".to_string(),
+            author_affiliation: "Universitas Nusantara".to_string(),
+            author_email: "ahmad@campus.ac.id".to_string(),
         };
         save_app_settings_to(&path, &cfg).unwrap();
         let loaded = load_app_settings_from(&path);

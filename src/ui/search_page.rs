@@ -381,6 +381,21 @@ pub fn render_search_page(
                 });
             });
 
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = Vec2::new(6.0, 4.0);
+                pill_badge(
+                    ui,
+                    if is_en {
+                        "🔒 100% Processed Locally in RAM (Zero Upload)"
+                    } else {
+                        "🔒 100% Diproses Lokal di RAM (Zero Upload)"
+                    },
+                    p.good,
+                    p.good_soft,
+                );
+            });
+
             let chips: Vec<String> = if !ms.recommended_topics.is_empty() {
                 ms.recommended_topics.clone()
             } else {
@@ -702,7 +717,7 @@ pub fn render_search_page(
         ui.add_space(8.0);
 
         let avail_h = (ui.available_height() - 40.0).clamp(460.0, 780.0);
-        let table_w = (page_w - 40.0).max(460.0);
+        let table_w = ui.available_width().max(460.0);
         ui.scope(|ui| {
             ui.set_max_width(table_w);
             ScrollArea::horizontal()
@@ -747,90 +762,105 @@ pub fn render_search_page(
                         let item = &results[real_idx];
 
                         row.col(|ui| {
-                            table_cell(ui, |ui| {
-                                ui.vertical(|ui| {
-                                    ui.spacing_mut().item_spacing.y = 4.0;
-                                    ui.horizontal(|ui| {
-                                        let reserve = if item.cited_count > 0 { 82.0 } else { 0.0 }
-                                            + if item.risk_warning.is_some() { 68.0 } else { 0.0 };
-                                        let title_w = (ui.available_width() - reserve).max(90.0);
-                                        let link_resp = ui
-                                            .scope(|ui| {
-                                                ui.set_max_width(title_w);
+                            let inner_w = (col0_w - 16.0).max(120.0);
+                            ui.allocate_ui_with_layout(
+                                Vec2::new(col0_w, 58.0),
+                                Layout::top_down(Align::Min),
+                                |ui| {
+                                    ui.set_max_width(col0_w);
+                                    Frame::new().inner_margin(Margin::symmetric(8, 3)).show(ui, |ui| {
+                                        ui.with_layout(Layout::top_down(Align::Min), |ui| {
+                                            ui.set_max_width(inner_w);
+                                            ui.spacing_mut().item_spacing.y = 4.0;
+                                            let reserve = if item.cited_count > 0 { 82.0 } else { 0.0 }
+                                                + if item.risk_warning.is_some() { 68.0 } else { 0.0 };
+                                            let title_w = (inner_w - reserve).max(90.0);
+                                            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                                                ui.set_max_width(inner_w);
+                                                let link_resp = ui
+                                                    .with_layout(Layout::top_down(Align::Min), |ui| {
+                                                        ui.set_max_width(title_w);
+                                                        ui.add(
+                                                            egui::Label::new(
+                                                                RichText::new(&item.nama)
+                                                                    .size(13.0)
+                                                                    .strong()
+                                                                    .color(p.text),
+                                                            )
+                                                            .truncate()
+                                                            .sense(Sense::click()),
+                                                        )
+                                                    })
+                                                    .inner;
+                                                if link_resp.clicked() {
+                                                    action = SearchPageAction::OpenDetail(real_idx);
+                                                }
+                                                if item.cited_count > 0 {
+                                                    ui.scope(|ui| {
+                                                        pill_badge(
+                                                            ui,
+                                                            &format!("Dikutip {}x", item.cited_count),
+                                                            p.accent,
+                                                            p.accent_soft,
+                                                        );
+                                                    })
+                                                    .response
+                                                    .on_hover_text(format!(
+                                                        "Jurnal ini dikutip {}x di Daftar Pustaka naskah Anda",
+                                                        item.cited_count
+                                                    ));
+                                                }
+                                                if let Some(ref warn) = item.risk_warning {
+                                                    let w_resp = ui.add(
+                                                        egui::Label::new(
+                                                            RichText::new("⚠ Periksa")
+                                                                .size(10.5)
+                                                                .strong()
+                                                                .color(p.bad),
+                                                        )
+                                                        .sense(Sense::hover()),
+                                                    );
+                                                    w_resp.on_hover_text(warn);
+                                                }
+                                            });
+                                            let track_key =
+                                                crate::cache::SubmissionTrack::canonical_key(
+                                                    &item.url,
+                                                    &item.nama,
+                                                );
+                                            let status_suffix = app_state
+                                                .submission_tracks
+                                                .get(&track_key)
+                                                .filter(|t| {
+                                                    !t.status.trim().is_empty()
+                                                        && t.status != "Belum Dikirim"
+                                                })
+                                                .map(|t| format!(" • [{}]", t.status))
+                                                .unwrap_or_default();
+                                            let lang_suffix =
+                                                if !item.article_languages.trim().is_empty() {
+                                                    format!(" • {}", item.article_languages)
+                                                } else {
+                                                    String::new()
+                                                };
+                                            ui.with_layout(Layout::top_down(Align::Min), |ui| {
+                                                ui.set_max_width(inner_w);
                                                 ui.add(
                                                     egui::Label::new(
-                                                        RichText::new(&item.nama)
-                                                            .size(13.0)
-                                                            .strong()
-                                                            .color(p.text),
+                                                        RichText::new(format!(
+                                                            "{} • {}{lang_suffix}{status_suffix}",
+                                                            item.penerbit, item.email_short
+                                                        ))
+                                                        .size(11.5)
+                                                        .color(p.muted),
                                                     )
-                                                    .truncate()
-                                                    .sense(Sense::click()),
-                                                )
-                                            })
-                                            .inner;
-                                        if link_resp.clicked() {
-                                            action = SearchPageAction::OpenDetail(real_idx);
-                                        }
-                                        if item.cited_count > 0 {
-                                            ui.scope(|ui| {
-                                                pill_badge(
-                                                    ui,
-                                                    &format!("Dikutip {}x", item.cited_count),
-                                                    p.accent,
-                                                    p.accent_soft,
+                                                    .truncate(),
                                                 );
-                                            })
-                                            .response
-                                            .on_hover_text(format!(
-                                                "Jurnal ini dikutip {}x di Daftar Pustaka naskah Anda",
-                                                item.cited_count
-                                            ));
-                                        }
-                                        if let Some(ref warn) = item.risk_warning {
-                                            let w_resp = ui.add(
-                                                egui::Label::new(
-                                                    RichText::new("⚠ Periksa")
-                                                        .size(10.5)
-                                                        .strong()
-                                                        .color(p.bad),
-                                                )
-                                                .sense(Sense::hover()),
-                                            );
-                                            w_resp.on_hover_text(warn);
-                                        }
+                                            });
+                                        });
                                     });
-                                    let track_key = crate::cache::SubmissionTrack::canonical_key(
-                                        &item.url,
-                                        &item.nama,
-                                    );
-                                    let status_suffix = app_state
-                                        .submission_tracks
-                                        .get(&track_key)
-                                        .filter(|t| {
-                                            !t.status.trim().is_empty()
-                                                && t.status != "Belum Dikirim"
-                                        })
-                                        .map(|t| format!(" • [{}]", t.status))
-                                        .unwrap_or_default();
-                                    let lang_suffix = if !item.article_languages.trim().is_empty() {
-                                        format!(" • {}", item.article_languages)
-                                    } else {
-                                        String::new()
-                                    };
-                                    ui.add(
-                                        egui::Label::new(
-                                            RichText::new(format!(
-                                                "{} • {}{lang_suffix}{status_suffix}",
-                                                item.penerbit, item.email_short
-                                            ))
-                                            .size(11.5)
-                                            .color(p.muted),
-                                        )
-                                        .truncate(),
-                                    );
-                                });
-                            });
+                                },
+                            );
                         });
 
                         row.col(|ui| {
@@ -889,6 +919,8 @@ pub fn render_search_page(
                                     let act_lbl = activity_badge_label(item);
                                     let (fg, bg) = if item.is_dormant {
                                         (p.bad, p.bad_soft)
+                                    } else if item.bot_protected && item.last_issue_year.is_none() {
+                                        (p.warn, p.warn_soft)
                                     } else if item.activity_status.contains("Aktif") {
                                         (p.good, p.good_soft)
                                     } else {

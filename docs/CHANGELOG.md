@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.8.1] - 2026-11-15
+
+### Improved
+- **Compact Detail Modal & Left-Aligned Table Column 1 (`src/ui/detail_modal.rs`, `src/ui/search_page.rs`)**:
+  - Shortened the header match badge to `"Match XX%"` so header badges remain neatly aligned on a single line.
+  - Moved template letter/email buttons (`Cover Letter (ID/EN)`, `Surat Keaslian`, `Email Editor (ID/EN)`) into a dedicated card inside the modal `ScrollArea` and restored a clean 4-button footer (`Salin Draf WA`, `Paket Pengajuan (.zip)`, `Cari Jurnal Mirip`, `Buka Web OJS`).
+  - Anchored column 1 (`Jurnal & Penerbit`) in `search_page.rs` strictly left-to-right (`allocate_ui_with_layout(..., Align::Min)` + explicit `inner_w`) to eliminate left-edge text clipping.
+
+---
+
+## [4.8.0] - 2026-11-15
+
+### Added
+- **Crossref Journals API Integration (`src/scraper/international.rs`, `src/engine/search.rs`)**:
+  - Added concurrent **Crossref Journals API** search alongside OpenAlex and DOAJ using polite User-Agent `JSFS-Academic-Research-Tool/4.8.0 (mailto:research@jsfs.local)` and ISSN/title deduplication.
+
+### Improved
+- **Indonesian/International APC Accuracy & OJS Home Normalization (`src/parser/apc.rs`, `src/scraper/dedup.rs`, `src/scraper/ojs_deep.rs`)**:
+  - Separated `Article Submission Charge: 0.00 (IDR)` from `Article Publication Charge`, parsed post-`=` tax totals (`IDR 2,000,000 (+tax 11%) = IDR 2,220,000,-`), and ignored withdrawal/retraction penalty fines (`US$1000`, `penarikan naskah`).
+  - Enforced Paid OJS evidence priority over Free metadata (e.g., DOAJ `Rp 0`) during cross-source merge, normalized saved `website_url` values to the OJS home root via `normalize_journal_home_url`, and added automatic HTTP `404` root fallback.
+- **Filter Cards Spacing (`src/ui/filters_page.rs`, `src/ui/detail_modal.rs`)**:
+  - Increased filter card padding/spacing (`14.0 px`) with concise muted card descriptions and unified vertical spacing across sections.
+
+---
+
+## [4.7.0] - 2026-11-15
+
+### Added
+- **Anti-Block Shield & OJS 2->3 Redirect Detector (`src/scraper/mod.rs`, `src/scraper/ojs_deep.rs`, `src/parser/heuristics.rs`)**:
+  - Added per-host rate limiting with random jitter, browser User-Agent rotation (*Mode Bot Akademik Sopan*), automatic OJS 2->3 redirect detection, Cloudflare `403`/`503` protection flagging, and `2 MB` streaming abort guards.
+- **Academic Integrity & Extra Indexing (`src/parser/heuristics.rs`, `src/models.rs`)**:
+  - Added pure ISO 3297 ISSN Modulo-11 checksum validation, cloned/suspicious domain checks, `Readiness` scoring (`0–100%`), and extra index detection (DOAJ, Scopus, Copernicus, Google Scholar, Crossref).
+- **Smart Cache Hit, Author Profile & 1-Click Submission Bundle (`src/engine/search.rs`, `src/exporter/bundle.rs`, `src/ui/settings_page.rs`)**:
+  - Reused fresh incomplete/cached metadata during Phase 2 deep crawl, added persistent **Profil Penulis** (`name`, `affiliation`, `email`, `orcid`, `study_program`), originality statement generator, and 1-click `.zip` submission bundle export.
+
+---
+
 ## [4.6.0] - 2026-11-15
 
 ### Added

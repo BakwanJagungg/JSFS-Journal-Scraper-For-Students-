@@ -12,18 +12,28 @@ pub const APC_KEYWORDS: &[&str] = &[
     "apc",
     "article processing charge",
     "publication fee",
+    "publication charge",
     "article publication",
+    "article charge",
     "biaya publikasi",
     "biaya penerbitan",
+    "biaya pemrosesan artikel",
+    "biaya pengelolaan",
     "biaya artikel",
+    "biaya cetak",
+    "kontribusi penulis",
+    "author contribution",
     "author fee",
     "submission fee",
+    "submission charge",
     "page charge",
     "free of charge",
     "no charge",
     "gratis",
     "tanpa biaya",
     "bebas biaya",
+    "bebas biaya publikasi",
+    "tidak dipungut biaya",
     "rupiah",
     "idr",
     "usd",
@@ -38,6 +48,15 @@ static RE_HISTORICAL_FREE_STRIP: Lazy<Regex> = Lazy::new(|| {
     .expect("valid regex")
 });
 
+// Withdrawal / retraction penalty fines ("Article Withdrawal ... punished by paying US$1000", "denda penarikan naskah")
+// must ALWAYS be ignored so they are never misclassified as APC.
+static RE_WITHDRAWAL_PENALTY_STRIP: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"(?is)\b(?:article\s+withdrawal(?:\s+policy)?|withdrawal\s+(?:fee|charge|penalty|policy)|authors?\s+(?:who\s+)?withdraw\b|withdrawn|penarikan\s+(?:artikel|naskah)|denda\s+penarikan|punished\s+by\s+paying|retraction\s+(?:fee|charge|penalty))[^.!?\n;]{0,220}",
+    )
+    .expect("valid regex")
+});
+
 // Sentences about Open-Access free reading/downloading must NEVER trigger APC Free.
 static RE_OA_READER_STRIP: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
@@ -46,17 +65,17 @@ static RE_OA_READER_STRIP: Lazy<Regex> = Lazy::new(|| {
     .expect("valid regex")
 });
 
-// Strip Submission Fee = 0 / Article Submission = 0 so it isn't misclassified as Publication Fee = 0.
+// Strip Submission Fee / Charge = 0 so it isn't misclassified as Publication Fee = 0.
 static RE_SUBMISSION_FREE_STRIP: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r"(?is)(?:article\s+submission|submission\s+fees?|biaya\s+(?:submit|pengiriman|pendaftaran|awal)|manuscript\s+submission)\s*[:=\-]?\s*(?:(?:rp\.?|idr)\s*0(?:[,.]00)?|0(?:[,.]00)?\s*(?:\(?idr\)?|\(?rp\.?\)?|\(?usd\)?|\$)?|gratis|free(?:\s+of\s+charge)?|none|tidak\s+ada)\b",
+        r"(?is)(?:article\s+submission(?:\s+(?:fees?|charges?))?|submission\s+(?:fees?|charges?)|biaya\s+(?:submit|pengiriman|pendaftaran|awal)|manuscript\s+submission(?:\s+(?:fees?|charges?))?)\s*[:=\-]?\s*(?:(?:rp\.?|idr)\s*0(?:[,.]00)?(?:\s*\(?idr\)?)?|0(?:[,.]00)?\s*(?:\(?idr\)?|\(?rp\.?\)?|\(?usd\)?|\$)?|gratis|free(?:\s+of\s+charge)?|none|tidak\s+ada)\b",
     )
     .expect("valid regex")
 });
 
 static RE_PUB_FREE_STRICT: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r"(?is)(?:(?:article\s+publication|article\s+processing\s+charges?|apc|publication\s+fees?|publishing\s+fees?|biaya\s+(?:publikasi|penerbitan|cetak|pemrosesan\s+artikel)|page\s+charges?)\s*[:=\-]?\s*(?:(?:rp\.?|idr)\s*0(?:[,.]00)?|0(?:[,.]00)?\s*(?:\(?idr\)?|\(?rp\.?\)?|\(?usd\)?|\$)?|gratis|free|none|tidak\s+(?:dipungut|dikenakan|ada)\s*biaya|bebas\s*biaya|tanpa\s*biaya|free\s*of\s*charge)\b|(?:free\s*of\s*charge|no\s+(?:publication\s+|apc\s+)?fees?|no\s+charge(?:\s+for\s+apc)?|tidak\s+(?:dipungut|dikenakan)\s*biaya|tanpa\s*biaya|bebas\s*biaya)\s*(?:for|to|pada|untuk)?\s*(?:publication|publishing|publish|publikasi|penerbitan|authors?|apc)\b|(?:publication|publishing|biaya\s+publikasi|jurnal\s+ini)\s+(?:is|adalah|bersifat|sebesar)?\s*(?:free|gratis|bebas\s*biaya|tanpa\s*biaya|free\s*of\s*charge))",
+        r"(?is)(?:(?:article\s+publication(?:\s+(?:fees?|charges?))?|article\s+processing\s+charges?|apc|publication\s+(?:fees?|charges?)|publishing\s+(?:fees?|charges?)|biaya\s+(?:publikasi|penerbitan|cetak|pengelolaan|pemrosesan\s+artikel)|kontribusi\s+penulis|page\s+charges?)\s*[:=\-]?\s*(?:(?:rp\.?|idr)\s*0(?:[,.]00)?|0(?:[,.]00)?\s*(?:\(?idr\)?|\(?rp\.?\)?|\(?usd\)?|\$)?|gratis|free|none|tidak\s+(?:dipungut|dikenakan|ada)\s*biaya|bebas\s*biaya(?:\s+publikasi)?|tanpa\s*biaya|free\s*of\s*charge)\b|(?:free\s*of\s*charge|no\s+(?:publication\s+|apc\s+)?fees?|no\s+charge(?:\s+for\s+apc)?|tidak\s+(?:dipungut|dikenakan)\s*biaya|tanpa\s*biaya|bebas\s*biaya(?:\s+publikasi)?)\s*(?:for|to|pada|untuk)?\s*(?:publication|publishing|publish|publikasi|penerbitan|authors?|apc)\b|(?:publication|publishing|biaya\s+publikasi|jurnal\s+ini)\s+(?:is|adalah|bersifat|sebesar)?\s*(?:free|gratis|bebas\s*biaya(?:\s+publikasi)?|tanpa\s*biaya|free\s*of\s*charge)|(?:bebas\s+biaya\s+publikasi|tidak\s+dipungut\s+biaya\s+(?:publikasi|penerbitan)?))",
     )
     .expect("valid regex")
 });
@@ -83,9 +102,16 @@ static RE_USD_AMOUNT: Lazy<Regex> = Lazy::new(|| {
     .expect("valid regex")
 });
 
+static RE_FOREIGN_CURRENCY: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"(?i)(€|£|¥|₹|A\$|\b(?:EUR|GBP|MYR|RM|AUD|JPY|INR)\b)\s*[:.]?\s*(\d+(?:[.,]\d{1,2})?)|\b(\d+(?:[.,]\d{1,2})?)\s*\(?\s*(EUR|GBP|MYR|AUD|JPY|INR)\s*\)?\b",
+    )
+    .expect("valid foreign currency regex")
+});
+
 static RE_SUBMIT_AMOUNT: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r"(?is)(?:article\s+submission|submission\s+fee|biaya\s+(?:submit|pengiriman))\s*[:=\-]?\s*(?:rp\.?|idr)\s*([\d.,]+)",
+        r"(?is)(?:article\s+submission(?:\s+(?:fee|charge)s?)?|submission\s+(?:fee|charge)s?|biaya\s+(?:submit|pengiriman))\s*[:=\-]?\s*(?:rp\.?|idr)\s*([\d.,]+)",
     )
     .expect("valid regex")
 });
@@ -149,16 +175,11 @@ fn is_submission_only_context(text: &str, start: usize, end: usize) -> bool {
         .unwrap_or(0)
         .max(start.saturating_sub(110));
     let before = text[clause_start..start].to_ascii_lowercase();
-    let after_end = ceil_char_boundary(text, (end + 45).min(text.len()));
-    let after = text[end..after_end].to_ascii_lowercase();
 
-    let mentions_sub = before.contains("submission")
+    let before_sub = before.contains("submission")
         || before.contains("biaya submit")
-        || before.contains("pengiriman")
-        || after.starts_with(" for submission")
-        || after.starts_with(" (submission");
-
-    let mentions_pub = before.contains("publicat")
+        || before.contains("pengiriman");
+    let before_pub = before.contains("publicat")
         || before.contains("publish")
         || before.contains("publikasi")
         || before.contains("penerbitan")
@@ -167,12 +188,22 @@ fn is_submission_only_context(text: &str, start: usize, end: usize) -> bool {
         || before.contains("page charge")
         || before.contains("cetak")
         || before.contains("ready to issue")
-        || before.contains("accepted")
-        || after.contains("publication")
-        || after.contains("publish")
-        || after.contains("publikasi");
+        || before.contains("accepted");
 
-    mentions_sub && !mentions_pub
+    if before_sub && !before_pub {
+        return true;
+    }
+
+    if is_withdrawal_penalty_context(text, start, end) {
+        return true;
+    }
+
+    let after_end = ceil_char_boundary(text, (end + 28).min(text.len()));
+    let after_raw = &text[end..after_end];
+    let after_clause_end = after_raw.find(['.', ';', '\n']).unwrap_or(after_raw.len());
+    let after = after_raw[..after_clause_end].to_ascii_lowercase();
+
+    (after.contains("for submission") || after.contains("(submission)")) && !before_pub
 }
 
 fn is_fast_track_context(text: &str, start: usize) -> bool {
@@ -322,14 +353,118 @@ fn collect_paid_candidates(scan_text: &str) -> Vec<PaidCandidate> {
         }
     }
 
+    // 5) Multi-currency foreign APCs: EUR (€), GBP (£), MYR (RM), AUD (A$), JPY (¥), INR (₹)
+    for cap in RE_FOREIGN_CURRENCY.captures_iter(scan_text) {
+        let m = match cap.get(0) {
+            Some(m) => m,
+            None => continue,
+        };
+        if is_submission_only_context(scan_text, m.start(), m.end()) {
+            continue;
+        }
+        let (sym_raw, num_raw) = if let (Some(sym), Some(num)) = (cap.get(1), cap.get(2)) {
+            (sym.as_str(), num.as_str())
+        } else if let (Some(num), Some(sym)) = (cap.get(3), cap.get(4)) {
+            (sym.as_str(), num.as_str())
+        } else {
+            continue;
+        };
+        let amount: f64 = match num_raw.replace(',', ".").parse() {
+            Ok(v) if v > 0.0 => v,
+            _ => continue,
+        };
+        let (code, rate_idr) = match sym_raw.to_ascii_uppercase().as_str() {
+            "EUR" | "€" => ("EUR", 17_800.0),
+            "GBP" | "£" => ("GBP", 20_900.0),
+            "MYR" | "RM" => ("MYR", 3_700.0),
+            "AUD" | "A$" => ("AUD", 10_700.0),
+            "JPY" | "¥" => ("JPY", 108.0),
+            "INR" | "₹" => ("INR", 195.0),
+            _ => continue,
+        };
+        let idr = (amount * rate_idr).round() as i64;
+        if (APC_SANITY_MIN_IDR..=50_000_000).contains(&idr) {
+            let amt_disp = if (amount.fract()).abs() < 1e-6 {
+                format!("{}", amount as i64)
+            } else {
+                format!("{amount:.2}")
+            };
+            candidates.push(PaidCandidate {
+                start: m.start(),
+                is_fast_track: is_fast_track_context(scan_text, m.start()),
+                parsed: ApcParsed::Paid {
+                    currency: code.to_string(),
+                    display: format!("{code} {amt_disp} (~{})", format_idr_short(idr)),
+                    amount_idr: idr,
+                    raw_amount: amt_disp,
+                },
+            });
+        }
+    }
+
     candidates.sort_by_key(|c| c.start);
-    candidates
+
+    // Prefer RHS final total in same-clause tax/sum equations (e.g. "IDR 2,000,000 (+tax 11%) = IDR 2,220,000,-")
+    let mut keep = vec![true; candidates.len()];
+    for i in 0..candidates.len() {
+        for j in (i + 1)..candidates.len() {
+            let delta = candidates[j].start.saturating_sub(candidates[i].start);
+            if delta > 70 {
+                break;
+            }
+            if candidates[i].is_fast_track == candidates[j].is_fast_track {
+                let between = &scan_text[candidates[i].start..candidates[j].start];
+                if between.contains('=') && !between.contains('\n') && !between.contains(';') {
+                    keep[i] = false;
+                    break;
+                }
+            }
+        }
+    }
+    let mut filtered = Vec::with_capacity(candidates.len());
+    for (idx, c) in candidates.into_iter().enumerate() {
+        if keep[idx] {
+            filtered.push(c);
+        }
+    }
+    filtered
 }
 
-/// Strip historical free statements, Open-Access free-reader phrases, and submission=0 statements
-/// before checking for free-publication cues.
+fn is_withdrawal_penalty_context(text: &str, start: usize, end: usize) -> bool {
+    let clause_start = text[..start]
+        .rfind(['.', ';', '\n'])
+        .map(|i| i + 1)
+        .unwrap_or(0)
+        .max(start.saturating_sub(140));
+    let before = text[clause_start..start].to_ascii_lowercase();
+    let before_penalty = before.contains("withdrawal")
+        || before.contains("withdrawn")
+        || before.contains("penarikan naskah")
+        || before.contains("penarikan artikel")
+        || before.contains("denda penarikan")
+        || before.contains("punished by paying")
+        || before.contains("retraction fee");
+    let before_pub = before.contains("publication charge")
+        || before.contains("publication fee")
+        || before.contains("article processing charge")
+        || before.contains("biaya publikasi");
+    if before_penalty && !before_pub {
+        return true;
+    }
+
+    let after_end = ceil_char_boundary(text, (end + 32).min(text.len()));
+    let after = text[end..after_end].to_ascii_lowercase();
+    after.contains("withdrawal fee")
+        || after.contains("for withdrawal")
+        || after.contains("retraction fee")
+        || after.contains("denda penarikan")
+}
+
+/// Strip historical free statements, withdrawal penalties, Open-Access free-reader phrases,
+/// and submission=0 statements before checking for free-publication cues.
 pub fn sanitize_free_traps(raw_text: &str) -> String {
-    let s1 = RE_HISTORICAL_FREE_STRIP.replace_all(raw_text, " ");
+    let s0 = RE_WITHDRAWAL_PENALTY_STRIP.replace_all(raw_text, " ");
+    let s1 = RE_HISTORICAL_FREE_STRIP.replace_all(&s0, " ");
     let s2 = RE_OA_READER_STRIP.replace_all(&s1, " ");
     RE_SUBMISSION_FREE_STRIP.replace_all(&s2, " ").into_owned()
 }
@@ -405,7 +540,8 @@ pub fn parse_apc_with_evidence(raw_text: &str) -> (ApcParsed, String) {
         return (ApcParsed::Unknown, String::new());
     }
 
-    let historical_cleaned = RE_HISTORICAL_FREE_STRIP.replace_all(raw_text, " ");
+    let penalty_cleaned = RE_WITHDRAWAL_PENALTY_STRIP.replace_all(raw_text, " ");
+    let historical_cleaned = RE_HISTORICAL_FREE_STRIP.replace_all(&penalty_cleaned, " ");
     let paid_candidates = collect_paid_candidates(&historical_cleaned);
 
     if let Some(reg) = paid_candidates.iter().find(|c| !c.is_fast_track) {
@@ -443,18 +579,20 @@ pub fn parse_apc_from_context(raw_text: &str) -> ApcParsed {
     parse_apc_with_evidence(raw_text).0
 }
 
-pub fn extract_submission_fee_idr(raw_text: &str) -> Option<i64> {
+pub fn extract_submission_fee_idr(raw_text: &str) -> Option<u64> {
     if RE_SUBMISSION_FREE_STRIP.is_match(raw_text) {
         return Some(0);
     }
     if let Some(cap) = RE_SUBMIT_AMOUNT.captures(raw_text) {
-        return parse_idr_digits(&cap[1]);
+        return parse_idr_digits(&cap[1])
+            .filter(|&v| v >= 0)
+            .map(|v| v as u64);
     }
     None
 }
 
 /// Inspect ALL OJS HTML fee/editorial blocks globally, returning `(ApcParsed, sub_fee, evidence)`.
-pub fn extract_apc_contextual_html_with_evidence(html: &str) -> (ApcParsed, Option<i64>, String) {
+pub fn extract_apc_contextual_html_with_evidence(html: &str) -> (ApcParsed, Option<u64>, String) {
     let doc = Html::parse_document(html);
     let full_text = sanitize_html_text(html);
     let sub_fee = extract_submission_fee_idr(&full_text);
@@ -507,7 +645,7 @@ pub fn extract_apc_contextual_html_with_evidence(html: &str) -> (ApcParsed, Opti
 }
 
 /// Inspect ALL OJS HTML fee/editorial blocks globally without stopping at the first Free cue.
-pub fn extract_apc_contextual_html(html: &str) -> (ApcParsed, Option<i64>) {
+pub fn extract_apc_contextual_html(html: &str) -> (ApcParsed, Option<u64>) {
     let (parsed, sub_fee, _) = extract_apc_contextual_html_with_evidence(html);
     (parsed, sub_fee)
 }
@@ -708,5 +846,104 @@ mod tests {
         assert_eq!(items[0].apc_label, "Rp 500.000");
         assert_eq!(items[1].apc_label, "Rp 2.475.000");
         assert_eq!(items[2].apc_label, "Gratis (Rp 0)");
+    }
+
+    #[test]
+    fn test_submission_fee_separation_and_multi_currency_apc() {
+        let html_split = r#"
+            <html><body>
+            <div id="authorFees">
+                <p>Article Submission: Rp 150.000 (IDR)</p>
+                <p>Article Publication Fee: Rp 650.000</p>
+            </div>
+            </body></html>
+        "#;
+        let (parsed, sub_fee, _) = extract_apc_contextual_html_with_evidence(html_split);
+        assert_eq!(sub_fee, Some(150_000));
+        match parsed {
+            ApcParsed::Paid { amount_idr, .. } => assert_eq!(amount_idr, 650_000),
+            other => panic!("expected Paid 650_000, got {other:?}"),
+        }
+
+        match parse_apc_from_context("Article Processing Charge: EUR 100") {
+            ApcParsed::Paid {
+                currency,
+                amount_idr,
+                ..
+            } => {
+                assert_eq!(currency, "EUR");
+                assert_eq!(amount_idr, 1_780_000);
+            }
+            other => panic!("expected EUR 100, got {other:?}"),
+        }
+
+        match parse_apc_from_context("Publication fee is £50 for accepted manuscripts.") {
+            ApcParsed::Paid {
+                currency,
+                amount_idr,
+                ..
+            } => {
+                assert_eq!(currency, "GBP");
+                assert_eq!(amount_idr, 1_045_000);
+            }
+            other => panic!("expected GBP 50, got {other:?}"),
+        }
+
+        match parse_apc_from_context("Publication fee RM 250 per paper.") {
+            ApcParsed::Paid {
+                currency,
+                amount_idr,
+                ..
+            } => {
+                assert_eq!(currency, "MYR");
+                assert_eq!(amount_idr, 925_000);
+            }
+            other => panic!("expected MYR 250, got {other:?}"),
+        }
+
+        match parse_apc_from_context("Article processing fee: A$120") {
+            ApcParsed::Paid { currency, .. } => assert_eq!(currency, "AUD"),
+            other => panic!("expected AUD, got {other:?}"),
+        }
+        match parse_apc_from_context("APC: JPY 15000") {
+            ApcParsed::Paid { currency, .. } => assert_eq!(currency, "JPY"),
+            other => panic!("expected JPY, got {other:?}"),
+        }
+        match parse_apc_from_context("Publication charge: ₹1800") {
+            ApcParsed::Paid { currency, .. } => assert_eq!(currency, "INR"),
+            other => panic!("expected INR, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_v48_tax_equation_submission_charge_and_withdrawal_penalty_ignored() {
+        let html = r#"
+            <html><body>
+            <div class="pkp_page_content">
+                <p>Article Submission Charge: 0.00 (IDR)</p>
+                <p>Article Publication Charge: IDR 2,000,000 (+tax 11%) = IDR 2,220,000,-</p>
+                <p>Article Withdrawal Policy: Authors who withdraw their manuscript after review will be punished by paying US$1000 or denda penarikan naskah Rp 1.500.000,-.</p>
+            </div>
+            </body></html>
+        "#;
+        let (parsed, sub_fee, _) = extract_apc_contextual_html_with_evidence(html);
+        assert_eq!(sub_fee, Some(0));
+        match parsed {
+            ApcParsed::Paid {
+                currency,
+                amount_idr,
+                display,
+                ..
+            } => {
+                assert_eq!(currency, "IDR");
+                assert_eq!(amount_idr, 2_220_000);
+                assert_eq!(display, "Rp 2.220.000");
+            }
+            other => panic!("expected Paid 2_220_000, got {other:?}"),
+        }
+
+        // Withdrawal penalty alone must never become APC even if > 50_000 IDR
+        let penalty_only = "Article Withdrawal: Authors who withdraw their manuscript will be punished by paying US$100.";
+        assert_eq!(parse_apc_from_context(penalty_only), ApcParsed::Unknown);
     }
 }

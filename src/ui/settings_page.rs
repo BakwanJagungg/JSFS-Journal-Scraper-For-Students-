@@ -304,6 +304,53 @@ pub fn render_settings_page(
                 });
             });
 
+            card_divider(ui, p);
+
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.set_max_width((ui.available_width() - 220.0).max(160.0));
+                    ui.label(
+                        RichText::new(if app_settings.language == AppLanguage::En {
+                            "Polite Academic Bot Mode"
+                        } else {
+                            "Mode Bot Akademik Sopan"
+                        })
+                        .size(13.0)
+                        .color(p.text),
+                    );
+                    ui.label(
+                        RichText::new(if app_settings.language == AppLanguage::En {
+                            "Identifies JSFS transparently via academic User-Agent and widens per-domain request spacing."
+                        } else {
+                            "Menggunakan User-Agent riset akademik yang santun dan memperlebar jeda antar-request domain kampus."
+                        })
+                        .size(11.5)
+                        .color(p.muted),
+                    );
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if option_pill(
+                        ui,
+                        p,
+                        app_settings.polite_bot_mode,
+                        if app_settings.language == AppLanguage::En {
+                            "Enabled"
+                        } else {
+                            "Aktif"
+                        },
+                    ) {
+                        app_settings.polite_bot_mode = !app_settings.polite_bot_mode;
+                        crate::scraper::set_polite_bot_mode(app_settings.polite_bot_mode);
+                        let _ = save_app_settings(app_settings);
+                        sink.send(EngineEvent::Toast(if app_settings.polite_bot_mode {
+                            "Mode Bot Akademik Sopan diaktifkan.".to_string()
+                        } else {
+                            "Mode rotasi browser standar diaktifkan.".to_string()
+                        }));
+                    }
+                });
+            });
+
             ui.add_space(10.0);
             ui.horizontal(|ui| {
                 if accent_button(ui, p, txt.settings_save_btn).clicked() {
@@ -314,6 +361,7 @@ pub fn render_settings_page(
                     let clean = app_settings.clone().normalized();
                     *app_settings = clean;
                     *usd_rate_text = app_settings.usd_to_idr.to_string();
+                    crate::scraper::set_polite_bot_mode(app_settings.polite_bot_mode);
                     filters.apply_app_settings(app_settings);
                     let _ = save_app_settings(app_settings);
                     sink.send(EngineEvent::Toast(txt.toast_settings_saved.to_string()));
@@ -324,9 +372,94 @@ pub fn render_settings_page(
                     *theme_mode = ThemeMode::Dark;
                     apply_theme(ui.ctx(), &Palette::from_mode(*theme_mode));
                     *usd_rate_text = app_settings.usd_to_idr.to_string();
+                    crate::scraper::set_polite_bot_mode(app_settings.polite_bot_mode);
                     filters.apply_app_settings(app_settings);
                     let _ = save_app_settings(app_settings);
                     sink.send(EngineEvent::Toast(txt.toast_settings_reset.to_string()));
+                }
+            });
+        });
+
+        ui.add_space(12.0);
+
+        // Card 3: Author Profile for Auto-Fill Cover Letters, Inquiry Emails & Originality Statements
+        card(ui, p, |ui| {
+            let is_en = app_settings.language == AppLanguage::En;
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(if is_en {
+                        "Author Profile (Auto-Fill Letters & Submission Bundle)"
+                    } else {
+                        "Profil Penulis (Auto-Fill Surat Pengantar, Email & Pernyataan)"
+                    })
+                    .size(13.5)
+                    .strong()
+                    .color(p.text),
+                );
+                pill_badge(ui, "Lokal", p.good, p.good_soft);
+            });
+            card_divider(ui, p);
+
+            let field_row = |ui: &mut Ui, label: &str, hint: &str, val: &mut String| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(label).size(12.5).color(p.text));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.add_sized(
+                            [320.0, 28.0],
+                            egui::TextEdit::singleline(val)
+                                .hint_text(hint)
+                                .margin(Margin::symmetric(8, 5)),
+                        );
+                    });
+                });
+                ui.add_space(6.0);
+            };
+
+            field_row(
+                ui,
+                if is_en { "Full Name" } else { "Nama Lengkap" },
+                if is_en { "e.g., Ahmad Mahasiswa, S.Kom." } else { "Mis. Ahmad Mahasiswa" },
+                &mut app_settings.author_name,
+            );
+            field_row(
+                ui,
+                "NIM / NIDN",
+                "Opsional — contoh: 21051204001",
+                &mut app_settings.author_id,
+            );
+            field_row(
+                ui,
+                if is_en { "Affiliation / Department" } else { "Program Studi / Universitas" },
+                if is_en { "Department & University" } else { "Mis. Teknik Informatika, Universitas ..." },
+                &mut app_settings.author_affiliation,
+            );
+            field_row(
+                ui,
+                if is_en { "Corresponding Email" } else { "Email Korespondensi" },
+                "nama@kampus.ac.id",
+                &mut app_settings.author_email,
+            );
+
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                if accent_button(
+                    ui,
+                    p,
+                    if is_en {
+                        "Save Author Profile"
+                    } else {
+                        "Simpan Profil Penulis"
+                    },
+                )
+                .clicked()
+                {
+                    *app_settings = app_settings.clone().normalized();
+                    let _ = save_app_settings(app_settings);
+                    sink.send(EngineEvent::Toast(if is_en {
+                        "Author profile saved for auto-fill templates.".to_string()
+                    } else {
+                        "Profil penulis disimpan ke .cache/app_settings.json.".to_string()
+                    }));
                 }
             });
         });

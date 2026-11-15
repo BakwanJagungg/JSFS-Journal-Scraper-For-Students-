@@ -70,6 +70,27 @@ static RE_SUBMISSION_OPEN: Lazy<Regex> = Lazy::new(|| {
     .expect("valid submission open regex")
 });
 
+static RE_REDIRECT_HINT: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"(?is)(?:website\s+(?:ini\s+)?telah\s+(?:ber)?pindah\s+ke|jurnal\s+(?:ini\s+)?telah\s+(?:ber)?pindah\s+ke|halaman\s+(?:telah\s+)?dipindahkan\s+ke|pindah\s+ke\s+alamat(?:\s+baru)?|moved\s+permanently\s+to|(?:website|journal|site)\s+has\s+moved\s+to|migrated\s+to)\s*[:\-]?\s*(https?://[^\s\x22'<>)\]]+)",
+    )
+    .expect("valid redirect phrase regex")
+});
+
+static RE_DOAJ_INDEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)\bdoaj\b|doaj\.org").expect("valid doaj regex"));
+static RE_COPERNICUS_INDEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)\bindex\s*copernicus\b|\bcopernicus\b|journals\.indexcopernicus\.com")
+        .expect("valid copernicus regex")
+});
+static RE_EBSCO_INDEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)\bebsco\b|ebscohost\.com").expect("valid ebsco regex"));
+static RE_SCOPUS_INDEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)\bscopus\b|scopus\.com").expect("valid scopus regex"));
+static RE_GSCHOLAR_INDEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)\bgoogle\s+scholar\b|scholar\.google\.").expect("valid gscholar regex")
+});
+
 /// Format turnaround weeks into compact human-readable pill label (`~8 mgg` or `~3 bln`).
 pub fn format_turnaround_label(weeks: u16) -> String {
     if weeks == 0 {
@@ -429,20 +450,201 @@ pub fn evaluate_journal_risk(
         }
     }
 
-    // 3. Check suspicious domain TLD or free hosting on supposedly indexed journals
+    // 3. Check suspicious domain TLD, free hosts, or cloned/hijacked Indonesian campus domains
     if let Ok(u) = Url::parse(&rec.website_url) {
         if let Some(host) = u.host_str() {
             let h = host.to_ascii_lowercase();
+            let is_official_id = h.ends_with(".ac.id")
+                || h.ends_with(".or.id")
+                || h.ends_with(".go.id")
+                || h.ends_with(".sch.id");
             let suspicious_tlds = [
-                ".xyz", ".top", ".click", ".loan", ".work", ".gq", ".tk", ".cf", ".ml", ".icu",
+                ".xyz", ".top", ".biz", ".click", ".loan", ".work", ".gq", ".tk", ".cf", ".ml",
+                ".icu",
             ];
             let free_hosts = ["blogspot.", "wordpress.com", "wixsite.com", "weebly.com"];
             if suspicious_tlds.iter().any(|ext| h.ends_with(ext))
                 || free_hosts.iter().any(|fh| h.contains(fh))
             {
                 return Some(format!(
-                    "Peringatan: Domain situs ({h}) tidak lazim untuk jurnal akademik resmi"
+                    "Peringatan: Domain situs ({h}) tidak lazim / indikasi hijacked untuk jurnal akademik resmi"
                 ));
+            }
+            let aff_low = format!("{} {}", rec.publisher, rec.title).to_ascii_lowercase();
+            let claims_id_campus = [
+                "universitas",
+                "politeknik",
+                "institut teknologi",
+                "institut agama",
+                "institut sains",
+                "sekolah tinggi",
+                "uin ",
+                "iain ",
+                "stie ",
+                "stik",
+            ]
+            .iter()
+            .any(|kw| aff_low.contains(kw));
+            if claims_id_campus
+                && !is_official_id
+                && !h.ends_with(".id")
+                && !h.ends_with(".org")
+                && !h.ends_with(".edu")
+            {
+                return Some(format!(
+                    "Peringatan: Domain situs ({h}) indikasi cloned/non-resmi untuk afiliasi kampus Indonesia (bukan .ac.id/.or.id/.go.id/.sch.id)"
+                ));
+            }
+        }
+    }
+
+    None
+}
+
+/// Validate an 8-character ISSN using the official ISO 3297 Modulo 11 checksum.
+pub fn is_valid_issn_checksum(issn: &str) -> bool {
+    let cleaned: String = issn
+        .trim()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect();
+    if cleaned.len() != 8 {
+        return false;
+    }
+    let bytes = cleaned.as_bytes();
+    let mut sum: u32 = 0;
+    for (idx, &b) in bytes[..7].iter().enumerate() {
+        if !b.is_ascii_digit() {
+            return false;
+        }
+        let digit = u32::from(b - b'0');
+        let weight = 8 - idx as u32;
+        sum += digit * weight;
+    }
+    let check_val = match bytes[7] {
+        b'0'..=b'9' => u32::from(bytes[7] - b'0'),
+        b'x' | b'X' => 10,
+        _ => return false,
+    };
+    let rem = sum % 11;
+    let expected = if rem == 0 { 0 } else { 11 - rem };
+    check_val == expected
+}
+
+/// Validate p-ISSN and e-ISSN strings together: at least one valid ISSN digit sequence and none malformed.
+pub fn has_valid_issn_pair(issn: &str, eissn: &str) -> bool {
+    let mut found_any = false;
+    for field in [issn, eissn] {
+        for part in field.split([',', ';', '/']) {
+            let trimmed = part.trim();
+            if trimmed.chars().any(|c| c.is_ascii_digit()) {
+                found_any = true;
+                if !is_valid_issn_checksum(trimmed) {
+                    return false;
+                }
+            }
+        }
+    }
+    found_any
+}
+
+/// Extract major secondary indexing badges/links mentioned on an OJS site (`DOAJ`, `Scopus`, `EBSCO`, `Copernicus`, `Google Scholar`).
+pub fn extract_extra_indexes(html_or_text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let checks: [(&str, &Lazy<Regex>); 5] = [
+        ("DOAJ", &RE_DOAJ_INDEX),
+        ("Scopus", &RE_SCOPUS_INDEX),
+        ("EBSCO", &RE_EBSCO_INDEX),
+        ("Copernicus", &RE_COPERNICUS_INDEX),
+        ("Google Scholar", &RE_GSCHOLAR_INDEX),
+    ];
+    for (label, re) in checks {
+        if re.is_match(html_or_text) {
+            out.push(label.to_string());
+        }
+    }
+    out
+}
+
+/// Detect OJS 2 -> OJS 3 migration banners or `<meta http-equiv="refresh">` redirect targets in HTML.
+pub fn extract_html_redirect_url(html: &str, plain: &str, base_url: &str) -> Option<String> {
+    let base_parsed = Url::parse(base_url).ok()?;
+    let base_norm = base_url.trim_end_matches('/').to_ascii_lowercase();
+
+    let is_acceptable = |candidate: &Url| -> bool {
+        if candidate.scheme() != "http" && candidate.scheme() != "https" {
+            return false;
+        }
+        let s = candidate
+            .as_str()
+            .trim_end_matches('/')
+            .to_ascii_lowercase();
+        !(s == base_norm || s.contains("kemdiktisaintek.go.id") || s.contains("doi.org"))
+    };
+
+    // 1) Explicit Indonesian/English migration text followed directly by a URL
+    if let Some(cap) = RE_REDIRECT_HINT.captures(plain) {
+        if let Some(raw_url) = cap.get(1).map(|m| {
+            m.as_str()
+                .trim_end_matches(['.', ',', ';', ':', ')', ']', '"', '\''])
+        }) {
+            if let Ok(u) = base_parsed.join(raw_url) {
+                if is_acceptable(&u) {
+                    return Some(u.to_string());
+                }
+            }
+        }
+    }
+
+    let doc = Html::parse_document(html);
+
+    // 2) HTML <meta http-equiv="refresh" content="0;url=...">
+    if let Ok(meta_sel) = Selector::parse("meta[http-equiv]") {
+        for el in doc.select(&meta_sel) {
+            let eq = el.value().attr("http-equiv").unwrap_or("");
+            if eq.eq_ignore_ascii_case("refresh") {
+                if let Some(content) = el.value().attr("content") {
+                    let low = content.to_ascii_lowercase();
+                    if let Some(pos) = low.find("url=") {
+                        let raw = content[pos + 4..]
+                            .trim()
+                            .trim_matches(|c| c == '\'' || c == '"');
+                        if let Ok(u) = base_parsed.join(raw) {
+                            if is_acceptable(&u) {
+                                return Some(u.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3) Anchor link paired with OJS migration phrase inside main content/announcements
+    if let Ok(a_sel) = Selector::parse("a[href]") {
+        let plain_low = plain.to_ascii_lowercase();
+        if plain_low.contains("berpindah")
+            || plain_low.contains("dipindahkan")
+            || plain_low.contains("moved permanently")
+            || plain_low.contains("has moved to")
+        {
+            for el in doc.select(&a_sel) {
+                let text = el.text().collect::<Vec<_>>().join(" ").to_ascii_lowercase();
+                let href = el.value().attr("href").unwrap_or("").trim();
+                if href.starts_with("http")
+                    && (text.contains("http")
+                        || text.contains("sini")
+                        || text.contains("here")
+                        || text.contains("new")
+                        || text.contains("baru")
+                        || text.contains("ojs"))
+                {
+                    if let Ok(u) = base_parsed.join(href) {
+                        if is_acceptable(&u) {
+                            return Some(u.to_string());
+                        }
+                    }
+                }
             }
         }
     }
@@ -627,6 +829,58 @@ mod tests {
         assert_eq!(
             extract_submission_open("About the Journal and Editorial Team."),
             None
+        );
+    }
+
+    #[test]
+    fn test_issn_checksum_cloned_domain_indexes_and_redirect() {
+        assert!(is_valid_issn_checksum("2502-2377"));
+        assert!(is_valid_issn_checksum("0378-5955"));
+        assert!(is_valid_issn_checksum("2434-561X"));
+        assert!(!is_valid_issn_checksum("2502-2379"));
+        assert!(!is_valid_issn_checksum("1234-567"));
+        assert!(has_valid_issn_pair("-", "2502-2377"));
+        assert!(!has_valid_issn_pair("2502-2377", "2502-2379"));
+
+        let rec = JournalRecord {
+            title: "Jurnal Informatika Universitas Nusantara".to_string(),
+            publisher: "Universitas Nusantara".to_string(),
+            website_url: "https://jurnal-unik.biz/ojs".to_string(),
+            ..Default::default()
+        };
+        let warn = evaluate_journal_risk(&rec, "Peer review process.", None, None);
+        assert!(warn.is_some());
+        assert!(warn.unwrap().contains("Domain"));
+
+        let rec_ok = JournalRecord {
+            title: "Jurnal Sistem Informasi".to_string(),
+            publisher: "Universitas Contoh".to_string(),
+            website_url: "https://ejournal.contoh.ac.id/index.php/jsi".to_string(),
+            ..Default::default()
+        };
+        assert!(evaluate_journal_risk(&rec_ok, "Peer review", None, None).is_none());
+
+        let idx_html = r#"Indexed by <a href="https://doaj.org">DOAJ</a>, Copernicus, EBSCO, and Google Scholar."#;
+        let idx = extract_extra_indexes(idx_html);
+        assert_eq!(
+            idx,
+            vec![
+                "DOAJ".to_string(),
+                "EBSCO".to_string(),
+                "Copernicus".to_string(),
+                "Google Scholar".to_string()
+            ]
+        );
+
+        let mig_html = r#"<html><body><p>Website ini telah berpindah ke https://ojs3.kampus.ac.id/index.php/ji</p></body></html>"#;
+        let redir = extract_html_redirect_url(
+            mig_html,
+            "Website ini telah berpindah ke https://ojs3.kampus.ac.id/index.php/ji",
+            "https://jurnal.kampus.ac.id/ji",
+        );
+        assert_eq!(
+            redir.as_deref(),
+            Some("https://ojs3.kampus.ac.id/index.php/ji")
         );
     }
 }

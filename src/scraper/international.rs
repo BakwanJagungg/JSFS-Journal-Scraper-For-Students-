@@ -1,4 +1,4 @@
-//! International Q1–Q4 journal search via open REST APIs (OpenAlex & DOAJ) without Cloudflare blocks.
+//! International Q1–Q4 journal search via open REST APIs (OpenAlex, DOAJ & Crossref) without Cloudflare blocks.
 
 use crate::config::{APC_UNKNOWN, CACHE_VERSION, INFO_NOT_FOUND, USD_TO_IDR_RATE};
 use crate::models::{format_apc_unified, format_idr_short, DisplayCurrency, JournalRecord};
@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 pub const INTERNATIONAL_USER_AGENT: &str =
-    "JSFS-Academic-Research-Tool/4.3.0 (mailto:research@jsfs.local)";
+    "JSFS-Academic-Research-Tool/4.8.0 (mailto:research@jsfs.local)";
 
 const API_TIMEOUT_SECS: u64 = 12;
 
@@ -530,6 +530,189 @@ where
     parsed
 }
 
+/// Parse Crossref Journals REST API (`/journals?query=...`) JSON payload into `JournalRecord` entries.
+pub fn parse_crossref_journals_response(raw: &str) -> Vec<JournalRecord> {
+    let Ok(val) = serde_json::from_str::<Value>(raw) else {
+        return Vec::new();
+    };
+    let Some(items) = val
+        .get("message")
+        .and_then(|m| m.get("items"))
+        .and_then(|v| v.as_array())
+    else {
+        return Vec::new();
+    };
+
+    let current_year = chrono::Local::now().year() as u16;
+    let mut out = Vec::with_capacity(items.len());
+
+    for item in items {
+        let Some(title) = item
+            .get("title")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        else {
+            continue;
+        };
+
+        let publisher = item
+            .get("publisher")
+            .and_then(|v| v.as_str())
+            .map(sanitize_publisher_name)
+            .unwrap_or_default();
+
+        let mut issn = String::new();
+        let mut eissn = String::new();
+        if let Some(types) = item.get("issn-type").and_then(|v| v.as_array()) {
+            for t in types {
+                let code = t
+                    .get("value")
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .unwrap_or("");
+                let kind = t.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                if code.is_empty() {
+                    continue;
+                }
+                if kind.eq_ignore_ascii_case("electronic") && eissn.is_empty() {
+                    eissn = code.to_string();
+                } else if kind.eq_ignore_ascii_case("print") && issn.is_empty() {
+                    issn = code.to_string();
+                }
+            }
+        }
+        if issn.is_empty() || eissn.is_empty() {
+            let (p_fb, e_fb) = extract_issn_pair(None, item.get("ISSN").and_then(|v| v.as_array()));
+            if issn.is_empty() {
+                issn = p_fb;
+            }
+            if eissn.is_empty() {
+                eissn = if !e_fb.is_empty() { e_fb } else { issn.clone() };
+            }
+        }
+
+        let mut subjects: Vec<String> = Vec::new();
+        if let Some(arr) = item.get("subjects").and_then(|v| v.as_array()) {
+            for s in arr.iter().take(5) {
+                if let Some(name) = s.get("name").and_then(|v| v.as_str()) {
+                    let clean = name.trim();
+                    if !clean.is_empty() && !subjects.iter().any(|x| x.eq_ignore_ascii_case(clean))
+                    {
+                        subjects.push(clean.to_string());
+                    }
+                }
+            }
+        }
+        let subject_str = subjects.join(", ");
+        let focus_scope = if subject_str.is_empty() {
+            INFO_NOT_FOUND.to_string()
+        } else {
+            format!("Topik Crossref: {subject_str}.")
+        };
+
+        let mut last_issue_year = item
+            .get("breakdowns")
+            .and_then(|b| b.get("dois-by-issued-year"))
+            .and_then(|v| v.as_array())
+            .and_then(|pairs| {
+                pairs
+                    .iter()
+                    .filter_map(|p| {
+                        let arr = p.as_array()?;
+                        let yr = arr.first()?.as_u64()?;
+                        let cnt = arr.get(1)?.as_u64()?;
+                        (cnt > 0).then(|| u16::try_from(yr).ok()).flatten()
+                    })
+                    .max()
+            });
+        if last_issue_year.is_none()
+            && item
+                .get("counts")
+                .and_then(|c| c.get("current-dois"))
+                .and_then(|v| v.as_u64())
+                .is_some_and(|n| n > 0)
+        {
+            last_issue_year = Some(current_year);
+        }
+
+        let homepage = item
+            .get("URL")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| s.starts_with("http"))
+            .unwrap_or("")
+            .to_string();
+
+        let mut rec = JournalRecord {
+            title: title.to_string(),
+            publisher,
+            issn,
+            eissn,
+            website_url: homepage,
+            source_portal: "Crossref".to_string(),
+            subject_area: subject_str,
+            focus_and_scope: focus_scope,
+            apc_status: APC_UNKNOWN.to_string(),
+            publication_fee: APC_UNKNOWN.to_string(),
+            apc_evidence: "Terindeks Crossref Journals API (verifikasi APC di web jurnal)"
+                .to_string(),
+            publish_schedule: "Internasional (Crossref DOI)".to_string(),
+            last_issue_year,
+            cache_version: CACHE_VERSION.to_string(),
+            extra_indexes: vec!["Crossref".to_string()],
+            is_international: true,
+            ..Default::default()
+        };
+        rec.refresh_activity_status(false, current_year);
+        rec.article_languages =
+            heuristics::detect_article_languages(&rec.title, &rec.focus_and_scope, "", true);
+        rec.issn_valid = heuristics::has_valid_issn_pair(&rec.issn, &rec.eissn);
+        rec.risk_warning = heuristics::evaluate_journal_risk(&rec, "", None, None);
+        out.push(rec);
+    }
+
+    out
+}
+
+/// Fetch international journals from Crossref public Journals API using polite User-Agent pool.
+pub async fn scrape_crossref<F>(
+    client: &reqwest::Client,
+    keyword: &str,
+    cancel_flag: Arc<AtomicBool>,
+    on_progress: F,
+) -> Vec<JournalRecord>
+where
+    F: Fn(usize, usize, &str),
+{
+    if cancel_flag.load(Ordering::Relaxed) || keyword.trim().is_empty() {
+        return Vec::new();
+    }
+    on_progress(1, 2, &format!("Crossref Journals: '{keyword}'..."));
+    let url = format!(
+        "https://api.crossref.org/journals?query={}&rows=40",
+        urlencoding::encode(keyword.trim())
+    );
+    let Ok(resp) = client
+        .get(&url)
+        .header(reqwest::header::USER_AGENT, INTERNATIONAL_USER_AGENT)
+        .timeout(Duration::from_secs(API_TIMEOUT_SECS))
+        .send()
+        .await
+    else {
+        return Vec::new();
+    };
+    if !resp.status().is_success() {
+        return Vec::new();
+    }
+    let Ok(raw) = resp.text().await else {
+        return Vec::new();
+    };
+    let parsed = parse_crossref_journals_response(&raw);
+    on_progress(2, 2, &format!("Crossref: {} jurnal", parsed.len()));
+    parsed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -615,5 +798,48 @@ mod tests {
         assert_eq!(doaj_recs[0].apc_status, "Gratis (Rp 0)");
         assert_eq!(doaj_recs[0].publication_fee_idr, Some(0));
         assert_eq!(doaj_recs[0].apc_idr_numeric, Some(0));
+    }
+
+    #[test]
+    fn test_parse_crossref_journals_response() {
+        let crossref_json = r#"{
+            "status": "ok",
+            "message": {
+                "items": [
+                    {
+                        "title": "Indonesian Journal of Computing and Cybernetics",
+                        "publisher": "Universitas Gadjah Mada",
+                        "ISSN": ["1978-1520", "2460-7258"],
+                        "issn-type": [
+                            { "value": "1978-1520", "type": "print" },
+                            { "value": "2460-7258", "type": "electronic" }
+                        ],
+                        "subjects": [
+                            { "name": "Computer Science Applications", "ASJC": 1706 },
+                            { "name": "Artificial Intelligence", "ASJC": 1702 }
+                        ],
+                        "counts": { "current-dois": 24, "total-dois": 310 },
+                        "breakdowns": {
+                            "dois-by-issued-year": [[2025, 24], [2024, 22]]
+                        }
+                    }
+                ]
+            }
+        }"#;
+
+        let recs = parse_crossref_journals_response(crossref_json);
+        assert_eq!(recs.len(), 1);
+        assert_eq!(
+            recs[0].title,
+            "Indonesian Journal of Computing and Cybernetics"
+        );
+        assert_eq!(recs[0].publisher, "Universitas Gadjah Mada");
+        assert_eq!(recs[0].issn, "1978-1520");
+        assert_eq!(recs[0].eissn, "2460-7258");
+        assert_eq!(recs[0].last_issue_year, Some(2025));
+        assert_eq!(recs[0].source_portal, "Crossref");
+        assert!(recs[0].is_international);
+        assert!(recs[0].extra_indexes.contains(&"Crossref".to_string()));
+        assert!(recs[0].subject_area.contains("Artificial Intelligence"));
     }
 }

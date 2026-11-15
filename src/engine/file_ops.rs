@@ -224,3 +224,51 @@ pub fn export_targeted_async(
         }
     });
 }
+
+/// Export a 1-Click Submission Bundle (`.zip`) in `output/` asynchronously and notify the user.
+pub fn export_submission_bundle_async(
+    engine: Arc<EngineState>,
+    sink: EventSink,
+    journal: UiJournalItem,
+    keyword: String,
+    manuscript: Option<crate::engine::manuscript::ManuscriptSummary>,
+    settings: crate::ui::i18n::AppSettings,
+    lang: &'static str,
+) {
+    let rt = engine.runtime.handle().clone();
+    rt.spawn(async move {
+        let res = tokio::task::spawn_blocking(move || {
+            crate::exporter::bundle::write_submission_bundle_zip(
+                &journal,
+                &keyword,
+                manuscript.as_ref(),
+                &settings,
+                lang,
+            )
+        })
+        .await;
+
+        match res {
+            Ok(Ok(path)) => {
+                let fname = std::path::Path::new(&path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(&path)
+                    .to_string();
+                let out_dir = crate::config::output_dir();
+                let _ = open_with_os(&out_dir.to_string_lossy());
+                sink.send(EngineEvent::Toast(format!(
+                    "Paket pengajuan .zip tersimpan di output/: {fname}"
+                )));
+            }
+            Ok(Err(e)) => {
+                sink.send(EngineEvent::Toast(format!("Gagal membuat paket .zip: {e}")));
+            }
+            Err(e) => {
+                sink.send(EngineEvent::Toast(format!(
+                    "Pembuatan paket .zip dibatalkan: {e}"
+                )));
+            }
+        }
+    });
+}

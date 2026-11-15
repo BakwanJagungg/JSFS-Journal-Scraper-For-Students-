@@ -127,7 +127,11 @@ impl JournalCache {
                     return Ok(None);
                 }
                 match serde_json::from_str::<JournalRecord>(&payload_json) {
-                    Ok(rec) => Ok(Some(rec)),
+                    Ok(mut rec) => {
+                        rec.issn_valid =
+                            crate::parser::heuristics::has_valid_issn_pair(&rec.issn, &rec.eissn);
+                        Ok(Some(rec))
+                    }
                     Err(_) => Ok(None),
                 }
             }

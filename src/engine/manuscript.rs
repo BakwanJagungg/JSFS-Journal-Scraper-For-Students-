@@ -37,6 +37,28 @@ pub fn load_manuscript_async(engine: Arc<EngineState>, sink: EventSink, path: Pa
         let path_clone = path.clone();
 
         let parsed = tokio::task::spawn_blocking(move || -> Result<_, JsfsError> {
+            let ext = path_clone
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if ext == "docm" {
+                return Err(JsfsError::InvalidInput(
+                    "File .docm (macro-enabled) ditolak demi keamanan; gunakan .docx atau .pdf standar."
+                        .to_string(),
+                ));
+            }
+            if ext != "docx" && ext != "pdf" {
+                return Err(JsfsError::InvalidInput(
+                    "Hanya file .docx atau .pdf yang didukung".to_string(),
+                ));
+            }
+            let meta_fs = std::fs::metadata(&path_clone)?;
+            if meta_fs.len() > crate::parser::doc_matcher::MAX_MANUSCRIPT_BYTES as u64 {
+                return Err(JsfsError::InvalidInput(
+                    "Ukuran file naskah melebihi batas maksimal 50 MB.".to_string(),
+                ));
+            }
             let raw = std::fs::read(&path_clone)?;
             doc_matcher::build_manuscript_meta(&fname, &raw)
         })
