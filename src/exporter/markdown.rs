@@ -17,7 +17,10 @@ pub fn write_markdown(path: &Path, records: &[JournalRecord], keyword: &str) -> 
         String::new(),
         format!("- **Tanggal:** {now}"),
         format!("- **Total Jurnal Valid:** {}", records.len()),
-        "- **Dihasilkan oleh:** JSFS v3.1.0 (Journal Scraper For Students)".to_string(),
+        format!(
+            "- **Dihasilkan oleh:** JSFS v{} (Journal Scraper For Students)",
+            crate::config::APP_VERSION
+        ),
         String::new(),
         "## Ringkasan Tabel".to_string(),
         String::new(),
@@ -105,6 +108,7 @@ mod tests {
         let md = std::fs::read_to_string(&md_path).unwrap();
         let csv = std::fs::read(&csv_path).unwrap();
         assert!(md.contains("Jurnal Ilmu Komputer"));
+        assert!(md.contains(&format!("JSFS v{}", crate::config::APP_VERSION)));
         assert_eq!(&csv[0..3], &[0xEF, 0xBB, 0xBF]);
         let _ = std::fs::remove_dir_all(dir);
     }

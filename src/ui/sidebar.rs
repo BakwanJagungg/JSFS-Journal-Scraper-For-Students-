@@ -1,5 +1,5 @@
-//! TwinDesk-inspired left navigation sidebar with JSFS brand identity, live engine indicator,
-//! grouped colored icon tiles, active filter badges, and instant Dark / Soft Daylight theme toggle.
+//! Left navigation sidebar with JSFS brand identity, live engine indicator,
+//! grouped colored icon tiles, active filter badges, and instant JSFS Dark / Daylight theme toggle.
 
 use crate::ui::theme::{draw_vector_icon, Palette, ThemeMode, VectorIcon};
 use egui::{
@@ -85,7 +85,7 @@ fn draw_nav_item(
         ui.painter().rect_filled(rect, CornerRadius::same(7), bg);
     }
 
-    // 22x22 rounded tile icon matching TwinDesk sidebar
+    // 22x22 rounded tile icon for sidebar navigation
     let tile_rect = Rect::from_min_size(
         egui::pos2(rect.left() + 8.0, rect.center().y - 11.0),
         Vec2::splat(22.0),
@@ -172,7 +172,12 @@ pub fn render_sidebar(ui: &mut Ui, p: &Palette, props: SidebarProps<'_>) -> Side
 
         ui.add_space(4.0);
         ui.vertical(|ui| {
-            ui.label(RichText::new("JSFS v4.0").size(16.5).strong().color(p.text));
+            ui.label(
+                RichText::new(format!("JSFS v{}", crate::config::APP_VERSION))
+                    .size(16.0)
+                    .strong()
+                    .color(p.text),
+            );
             ui.horizontal(|ui| {
                 let (dot_r, _) = ui.allocate_exact_size(Vec2::splat(8.0), Sense::hover());
                 let dot_c = if props.is_searching {
@@ -228,7 +233,7 @@ pub fn render_sidebar(ui: &mut Ui, p: &Palette, props: SidebarProps<'_>) -> Side
         ui.add_space(2.0);
     }
 
-    // TwinDesk separator line above bottom section
+    // Subtle separator line above bottom section
     ui.add_space(6.0);
     let (sep_rect, _) =
         ui.allocate_exact_size(Vec2::new(ui.available_width(), 1.0), Sense::hover());
@@ -252,7 +257,7 @@ pub fn render_sidebar(ui: &mut Ui, p: &Palette, props: SidebarProps<'_>) -> Side
         action.selected = Some(NavPage::Guide);
     }
 
-    // Pinned footer: Instant Dark / Soft Daylight toggle card
+    // Pinned footer: Instant JSFS Dark / JSFS Daylight toggle card
     ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
         ui.add_space(8.0);
         Frame::new()

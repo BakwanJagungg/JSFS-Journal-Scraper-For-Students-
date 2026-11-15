@@ -74,7 +74,7 @@ impl Default for FilterSettings {
     fn default() -> Self {
         Self {
             active_preset: QuickPreset::SkripsiS1,
-            target_count: 25,
+            target_count: 40,
             sinta_enabled: [false, false, true, true, true, false], // SINTA 3, 4, 5
             garuda: true,
             sinta_src: true,
@@ -117,7 +117,7 @@ impl FilterSettings {
         match preset {
             QuickPreset::SkripsiS1 => {
                 self.sinta_enabled = [false, false, true, true, true, false];
-                self.target_count = 25;
+                self.target_count = 40;
                 self.only_free = false;
                 self.include_na = true;
                 self.min_rp = 0;
@@ -125,7 +125,7 @@ impl FilterSettings {
                 self.min_rp_text = "0".to_string();
                 self.max_rp_text = "1500000".to_string();
                 self.months = [true; 12];
-                "Preset Aktif: Target Skripsi S1 (SINTA 3–5, maks Rp 1,5 jt)."
+                "Preset Aktif: Target Skripsi S1 (SINTA 3–5, Rp 0–1,5 jt + Cek Web, target 40)."
             }
             QuickPreset::JurnalGratis => {
                 self.sinta_enabled = [false, true, true, true, true, true];
@@ -439,6 +439,17 @@ mod tests {
     #[test]
     fn test_preset_skripsi_and_gratis() {
         let mut fs = FilterSettings::default();
+        assert!(!fs.only_free);
+        assert!(fs.include_na);
+        assert_eq!(fs.min_rp, 0);
+        assert_eq!(fs.max_rp, 1_500_000);
+        assert!((25..=60).contains(&fs.target_count));
+
+        fs.apply_preset(QuickPreset::SkripsiS1);
+        assert!(!fs.only_free);
+        assert!(fs.include_na);
+        assert_eq!(fs.max_rp, 1_500_000);
+
         fs.apply_preset(QuickPreset::JurnalGratis);
         assert!(fs.only_free);
         assert_eq!(fs.target_count, 50);

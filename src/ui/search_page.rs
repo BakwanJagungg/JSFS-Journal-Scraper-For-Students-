@@ -10,11 +10,21 @@ use crate::ui::state::{
     QuickPreset, SearchProgressView, SortColumn,
 };
 use crate::ui::theme::{
-    accent_button, card, danger_button, page_header, pill_badge, secondary_button, Palette,
+    accent_button_h, card, danger_button_h, page_header, pill_badge, secondary_button,
+    secondary_button_h, Palette,
 };
-use egui::{Align, CornerRadius, Frame, Layout, Margin, ProgressBar, RichText, ScrollArea, Sense, Stroke, Ui, Vec2};
+use egui::{
+    Align, Align2, CornerRadius, Frame, Layout, Margin, ProgressBar, RichText, ScrollArea, Sense,
+    Stroke, Ui, Vec2,
+};
 use egui_extras::{Column, TableBuilder};
 use std::path::PathBuf;
+
+fn table_cell(ui: &mut Ui, add_contents: impl FnOnce(&mut Ui)) {
+    Frame::new()
+        .inner_margin(Margin::symmetric(8, 2))
+        .show(ui, add_contents);
+}
 
 pub enum SearchPageAction {
     None,
@@ -100,60 +110,67 @@ pub fn render_search_page(
     // ── Card 1: Hero Search & Quick Presets ─────────────────────────────────
     card(ui, p, |ui| {
         let mut enter_pressed = false;
-        ui.horizontal(|ui| {
-            let input_w = (ui.available_width() - 320.0).max(200.0);
-            let resp = ui.add_sized(
-                [input_w, 32.0],
-                egui::TextEdit::singleline(keyword)
-                    .hint_text("Ketik topik skripsi (mis. sistem informasi, akuntansi, UMKM)..."),
-            );
-            if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                enter_pressed = true;
-            }
-
-            ui.label(RichText::new("Target:").size(12.0).color(p.muted));
-            let tgt_resp = ui.add_sized(
-                [54.0, 32.0],
-                egui::TextEdit::singleline(target_text).hint_text("25"),
-            );
-            if tgt_resp.changed() {
-                if let Ok(n) = target_text.trim().parse::<usize>() {
-                    filters.clamp_target(n);
-                    filters.active_preset = QuickPreset::Custom;
+        ui.allocate_ui(Vec2::new(ui.available_width(), 36.0), |ui| {
+            ui.horizontal_centered(|ui| {
+                let input_w = (ui.available_width() - 480.0).max(160.0);
+                let resp = ui.add_sized(
+                    [input_w, 36.0],
+                    egui::TextEdit::singleline(keyword)
+                        .align(Align2::LEFT_CENTER)
+                        .margin(Margin::symmetric(10, 7))
+                        .hint_text("Ketik topik skripsi (mis. sistem informasi, akuntansi, UMKM)..."),
+                );
+                if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    enter_pressed = true;
                 }
-            }
 
-            if is_searching {
-                if danger_button(ui, p, "Hentikan").clicked() {
-                    action = SearchPageAction::StopSearch;
+                ui.label(RichText::new("Target:").size(13.0).color(p.muted));
+                let tgt_resp = ui.add_sized(
+                    [54.0, 36.0],
+                    egui::TextEdit::singleline(target_text)
+                        .align(Align2::CENTER_CENTER)
+                        .margin(Margin::symmetric(6, 7))
+                        .hint_text("40"),
+                );
+                if tgt_resp.changed() {
+                    if let Ok(n) = target_text.trim().parse::<usize>() {
+                        filters.clamp_target(n);
+                        filters.active_preset = QuickPreset::Custom;
+                    }
                 }
-            } else if accent_button(ui, p, "Mulai Cari Jurnal").clicked() || enter_pressed {
-                if let Ok(n) = target_text.trim().parse::<usize>() {
-                    filters.clamp_target(n);
-                }
-                action = SearchPageAction::StartSearch;
-            }
 
-            if secondary_button(ui, p, "Filter").clicked() {
-                action = SearchPageAction::NavigateFilters;
-            }
+                if secondary_button_h(ui, p, "Unggah Naskah", 36.0).clicked() {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("Dokumen Naskah", &["docx", "pdf"])
+                        .pick_file()
+                    {
+                        action = SearchPageAction::PickManuscript(path);
+                    }
+                }
+
+                if is_searching {
+                    if danger_button_h(ui, p, "Hentikan", 36.0).clicked() {
+                        action = SearchPageAction::StopSearch;
+                    }
+                } else if accent_button_h(ui, p, "Mulai Cari Jurnal", 36.0).clicked() || enter_pressed {
+                    if let Ok(n) = target_text.trim().parse::<usize>() {
+                        filters.clamp_target(n);
+                    }
+                    action = SearchPageAction::StartSearch;
+                }
+
+                if secondary_button_h(ui, p, "Filter", 36.0).clicked() {
+                    action = SearchPageAction::NavigateFilters;
+                }
+            });
         });
 
-        ui.add_space(8.0);
+        ui.add_space(6.0);
         ui.horizontal_wrapped(|ui| {
-            if secondary_button(ui, p, "Unggah Naskah (.docx / .pdf)").clicked() {
-                if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("Dokumen Naskah", &["docx", "pdf"])
-                    .pick_file()
-                {
-                    action = SearchPageAction::PickManuscript(path);
-                }
-            }
-
             if let Some(ms) = manuscript {
                 pill_badge(
                     ui,
-                    &format!("{} • {} kar.", ms.name, ms.char_count),
+                    &format!("Naskah: {} • {} kar.", ms.name, ms.char_count),
                     p.good,
                     p.good_soft,
                 );
@@ -162,7 +179,7 @@ pub fn render_search_page(
                 }
             } else {
                 ui.label(
-                    RichText::new("Opsional: unggah draf naskah agar Match Score dihitung dari abstrak & isi.")
+                    RichText::new("Opsional: klik Unggah Naskah (.docx / .pdf) agar Match Score dihitung otomatis dari abstrak & isi.")
                         .size(11.5)
                         .color(p.muted),
                 );
@@ -459,7 +476,7 @@ pub fn render_search_page(
 
         ui.add_space(8.0);
 
-        let avail_h = ui.available_height().max(260.0);
+        let avail_h = (ui.available_height() - 52.0).max(220.0);
         ScrollArea::horizontal().show(ui, |ui| {
             let table = TableBuilder::new(ui)
                 .striped(true)
@@ -467,14 +484,14 @@ pub fn render_search_page(
                 .max_scroll_height(avail_h)
                 .cell_layout(Layout::left_to_right(Align::Center))
                 .column(Column::initial(285.0).at_least(210.0).clip(true))
-                .column(Column::exact(84.0))
-                .column(Column::exact(76.0))
-                .column(Column::initial(145.0).at_least(115.0).clip(true))
-                .column(Column::initial(135.0).at_least(115.0).clip(true))
-                .column(Column::exact(126.0));
+                .column(Column::exact(96.0))
+                .column(Column::exact(82.0))
+                .column(Column::initial(156.0).at_least(125.0).clip(true))
+                .column(Column::initial(148.0).at_least(125.0).clip(true))
+                .column(Column::exact(136.0));
 
             table
-                .header(26.0, |mut header| {
+                .header(28.0, |mut header| {
                     for title in [
                         "Jurnal & Penerbit",
                         "SINTA",
@@ -484,110 +501,128 @@ pub fn render_search_page(
                         "Aksi",
                     ] {
                         header.col(|ui| {
-                            ui.label(RichText::new(title).size(11.5).strong().color(p.muted));
+                            table_cell(ui, |ui| {
+                                ui.label(RichText::new(title).size(11.5).strong().color(p.muted));
+                            });
                         });
                     }
                 })
                 .body(|body| {
-                    body.rows(44.0, filtered.len(), |mut row| {
+                    body.rows(52.0, filtered.len(), |mut row| {
                         let real_idx = filtered[row.index()];
                         let item = &results[real_idx];
 
                         row.col(|ui| {
-                            ui.vertical(|ui| {
-                                let link_resp = ui
-                                    .add(
+                            table_cell(ui, |ui| {
+                                ui.vertical(|ui| {
+                                    let link_resp = ui
+                                        .add(
+                                            egui::Label::new(
+                                                RichText::new(&item.nama)
+                                                    .size(13.0)
+                                                    .strong()
+                                                    .color(p.text),
+                                            )
+                                            .truncate()
+                                            .sense(Sense::click()),
+                                        );
+                                    if link_resp.clicked() {
+                                        action = SearchPageAction::OpenDetail(real_idx);
+                                    }
+                                    ui.add(
                                         egui::Label::new(
-                                            RichText::new(&item.nama)
-                                                .size(12.5)
-                                                .strong()
-                                                .color(p.text),
+                                            RichText::new(format!(
+                                                "{} • {}",
+                                                item.penerbit, item.email_short
+                                            ))
+                                            .size(11.5)
+                                            .color(p.muted),
                                         )
-                                        .truncate()
-                                        .sense(Sense::click()),
+                                        .truncate(),
                                     );
-                                if link_resp.clicked() {
-                                    action = SearchPageAction::OpenDetail(real_idx);
-                                }
-                                ui.add(
-                                    egui::Label::new(
-                                        RichText::new(format!("{} • {}", item.penerbit, item.email_short))
-                                            .size(11.0)
-                                            .color(p.muted),
-                                    )
-                                    .truncate(),
-                                );
+                                });
                             });
                         });
 
                         row.col(|ui| {
-                            let sinta_txt = if item.sinta.is_empty() {
-                                "Garuda".to_string()
-                            } else {
-                                format!("SINTA {}", item.sinta)
-                            };
-                            pill_badge(ui, &sinta_txt, p.accent, p.accent_soft);
-                        });
-
-                        row.col(|ui| {
-                            let (fg, bg) = if item.match_score >= 70.0 {
-                                (p.good, p.good_soft)
-                            } else if item.match_score >= 45.0 {
-                                (p.warn, p.warn_soft)
-                            } else {
-                                (p.muted, p.control_bg)
-                            };
-                            pill_badge(ui, &format!("{:.0}%", item.match_score), fg, bg);
-                        });
-
-                        row.col(|ui| {
-                            let (fg, bg) = match item.apc_category.as_str() {
-                                "free" => (p.good, p.good_soft),
-                                "paid" => (p.warn, p.warn_soft),
-                                _ => (p.muted, p.control_bg),
-                            };
-                            pill_badge(ui, &item.apc_label, fg, bg);
-                        });
-
-                        row.col(|ui| {
-                            ui.vertical(|ui| {
-                                let act_lbl = activity_badge_label(item);
-                                let (fg, bg) = if item.is_dormant {
-                                    (p.bad, p.bad_soft)
-                                } else if item.activity_status.contains("Aktif") {
-                                    (p.good, p.good_soft)
+                            table_cell(ui, |ui| {
+                                let sinta_txt = if item.sinta.is_empty() {
+                                    "Garuda".to_string()
                                 } else {
-                                    (p.warn, p.warn_soft)
+                                    format!("SINTA {}", item.sinta)
                                 };
-                                pill_badge(ui, &act_lbl, fg, bg);
-                                if item.terbit_terdekat != "-" {
-                                    ui.label(
-                                        RichText::new(format!("Next: {}", item.terbit_terdekat))
-                                            .size(10.5)
-                                            .color(p.muted),
-                                    );
-                                }
+                                pill_badge(ui, &sinta_txt, p.accent, p.accent_soft);
                             });
                         });
 
                         row.col(|ui| {
-                            ui.horizontal(|ui| {
-                                if secondary_button(ui, p, "Detail").clicked() {
-                                    action = SearchPageAction::OpenDetail(real_idx);
-                                }
-                                if secondary_button(ui, p, "Web").clicked() {
-                                    let target = if item.url.starts_with("http") {
-                                        &item.url
+                            table_cell(ui, |ui| {
+                                let (fg, bg) = if item.match_score >= 70.0 {
+                                    (p.good, p.good_soft)
+                                } else if item.match_score >= 45.0 {
+                                    (p.warn, p.warn_soft)
+                                } else {
+                                    (p.muted, p.control_bg)
+                                };
+                                pill_badge(ui, &format!("{:.0}%", item.match_score), fg, bg);
+                            });
+                        });
+
+                        row.col(|ui| {
+                            table_cell(ui, |ui| {
+                                let (fg, bg) = match item.apc_category.as_str() {
+                                    "free" => (p.good, p.good_soft),
+                                    "paid" => (p.warn, p.warn_soft),
+                                    _ => (p.muted, p.control_bg),
+                                };
+                                pill_badge(ui, &item.apc_label, fg, bg);
+                            });
+                        });
+
+                        row.col(|ui| {
+                            table_cell(ui, |ui| {
+                                ui.vertical(|ui| {
+                                    let act_lbl = activity_badge_label(item);
+                                    let (fg, bg) = if item.is_dormant {
+                                        (p.bad, p.bad_soft)
+                                    } else if item.activity_status.contains("Aktif") {
+                                        (p.good, p.good_soft)
                                     } else {
-                                        &item.garuda_url
+                                        (p.warn, p.warn_soft)
                                     };
-                                    open_url_with_feedback(target, sink);
-                                }
+                                    pill_badge(ui, &act_lbl, fg, bg);
+                                    if item.terbit_terdekat != "-" {
+                                        ui.label(
+                                            RichText::new(format!("Next: {}", item.terbit_terdekat))
+                                                .size(11.0)
+                                                .color(p.muted),
+                                        );
+                                    }
+                                });
+                            });
+                        });
+
+                        row.col(|ui| {
+                            table_cell(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    if secondary_button(ui, p, "Detail").clicked() {
+                                        action = SearchPageAction::OpenDetail(real_idx);
+                                    }
+                                    if secondary_button(ui, p, "Web").clicked() {
+                                        let target = if item.url.starts_with("http") {
+                                            &item.url
+                                        } else {
+                                            &item.garuda_url
+                                        };
+                                        open_url_with_feedback(target, sink);
+                                    }
+                                });
                             });
                         });
                     });
                 });
         });
+        ui.add_space(6.0);
     });
 
     action

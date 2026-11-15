@@ -1,11 +1,11 @@
-//! Advanced search criteria arranged in TwinDesk System Settings grouped cards.
+//! Advanced search criteria arranged in System-Settings grouped cards.
 
 use crate::engine::{EngineEvent, EventSink};
 use crate::ui::state::{FilterSettings, QuickPreset, MONTH_NAMES};
 use crate::ui::theme::{
     card, card_divider, page_header, secondary_button, toggle_row, Palette,
 };
-use egui::{CornerRadius, Frame, Margin, RichText, ScrollArea, Sense, Stroke, Ui};
+use egui::{Align2, CornerRadius, Frame, Margin, RichText, ScrollArea, Sense, Stroke, Ui};
 
 fn selectable_chip(ui: &mut Ui, p: &Palette, active: bool, text: &str) -> bool {
     let fill = if active { p.accent } else { p.control_bg };
@@ -171,10 +171,13 @@ pub fn render_filters_page(
 
             ui.columns(2, |cols| {
                 cols[0].label(RichText::new("Minimum Biaya (Rp)").size(12.0).color(p.muted));
+                cols[0].add_space(4.0);
                 if cols[0]
                     .add_sized(
-                        [cols[0].available_width(), 28.0],
-                        egui::TextEdit::singleline(&mut filters.min_rp_text),
+                        [cols[0].available_width(), 32.0],
+                        egui::TextEdit::singleline(&mut filters.min_rp_text)
+                            .align(Align2::LEFT_CENTER)
+                            .margin(Margin::symmetric(8, 5)),
                     )
                     .changed()
                 {
@@ -183,10 +186,13 @@ pub fn render_filters_page(
                 }
 
                 cols[1].label(RichText::new("Maksimum Biaya (Rp)").size(12.0).color(p.muted));
+                cols[1].add_space(4.0);
                 if cols[1]
                     .add_sized(
-                        [cols[1].available_width(), 28.0],
-                        egui::TextEdit::singleline(&mut filters.max_rp_text),
+                        [cols[1].available_width(), 32.0],
+                        egui::TextEdit::singleline(&mut filters.max_rp_text)
+                            .align(Align2::LEFT_CENTER)
+                            .margin(Margin::symmetric(8, 5)),
                     )
                     .changed()
                 {

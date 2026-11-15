@@ -1,8 +1,9 @@
-//! TwinDesk System-Settings inspired theme, color tokens, crisp HiDPI fonts, and reusable native widgets.
+//! JSFS System-Settings inspired theme, color tokens, native Segoe UI typography, and reusable widgets.
 
 use egui::{
-    Align, Color32, Context, CornerRadius, FontData, FontDefinitions, FontFamily, Frame, Layout,
-    Margin, Pos2, Rect, Response, RichText, Sense, Stroke, StrokeKind, Ui, Vec2,
+    Align, Color32, Context, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Frame,
+    Layout, Margin, Pos2, Rect, Response, RichText, Sense, Stroke, StrokeKind, TextStyle, Ui,
+    Vec2,
 };
 use std::sync::Arc;
 
@@ -22,8 +23,8 @@ impl ThemeMode {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Dark => "TwinDesk Dark",
-            Self::Light => "Soft Daylight",
+            Self::Dark => "JSFS Dark",
+            Self::Light => "JSFS Daylight",
         }
     }
 }
@@ -184,7 +185,41 @@ pub fn apply_theme(ctx: &Context, p: &Palette) {
     visuals.widgets.active.fg_stroke = Stroke::new(1.2, p.text);
     visuals.widgets.active.corner_radius = cr;
 
-    ctx.set_visuals(visuals);
+    let target_theme = match p.mode {
+        ThemeMode::Dark => egui::Theme::Dark,
+        ThemeMode::Light => egui::Theme::Light,
+    };
+    ctx.set_theme(target_theme);
+    ctx.style_mut_of(target_theme, |style| {
+        style.visuals = visuals;
+        style.text_styles.insert(
+            TextStyle::Heading,
+            FontId::new(21.0, FontFamily::Proportional),
+        );
+        style.text_styles.insert(
+            TextStyle::Name("Subheading".into()),
+            FontId::new(15.0, FontFamily::Proportional),
+        );
+        style
+            .text_styles
+            .insert(TextStyle::Body, FontId::new(13.5, FontFamily::Proportional));
+        style.text_styles.insert(
+            TextStyle::Button,
+            FontId::new(13.5, FontFamily::Proportional),
+        );
+        style.text_styles.insert(
+            TextStyle::Small,
+            FontId::new(11.5, FontFamily::Proportional),
+        );
+        style.text_styles.insert(
+            TextStyle::Monospace,
+            FontId::new(12.5, FontFamily::Monospace),
+        );
+
+        style.spacing.item_spacing = Vec2::new(10.0, 8.0);
+        style.spacing.button_padding = Vec2::new(12.0, 6.0);
+        style.spacing.interact_size.y = 32.0;
+    });
 }
 
 pub fn card_frame(p: &Palette) -> Frame {
@@ -212,38 +247,57 @@ pub fn card_divider(ui: &mut Ui, p: &Palette) {
 
 pub fn page_header(ui: &mut Ui, p: &Palette, title: &str, subtitle: &str) {
     ui.add_space(4.0);
-    ui.label(RichText::new(title).size(22.0).strong().color(p.text));
+    ui.label(RichText::new(title).size(21.0).strong().color(p.text));
     if !subtitle.is_empty() {
-        ui.label(RichText::new(subtitle).size(12.5).color(p.muted));
+        ui.add_space(2.0);
+        ui.label(RichText::new(subtitle).size(13.5).color(p.muted));
     }
     ui.add_space(10.0);
 }
 
-pub fn accent_button(ui: &mut Ui, p: &Palette, label: &str) -> Response {
-    let btn = egui::Button::new(RichText::new(label).strong().size(13.0).color(Color32::WHITE))
-        .fill(p.accent)
-        .stroke(Stroke::new(1.0, p.accent))
+fn styled_button(
+    ui: &mut Ui,
+    label: &str,
+    fg: Color32,
+    fill: Color32,
+    stroke: Color32,
+    strong: bool,
+    height: f32,
+) -> Response {
+    let mut rt = RichText::new(label).size(13.0).color(fg);
+    if strong {
+        rt = rt.strong();
+    }
+    let btn = egui::Button::new(rt)
+        .fill(fill)
+        .stroke(Stroke::new(1.0, stroke))
         .corner_radius(CornerRadius::same(7))
-        .min_size(Vec2::new(0.0, 30.0));
+        .min_size(Vec2::new(0.0, height));
     ui.add(btn)
+}
+
+pub fn accent_button(ui: &mut Ui, p: &Palette, label: &str) -> Response {
+    accent_button_h(ui, p, label, 30.0)
+}
+
+pub fn accent_button_h(ui: &mut Ui, p: &Palette, label: &str, height: f32) -> Response {
+    styled_button(ui, label, Color32::WHITE, p.accent, p.accent, true, height)
 }
 
 pub fn secondary_button(ui: &mut Ui, p: &Palette, label: &str) -> Response {
-    let btn = egui::Button::new(RichText::new(label).size(12.5).color(p.text))
-        .fill(p.control_bg)
-        .stroke(Stroke::new(1.0, p.line))
-        .corner_radius(CornerRadius::same(7))
-        .min_size(Vec2::new(0.0, 28.0));
-    ui.add(btn)
+    secondary_button_h(ui, p, label, 28.0)
+}
+
+pub fn secondary_button_h(ui: &mut Ui, p: &Palette, label: &str, height: f32) -> Response {
+    styled_button(ui, label, p.text, p.control_bg, p.line, false, height)
 }
 
 pub fn danger_button(ui: &mut Ui, p: &Palette, label: &str) -> Response {
-    let btn = egui::Button::new(RichText::new(label).strong().size(13.0).color(Color32::WHITE))
-        .fill(p.bad)
-        .stroke(Stroke::new(1.0, p.bad))
-        .corner_radius(CornerRadius::same(7))
-        .min_size(Vec2::new(0.0, 30.0));
-    ui.add(btn)
+    danger_button_h(ui, p, label, 30.0)
+}
+
+pub fn danger_button_h(ui: &mut Ui, p: &Palette, label: &str, height: f32) -> Response {
+    styled_button(ui, label, Color32::WHITE, p.bad, p.bad, true, height)
 }
 
 pub fn pill_badge(ui: &mut Ui, text: &str, fg: Color32, bg: Color32) {
@@ -256,7 +310,7 @@ pub fn pill_badge(ui: &mut Ui, text: &str, fg: Color32, bg: Color32) {
         });
 }
 
-/// TwinDesk-style 38x22 smooth sliding toggle switch.
+/// System-Settings style 38x22 smooth sliding toggle switch.
 pub fn toggle_switch(ui: &mut Ui, p: &Palette, value: &mut bool) -> Response {
     let desired_size = Vec2::new(38.0, 22.0);
     let (rect, mut response) = ui.allocate_exact_size(desired_size, Sense::click());
@@ -282,7 +336,7 @@ pub fn toggle_switch(ui: &mut Ui, p: &Palette, value: &mut bool) -> Response {
     response
 }
 
-/// Full-width TwinDesk settings row with title, hint caption, and trailing pill switch.
+/// Full-width settings row with title, hint caption, and trailing pill switch.
 pub fn toggle_row(
     ui: &mut Ui,
     p: &Palette,

@@ -1,4 +1,4 @@
-//! Root native application shell coordinating the TwinDesk sidebar, 5 views, live events, and detail modal.
+//! Root native application shell coordinating the navigation sidebar, 5 views, live events, and detail modal.
 
 pub mod detail_modal;
 pub mod filters_page;
@@ -77,6 +77,8 @@ impl JsfsNativeApp {
         sink.bind_egui_ctx(cc.egui_ctx.clone());
 
         refresh_ai_status_async(engine.clone(), sink.clone());
+        let filters = FilterSettings::default();
+        let target_text = filters.target_count.to_string();
 
         Self {
             engine,
@@ -85,8 +87,8 @@ impl JsfsNativeApp {
             theme_mode,
             current_page: NavPage::Search,
             keyword: String::new(),
-            target_text: "25".to_string(),
-            filters: FilterSettings::default(),
+            target_text,
+            filters,
             manuscript: None,
             results: Vec::new(),
             selected_idx: None,
@@ -281,7 +283,7 @@ impl eframe::App for JsfsNativeApp {
             ui.ctx().request_repaint_after(Duration::from_millis(250));
         }
 
-        // Left TwinDesk Sidebar
+        // Left Navigation Sidebar
         Panel::left("jsfs_sidebar")
             .resizable(false)
             .exact_size(224.0)

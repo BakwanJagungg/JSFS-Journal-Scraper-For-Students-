@@ -270,15 +270,31 @@ pub fn render_match_engine_page(
         }
 
         ui.add_space(14.0);
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             if accent_button(ui, p, "Simpan Pengaturan Match Engine").clicked() {
                 save_matcher_config_async(engine.clone(), sink.clone(), build_save_input(form));
             }
-            ui.label(
-                RichText::new(&status.active_engine_label)
-                    .size(12.0)
-                    .color(p.muted),
-            );
+            let selected_mode_label = match form.mode.as_str() {
+                "cloud" => {
+                    let prov = match form.cloud_provider.as_str() {
+                        "gemini" => "Google Gemini",
+                        "openai_compatible" => "OpenAI-Compatible",
+                        _ => "Groq",
+                    };
+                    format!("Mode dipilih: Cloud AI ({prov})")
+                }
+                "ollama" => format!("Mode dipilih: Ollama Lokal ({})", form.ollama_model),
+                _ => "Mode dipilih: Built-in Smart".to_string(),
+            };
+            let is_unsaved = form.mode != status.matcher_mode;
+            let status_color = if is_unsaved { p.warn } else { p.accent };
+            let status_bg = if is_unsaved { p.warn_soft } else { p.accent_soft };
+            let full_badge = if is_unsaved {
+                format!("{selected_mode_label} • Belum disimpan")
+            } else {
+                selected_mode_label
+            };
+            pill_badge(ui, &full_badge, status_color, status_bg);
         });
     });
 }

@@ -35,7 +35,7 @@
 | **Rendering Antarmuka** | Edge WebView2 (`HTML` / `CSS` / `JS`) | 100% Pure Rust (`eframe` + `egui` + `glow` OpenGL) |
 | **Model Proses** | Multi-proses IPC (WebView2 + Rust Backend) | **Single Native Binary** tanpa lapisan IPC browser |
 | **Dependensi Runtime** | Memerlukan WebView2 Runtime | **Zero Runtime Dependencies** (cukup Windows 10/11 OpenGL) |
-| **Sistem Desain** | Halaman web tunggal & modal DOM | **TwinDesk-Inspired Sidebar Workspace** + Tema Dark/Light Instan |
+| **Sistem Desain** | Halaman web tunggal & modal DOM | **Sidebar Navigasi Native Modern** + Tema Dark/Daylight Instan |
 | **Tata Letak Navigasi** | Toolbar + modal terpisah | 5 tampilan terstruktur (`Pencarian`, `Filter Lanjutan`, `Match Engine & AI`, `Riwayat & Ekspor`, `Panduan`) |
 | **Ukuran Binary Standalone** | ~9.2 MB (+ WebView2 runtime host) | **~12.1 MB** lengkap ter-embed UI, ikon & *resource manifest* DPI |
 
@@ -73,7 +73,7 @@
 Pengguna Windows 10/11 (64-bit) dapat langsung menjalankan JSFS tanpa menginstal Rust atau alat pengembang apa pun:
 
 1. Buka halaman **[GitHub Releases](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases)**.
-2. Pada rilis **v4.0.0**, unduh berkas **`jsfs.exe`** atau arsip **`JSFS-v4.0.0-windows-x64-portable.zip`**.
+2. Pada rilis **v4.0.1**, unduh berkas **`jsfs.exe`** atau arsip **`JSFS-v4.0.1-windows-x64-portable.zip`**.
 3. Letakkan `jsfs.exe` pada folder pilihan Anda (folder `.cache/`, `logs/`, dan `output/` akan dibuat otomatis di direktori kerja yang sama) lalu jalankan.
 
 > **Catatan Windows SmartScreen**: Karena executable sumber terbuka ini belum menandatangani sertifikat komersial (*EV Code Signing*), Windows Defender SmartScreen dapat menampilkan dialog *"Windows protected your PC"*. Klik **More info** -> **Run anyway** untuk melanjutkan, atau bangun langsung dari source code di bawah untuk verifikasi mandiri.
@@ -101,7 +101,7 @@ Dokumentasi teknis lengkap tersedia di **[docs/ARCHITECTURE.md](docs/ARCHITECTUR
 │   ├── icon.ico             # Ikon multi-resolusi aplikasi Windows
 │   └── icon.png             # Aset ikon resolusi tinggi untuk README & jendela
 ├── docs/
-│   ├── ARCHITECTURE.md      # Penjelasan arsitektur Pure Rust v4.0.0
+│   ├── ARCHITECTURE.md      # Penjelasan arsitektur Pure Rust v4.0.1
 │   └── CHANGELOG.md         # Riwayat rilis Keep a Changelog
 ├── src/
 │   ├── ai/                  # Cloud AI (Groq/Gemini/OpenAI-compatible) & Ollama lokal

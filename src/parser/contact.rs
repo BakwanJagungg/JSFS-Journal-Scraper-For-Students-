@@ -118,8 +118,30 @@ fn is_valid_email(email: &str) -> bool {
     !low.contains("firstauthor") && !low.contains("secondauthor")
 }
 
+/// Returns true when the raw candidate includes standard office landline separators
+/// such as parentheses, hyphens, slashes, dots, or spaces (`(024) 8449610`, `021-7863456`).
+fn has_landline_separator(raw: &str) -> bool {
+    raw.trim()
+        .chars()
+        .any(|c| matches!(c, '(' | ')' | '-' | '.' | '/' | ' '))
+}
+
+/// Returns true for unambiguous 8+ digit extension/ISSN-like blocks (`21117123`, `24196207`).
+fn is_extension_or_issn_digits(national: &str) -> bool {
+    national.len() >= 8 && (national.starts_with("2111") || national.starts_with("2419"))
+}
+
+/// Validates and normalizes an Indonesian mobile or formatted landline number.
+pub fn is_valid_phone(raw: &str) -> bool {
+    normalize_indonesian_phone(raw).is_some()
+}
+
 /// Normalize Indonesian mobile (`08xx` / `628xx` -> `+628xx`) and valid landlines.
 pub fn normalize_indonesian_phone(raw: &str) -> Option<String> {
+    normalize_indonesian_phone_with_cue(raw, false)
+}
+
+fn normalize_indonesian_phone_with_cue(raw: &str, explicit_phone_prefix: bool) -> Option<String> {
     let digits: String = raw.chars().filter(|c| c.is_ascii_digit()).collect();
     if digits.len() < 9 || digits.len() > 14 {
         return None;
@@ -140,9 +162,15 @@ pub fn normalize_indonesian_phone(raw: &str) -> Option<String> {
         return Some(format!("+62{national}"));
     }
 
-    // Validate Indonesian landline area codes
+    // Reject raw 8+ digit extension / ISSN blocks without office formatting (`+6221117123`, `+6224196207`).
+    if !has_landline_separator(raw) && is_extension_or_issn_digits(&national) {
+        return None;
+    }
+
+    // Validate Indonesian landline area codes: require standard office formatting OR explicit phone prefix.
     if VALID_AREA_CODES.iter().any(|ac| national.starts_with(ac))
         && (7..=11).contains(&national.len())
+        && (has_landline_separator(raw) || explicit_phone_prefix)
     {
         return Some(format!("+62{national}"));
     }
@@ -206,8 +234,8 @@ pub fn extract_contacts(html: &str, plain_text: &str, ojs_url: &str) -> (String,
 
     // Phones: tel:/wa.me links + context-guarded numbers in plain text
     let mut phones = Vec::new();
-    let mut push_phone = |raw: &str| {
-        if let Some(norm) = normalize_indonesian_phone(raw) {
+    let mut push_phone = |raw: &str, explicit_cue: bool| {
+        if let Some(norm) = normalize_indonesian_phone_with_cue(raw, explicit_cue) {
             if !phones.contains(&norm) {
                 phones.push(norm);
             }
@@ -215,17 +243,29 @@ pub fn extract_contacts(html: &str, plain_text: &str, ojs_url: &str) -> (String,
     };
 
     for cap in RE_TEL_WA.captures_iter(html) {
-        push_phone(&cap[1]);
+        push_phone(&cap[1], true);
     }
     let plain_low = plain_text.to_ascii_lowercase();
     for m in RE_PHONE_CAND.find_iter(plain_text) {
         let s = m.start();
         let e = m.end();
         let ctx_start = floor_char_boundary(&plain_low, s.saturating_sub(45));
+        let pre_start = floor_char_boundary(&plain_low, s.saturating_sub(18));
         let ctx_end = ceil_char_boundary(&plain_low, (e + 20).min(plain_low.len()));
         let window = &plain_low[ctx_start..ctx_end];
-        if CONTACT_CUES.iter().any(|c| window.contains(c)) {
-            push_phone(m.as_str());
+        let immediate_pre = &plain_low[pre_start..s];
+        if immediate_pre.contains("issn")
+            || immediate_pre.contains("isbn")
+            || immediate_pre.contains("doi")
+            || immediate_pre.contains("ext")
+        {
+            continue;
+        }
+        let explicit_phone_cue = ["telepon", "telephone", "telp", "phone", "tlp", "fax"]
+            .iter()
+            .any(|c| immediate_pre.contains(c));
+        if explicit_phone_cue || CONTACT_CUES.iter().any(|c| window.contains(c)) {
+            push_phone(m.as_str(), explicit_phone_cue);
         }
     }
     phones.truncate(3);
@@ -277,5 +317,25 @@ mod tests {
         let (_, phones) = extract_contacts(html, plain, "");
         assert!(phones.contains("+6281298765432"));
         assert!(phones.contains("+62217863456"));
+    }
+
+    #[test]
+    fn test_reject_internal_extension_like_21117123() {
+        assert!(!is_valid_phone("+6221117123"));
+        assert!(!is_valid_phone("+6224196207"));
+        assert!(!is_valid_phone("021117123"));
+        assert!(is_valid_phone("+628111001447"));
+        assert!(is_valid_phone("(024) 8449610"));
+
+        let html = r#"
+            <p>Kontak Redaksi JEBA Unair & JEI Unesa: Kampus B +6221117123 ext +6224196207</p>
+            <p>Telp: (024) 8449610 | WhatsApp Editor: +628111001447</p>
+        "#;
+        let plain = "Kontak Redaksi JEBA Unair & JEI Unesa: +6221117123 +6224196207 Telp: (024) 8449610 WhatsApp +628111001447";
+        let (_, phones) = extract_contacts(html, plain, "https://e-journal.unair.ac.id/jeba");
+        assert!(!phones.contains("+6221117123"));
+        assert!(!phones.contains("+6224196207"));
+        assert!(phones.contains("+628111001447"));
+        assert!(phones.contains("+62248449610"));
     }
 }

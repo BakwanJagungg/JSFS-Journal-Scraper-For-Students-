@@ -7,11 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.0.1] - 2026-11-15
+
+### Improved
+- **Rebranding & Native Windows Segoe UI Typography (`src/ui/theme.rs`, `src/ui/sidebar.rs`, `src/exporter/markdown.rs`)**:
+  - Removed all leftover `"TwinDesk"` theme/brand references and standardized theme names to **`JSFS Dark`** and **`JSFS Daylight`**.
+  - Loaded Windows native **`Segoe UI`** regular system font (`C:\Windows\Fonts\segoeui.ttf`) with proportional typography scale (`Heading: 21px`, `Subheading: 15px`, `Body/Button: 13.5px`, `Small: 11.5px`) and generous `item_spacing`.
+  - Replaced hardcoded `"JSFS v3.1.0"` in Markdown export headers with `crate::config::APP_VERSION`.
+- **Search Toolbar & Results Table Alignment (`src/ui/search_page.rs`, `src/ui/filters_page.rs`, `src/ui/match_engine_page.rs`, `src/ui/state.rs`)**:
+  - Unified height (`36.0 px`) and vertical alignment across the hero search row (`Keyword`, `Target`, `Unggah Naskah`, `Mulai Cari Jurnal`, `Filter`).
+  - Added consistent `8.0 px` horizontal cell/header padding, `52.0 px` row height, and bottom viewport padding on `egui_extras::TableBuilder` so bottom rows never clip.
+  - Added `4.0 px` vertical field spacing on budget inputs in `filters_page.rs`, updated the default **`Target Skripsi S1`** preset (`target_count: 40`, `Rp 0 – Rp 1.500.000`, `include_na = true`, `only_free = false`) for broader varied results, and synchronized the live mode badge beside `Simpan Pengaturan Match Engine`.
+
+### Fixed
+- **Strict Landline Phone Area-Code Validation (`src/parser/contact.rs`)**:
+  - Exposed `is_valid_phone()` and tightened landline rules to require standard office separators (`(024) 8449610`, `021-7863456`) or explicit immediate phone cues while rejecting unspaced 8+ digit internal extension/ISSN patterns such as `+6221117123` and `+6224196207` (verified via `test_reject_internal_extension_like_21117123`).
+
+---
+
 ## [4.0.0] - 2026-11-15
 
 ### Added
 - **Pure Rust Native GPU-Rendered GUI (`src/ui/`, `eframe` + `egui` 0.37 + `glow`)**:
-  - Replaced the WebView2 / HTML / CSS / JavaScript frontend with a 100% pure Rust OpenGL desktop interface featuring a TwinDesk-inspired solid sidebar (`src/ui/sidebar.rs`), instant **Dark / Light** theme toggle (`src/ui/theme.rs`), and 5 dedicated views: `Pencarian Jurnal`, `Filter Lanjutan`, `Match Engine & AI`, `Riwayat & Ekspor`, and `Panduan & Tentang`.
+  - Replaced the WebView2 / HTML / CSS / JavaScript frontend with a 100% pure Rust OpenGL desktop interface featuring a modern solid sidebar (`src/ui/sidebar.rs`), instant **Dark / Daylight** theme toggle (`src/ui/theme.rs`), and 5 dedicated views: `Pencarian Jurnal`, `Filter Lanjutan`, `Match Engine & AI`, `Riwayat & Ekspor`, and `Panduan & Tentang`.
   - Built native virtualized results table (`egui_extras::TableBuilder`), interactive detail modal (`src/ui/detail_modal.rs`) with `apc_evidence`, `last_issue_year`, full Focus & Scope, Cloudflare-decoded editor email/WhatsApp links, and one-click polite WhatsApp draft copy.
   - Added native OS file pickers (`rfd`) for manuscript uploads (`.docx` / `.pdf`) and custom folder/file opening.
 - **Decoupled Async Engine (`src/engine/`)**:

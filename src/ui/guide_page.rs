@@ -1,4 +1,4 @@
-//! Student 3-step quick guide and TwinDesk-styled About card for JSFS v4.0.0.
+//! Student 3-step quick guide and About card for JSFS.
 
 use crate::config::APP_VERSION;
 use crate::engine::file_ops::open_url_with_feedback;
