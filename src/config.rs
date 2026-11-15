@@ -6,6 +6,9 @@ pub const APP_VERSION: &str = "4.3.0";
 pub const CACHE_VERSION: &str = "4.3.0";
 pub const CACHE_TTL_DAYS: i64 = 14;
 pub const MAX_WORKERS: usize = 32;
+pub const LOW_END_MAX_WORKERS: usize = 14;
+pub const LOW_END_CPU_THRESHOLD: usize = 4;
+pub const SQLITE_CACHE_SIZE_KIB: i64 = 4000;
 pub const OJS_HARD_TIMEOUT_MS: u64 = 5500;
 pub const OLLAMA_PHASE_BUDGET_SECS: u64 = 45;
 pub const OLLAMA_MAX_ITEMS: usize = 8;
@@ -35,6 +38,27 @@ pub const APC_SANITY_MIN_IDR: i64 = 50_000;
 pub const APC_SANITY_MAX_IDR: i64 = 15_000_000;
 
 static RESOLVED_BASE_DIR: OnceCell<PathBuf> = OnceCell::new();
+
+/// Number of logical CPUs available to this process (falls back to 1).
+pub fn logical_cpus() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1)
+}
+
+/// Deep-crawl concurrency scaled to the machine: 14 on <= 4 logical CPUs, otherwise 32.
+pub fn workers_for_cpus(cpus: usize) -> usize {
+    if cpus <= LOW_END_CPU_THRESHOLD {
+        LOW_END_MAX_WORKERS
+    } else {
+        MAX_WORKERS
+    }
+}
+
+pub fn effective_max_workers() -> usize {
+    static WORKERS: OnceCell<usize> = OnceCell::new();
+    *WORKERS.get_or_init(|| workers_for_cpus(logical_cpus()))
+}
 
 fn is_dir_writable(dir: &Path) -> bool {
     if std::fs::create_dir_all(dir).is_err() {
@@ -248,6 +272,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_low_end_worker_scaling() {
+        assert_eq!(workers_for_cpus(1), LOW_END_MAX_WORKERS);
+        assert_eq!(workers_for_cpus(4), LOW_END_MAX_WORKERS);
+        assert_eq!(workers_for_cpus(8), MAX_WORKERS);
+        assert!(effective_max_workers() >= LOW_END_MAX_WORKERS);
+    }
+
+    #[test]
     fn test_writable_base_dir_fallback() {
         let writable = std::env::temp_dir().join(format!("jsfs_cfg_ok_{}", std::process::id()));
         let fallback = std::env::temp_dir().join(format!("jsfs_cfg_fb_{}", std::process::id()));
@@ -255,7 +287,6 @@ mod tests {
         let chosen = resolve_writable_base_dir(writable.clone(), Some(fallback.clone()));
         assert_eq!(chosen, writable);
 
-        // Using a regular file as "preferred" dir makes create_dir_all / probe fail deterministically
         let blocked_pref =
             std::env::temp_dir().join(format!("jsfs_cfg_file_{}", std::process::id()));
         std::fs::write(&blocked_pref, b"not a directory").expect("create dummy file");

@@ -49,7 +49,7 @@ Setiap tugas berat (permintaan HTTP konkuren, parsing dokumen OOXML/PDF, dan que
 - **Filter-Before-Deep**: Kandidat disaring berdasarkan peringkat SINTA target (`S1–S6`) dan diurutkan berdasarkan relevansi metadata awal sebelum memasuki tahap *deep crawl*.
 
 ### Fase 2 — Deep OJS Crawler (`scraper/ojs_deep.rs`)
-- Menelusuri hingga 5 titik halaman OJS per jurnal dengan batas konkurensi `Semaphore(32)` dan *hard timeout* `5.5` detik per jurnal.
+- Menelusuri hingga 5 titik halaman OJS per jurnal dengan batas konkurensi adaptif (`Semaphore(32)`, otomatis `14` pada mesin dengan <= 4 logical CPU) dan *hard timeout* `5.5` detik per jurnal.
 - Dilengkapi `DashMap`-backed `DomainBreaker` untuk mencegah pengulangan permintaan ke host yang bermasalah serta batas baca stream HTML `1.5 MB`.
 - Mengekstrak:
   - **APC Zero-Trap (`parser/apc.rs`)**: Menolak klausa gratis historis serta frasa pembaca Open Access, dan memprioritaskan biaya reguler berbayar di atas *Fast-Track* atau `"IDR 0"` awal.

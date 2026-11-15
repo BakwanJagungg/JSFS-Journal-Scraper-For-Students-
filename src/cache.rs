@@ -1,4 +1,4 @@
-use crate::config::{cache_db_path, CACHE_TTL_DAYS, CACHE_VERSION};
+use crate::config::{cache_db_path, CACHE_TTL_DAYS, CACHE_VERSION, SQLITE_CACHE_SIZE_KIB};
 use crate::error::JsfsError;
 use crate::models::JournalRecord;
 use chrono::Utc;
@@ -36,6 +36,8 @@ impl JournalCache {
     }
 
     fn init_schema(&self) -> Result<(), JsfsError> {
+        self.conn
+            .execute_batch(&format!("PRAGMA cache_size = -{SQLITE_CACHE_SIZE_KIB};"))?;
         self.conn.execute_batch(
             "
             PRAGMA journal_mode = WAL;

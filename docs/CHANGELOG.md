@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added `Q1`–`Q4` quartile filter pills and the `Portal Internasional (OpenAlex & DOAJ)` toggle in `Filter Lanjutan`.
 
 ### Improved
+- **Low-End Hardware & Portable Distribution**:
+  - Deep-crawl concurrency now adapts to the CPU (`14` workers on <= 4 logical CPUs, `32` otherwise) and the SQLite page cache is capped at ~4 MB (`PRAGMA cache_size = -4000`).
+  - Release binary is linked with static CRT (`+crt-static`, no `VCRUNTIME140.dll`), embeds an `asInvoker` manifest with Windows 10/11 compatibility, falls back to `%LOCALAPPDATA%\JSFS` when the executable folder is read-only, and ships with `SHA256SUMS.txt`.
+  - Rewrote `README.md` as a concise quick-start guide for first-time users.
 - **History & Export Layout Redesign (`src/ui/history_page.rs`)**:
   - Split targeted export controls into 3 clearly labeled vertical sub-sections (`1. Pilih Data...`, `2. Simpan & Buka File Laporan`, `3. Salin Cepat ke Clipboard`), reduced card spacing/padding (`10px` gap / `12px` padding), compacted recent Excel path display with hover tooltip, made the Activity Log card collapsible, and added bottom scroll clearance so no controls clip at window edges.
 

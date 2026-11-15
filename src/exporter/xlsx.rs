@@ -138,7 +138,7 @@ pub fn write_xlsx(path: &Path, records: &[JournalRecord]) -> Result<(), JsfsErro
         .set_align(FormatAlign::Top)
         .set_border(FormatBorder::Thin);
 
-    // ── Sheet 1: Data Jurnal ──────────────────────────────────────────────
+    // Sheet 1: Data Jurnal
     let ws1 = workbook.add_worksheet();
     ws1.set_name("Data Jurnal")?;
     let headers1 = [
@@ -209,7 +209,7 @@ pub fn write_xlsx(path: &Path, records: &[JournalRecord]) -> Result<(), JsfsErro
         ws1.autofilter(0, 0, records.len() as u32, (headers1.len() - 1) as u16)?;
     }
 
-    // ── Sheet 2: Rekomendasi AI (Top 3) ───────────────────────────────────
+    // Sheet 2: Rekomendasi AI (Top 3)
     let top3 = select_top_recommendations(records, 3);
     let ws2 = workbook.add_worksheet();
     ws2.set_name("Rekomendasi AI")?;
@@ -263,7 +263,7 @@ pub fn write_xlsx(path: &Path, records: &[JournalRecord]) -> Result<(), JsfsErro
         }
     }
 
-    // ── Sheet 3: Direktori Kontak ─────────────────────────────────────────
+    // Sheet 3: Direktori Kontak
     let ws3 = workbook.add_worksheet();
     ws3.set_name("Direktori Kontak")?;
     let headers3 = [

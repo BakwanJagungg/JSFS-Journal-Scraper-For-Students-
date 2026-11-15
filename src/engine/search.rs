@@ -2,7 +2,7 @@
 //! Semaphore(32) concurrent OJS crawl, incremental auto-save every 50 journals, and instant cancel.
 
 use crate::ai::{cloud, ollama};
-use crate::config::{AUTOSAVE_INTERVAL_ITEMS, MAX_WORKERS};
+use crate::config::{effective_max_workers, AUTOSAVE_INTERVAL_ITEMS};
 use crate::engine::{EngineEvent, EngineState, EventSink};
 use crate::error::JsfsError;
 use crate::exporter;
@@ -209,7 +209,7 @@ pub fn start_search(
             (0, 0, 0, 0),
         );
 
-        // ── PHASE 1: Portal Scraping (Garuda + SINTA concurrent per keyword) ────────
+        // PHASE 1: Portal Scraping (Garuda + SINTA concurrent per keyword)
         let pool_target = (target * 2).clamp(40, 1500);
         let mut raw_candidates: Vec<JournalRecord> = Vec::new();
         let mut portal_tasks = JoinSet::new();
@@ -359,9 +359,9 @@ pub fn start_search(
             ),
         );
 
-        // ── PHASE 2: Concurrent OJS Deep Crawl (`Semaphore(32)`) + Auto-Save ───────
+        // PHASE 2: Concurrent OJS Deep Crawl (CPU-adaptive semaphore) + Auto-Save
         let total_deep = deep_pool.len();
-        let sem = Arc::new(Semaphore::new(MAX_WORKERS));
+        let sem = Arc::new(Semaphore::new(effective_max_workers()));
         let mut deep_set = JoinSet::new();
         for (idx, rec) in deep_pool.into_iter().enumerate() {
             let c = client.clone();
@@ -477,7 +477,7 @@ pub fn start_search(
         });
         survivors.truncate(target.saturating_add(16));
 
-        // ── PHASE 3: Multi-Provider Match & Selective AI Enrichment ───────────────
+        // PHASE 3: Multi-Provider Match & Selective AI Enrichment
         let active_matcher = matcher_cfg_guard.read().await.clone();
         if params.use_ai && !survivors.is_empty() && !cancel_flag.load(Ordering::Relaxed) {
             let kpi = compute_kpi(&survivors);
@@ -588,7 +588,7 @@ pub fn start_search(
         });
         survivors.truncate(target);
 
-        // ── PHASE 4: Sync-Offloaded Exports (.xlsx, .md, .csv, _LIST.txt) ──────────
+        // PHASE 4: Sync-Offloaded Exports (.xlsx, .md, .csv, _LIST.txt)
         let kpi_final = compute_kpi(&survivors);
         emit_progress(
             &app,

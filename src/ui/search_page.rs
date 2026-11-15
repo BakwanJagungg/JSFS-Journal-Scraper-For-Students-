@@ -124,7 +124,7 @@ pub fn render_search_page(
         .show(ui, |ui| {
             page_header(ui, p, txt.search_title, "");
 
-    // ── Card 1: Hero Search & Quick Presets ─────────────────────────────────
+    // Card 1: Hero Search & Quick Presets
     card(ui, p, |ui| {
         let mut enter_pressed = false;
         ui.allocate_ui(Vec2::new(ui.available_width(), 36.0), |ui| {
@@ -250,7 +250,7 @@ pub fn render_search_page(
 
     ui.add_space(8.0);
 
-    // ── Row 2: Slim 44px KPI Strip Bar ──────────────────────────────────────
+    // Row 2: Slim 44px KPI Strip Bar
     let kpi_total = if progress.kpi_total > 0 {
         progress.kpi_total
     } else {
@@ -281,7 +281,7 @@ pub fn render_search_page(
 
     ui.add_space(10.0);
 
-    // ── Row 3: Dual Progress Strip (Auto-Compact After Finish) + Log Drawer ──
+    // Row 3: Dual Progress Strip (Auto-Compact After Finish) + Log Drawer
     card(ui, p, |ui| {
         if !is_searching && !results.is_empty() {
             ui.horizontal(|ui| {
@@ -408,7 +408,7 @@ pub fn render_search_page(
 
     ui.add_space(10.0);
 
-    // ── Row 4: Virtualized Results Table or Empty State ─────────────────────
+    // Row 4: Virtualized Results Table or Empty State
     card(ui, p, |ui| {
         if results.is_empty() {
             ui.vertical_centered(|ui| {
