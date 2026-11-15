@@ -10,23 +10,27 @@ Aplikasi desktop Windows untuk mencari jurnal SINTA, Garuda, dan internasional Q
 [![Platform](https://img.shields.io/badge/Windows-10%2F11%2064--bit-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-32d74b?style=flat-square)](LICENSE)
 
-[![Download JSFS-windows-x64-portable.zip](https://img.shields.io/badge/Download-JSFS--windows--x64--portable.zip-059669?style=for-the-badge&logo=github&logoColor=white)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/JSFS-windows-x64-portable.zip)
+[![Download Installer](https://img.shields.io/badge/Download-Installer_Windows_(Setup.exe)-2563eb?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/JSFS-windows-x64-setup.exe)
+[![Download Portable ZIP](https://img.shields.io/badge/Download-Portable_ZIP_(Tanpa_Instal)-059669?style=for-the-badge&logo=github&logoColor=white)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/JSFS-windows-x64-portable.zip)
 
-[Download jsfs.exe](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/jsfs.exe) •
+[Download jsfs.exe (Single File)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/jsfs.exe) •
 [SHA256SUMS.txt](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/SHA256SUMS.txt) •
 [Semua Rilis](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases)
 
 </div>
 
-## Cara Mulai (3 Langkah)
+## Pilihan Unduhan & Cara Mulai
 
-1. **Unduh & ekstrak** `JSFS-windows-x64-portable.zip` ke folder mana saja (misalnya `Documents\JSFS`).
-2. **Klik ganda `jsfs.exe`**. Tidak perlu instalasi, Visual C++ Redistributable, maupun WebView2.
+| Pilihan Unduhan | Cocok Untuk | Lokasi Hasil Excel |
+| :--- | :--- | :--- |
+| **[Installer Windows (`JSFS-windows-x64-setup.exe`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/JSFS-windows-x64-setup.exe)** | **Direkomendasikan**: pasang rapi dengan ikon Desktop & Start Menu tanpa hak Admin | `Documents\JSFS Output` |
+| **[Portabel ZIP (`JSFS-windows-x64-portable.zip`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/JSFS-windows-x64-portable.zip)** | Langsung ekstrak dan jalankan dari folder mana saja tanpa instalasi | Folder `output\` di samping `jsfs.exe` |
+
+1. **Unduh** `JSFS-windows-x64-setup.exe` (lalu pasang seperti aplikasi biasa) atau ekstrak `JSFS-windows-x64-portable.zip`.
+2. **Buka JSFS** (tidak perlu Visual C++ Redistributable maupun WebView2).
 3. **Ketik topik skripsi/penelitian** Anda, lalu klik **Mulai Cari Jurnal**.
 
-Hasil pencarian dan file ekspor tersimpan di folder `output/` di samping `jsfs.exe`. Jika folder tersebut tidak bisa ditulisi, JSFS otomatis memakai `%LOCALAPPDATA%\JSFS`.
-
-**Muncul peringatan Windows SmartScreen?** Ini wajar karena JSFS adalah proyek open-source gratis tanpa sertifikat code signing berbayar. Seluruh kode sumber terbuka dan file rilis dibangun otomatis oleh GitHub Actions. Klik **More info** lalu **Run anyway**, atau klik kanan `jsfs.exe` > **Properties** > centang **Unblock** > **OK**. Untuk memastikan file asli, cocokkan hasil `Get-FileHash jsfs.exe -Algorithm SHA256` dengan isi `SHA256SUMS.txt`.
+**Muncul peringatan Windows SmartScreen?** Ini wajar karena JSFS adalah proyek open-source gratis tanpa sertifikat code signing berbayar. Seluruh kode sumber terbuka dan file rilis dibangun otomatis oleh GitHub Actions. Klik **More info** lalu **Run anyway**, atau klik kanan file > **Properties** > centang **Unblock** > **OK**. Untuk memeriksa keaslian file, cocokkan hasil `Get-FileHash <namafile> -Algorithm SHA256` dengan [SHA256SUMS.txt](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest/download/SHA256SUMS.txt).
 
 ## Apa yang Bisa Dilakukan JSFS?
 
@@ -62,4 +66,4 @@ Dokumentasi teknis: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) • Riwayat ver
 
 ## Lisensi
 
-Dirilis di bawah lisensi [MIT](LICENSE).
+Dirilis di bawah lisensi [MIT](LICENSE) oleh BakwanJagungg.

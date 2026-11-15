@@ -24,6 +24,9 @@ jobs:
       - name: Cache Cargo dependencies
         uses: Swatinem/rust-cache@v2
 
+      - name: Verify Cargo.lock sync
+        run: cargo check --locked
+
       - name: Run unit tests
         run: cargo test --locked
 
@@ -33,38 +36,43 @@ jobs:
       - name: Build Pure Rust Release Binary
         run: cargo build --release --locked
 
-      - name: Package Portable Windows Release & SHA256SUMS
+      - name: Build Windows Installer (Inno Setup)
         shell: pwsh
         run: |
-          $tag = if ($env:GITHUB_REF_NAME -match '^v') { $env:GITHUB_REF_NAME } else { 'v4.3.0' }
+          $tag = if ($env:GITHUB_REF_NAME -match '^v(.+)$') { $matches[1] } else { '4.3.0' }
+          $iscc = Get-Command iscc -ErrorAction SilentlyContinue
+          $isccExe = if ($iscc) { $iscc.Source } else { "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          if (-not (Test-Path $isccExe)) { throw "Inno Setup compiler (iscc.exe) not found." }
+          & $isccExe "/DMyAppVersion=$tag" installer\jsfs.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Package Portable Windows ZIP & SHA256SUMS
+        shell: pwsh
+        run: |
           New-Item -ItemType Directory -Path release-pkg -Force | Out-Null
           Copy-Item target\release\jsfs.exe release-pkg\jsfs.exe -Force
           Copy-Item README.md release-pkg\README.md -Force
           Copy-Item LICENSE release-pkg\LICENSE -Force
-          $zipVersioned = "JSFS-$tag-windows-x64-portable.zip"
           $zipStable = "JSFS-windows-x64-portable.zip"
-          Compress-Archive -Path release-pkg\jsfs.exe, release-pkg\README.md, release-pkg\LICENSE -DestinationPath $zipVersioned -Force
-          Copy-Item $zipVersioned $zipStable -Force
+          Compress-Archive -Path release-pkg\jsfs.exe, release-pkg\README.md, release-pkg\LICENSE -DestinationPath $zipStable -Force
 
+          $setupHash = (Get-FileHash JSFS-windows-x64-setup.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $zipHash = (Get-FileHash $zipStable -Algorithm SHA256).Hash.ToLowerInvariant()
           $exeHash = (Get-FileHash target\release\jsfs.exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          $zipStableHash = (Get-FileHash $zipStable -Algorithm SHA256).Hash.ToLowerInvariant()
-          $zipVersionedHash = (Get-FileHash $zipVersioned -Algorithm SHA256).Hash.ToLowerInvariant()
           @(
+            "$setupHash  JSFS-windows-x64-setup.exe"
+            "$zipHash  $zipStable"
             "$exeHash  jsfs.exe"
-            "$zipStableHash  $zipStable"
-            "$zipVersionedHash  $zipVersioned"
           ) | Set-Content -Path SHA256SUMS.txt -Encoding UTF8
 
-          Write-Output "ZIP_VERSIONED=$zipVersioned" >> $env:GITHUB_ENV
-          Write-Output "ZIP_STABLE=$zipStable" >> $env:GITHUB_ENV
-
-      - name: Upload Portable EXE, ZIP & Checksums to GitHub Release
+      - name: Upload Installer, Portable ZIP, EXE & Checksums to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: |
+            JSFS-windows-x64-setup.exe
+            JSFS-windows-x64-portable.zip
             target/release/jsfs.exe
-            ${{ env.ZIP_STABLE }}
-            ${{ env.ZIP_VERSIONED }}
             SHA256SUMS.txt
+          fail_on_unmatched_files: true
           generate_release_notes: true

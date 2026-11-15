@@ -38,6 +38,7 @@ pub const APC_SANITY_MIN_IDR: i64 = 50_000;
 pub const APC_SANITY_MAX_IDR: i64 = 15_000_000;
 
 static RESOLVED_BASE_DIR: OnceCell<PathBuf> = OnceCell::new();
+static RESOLVED_OUTPUT_DIR: OnceCell<PathBuf> = OnceCell::new();
 
 /// Number of logical CPUs available to this process (falls back to 1).
 pub fn logical_cpus() -> usize {
@@ -97,6 +98,66 @@ fn local_appdata_jsfs_dir() -> Option<PathBuf> {
     None
 }
 
+fn documents_jsfs_output_dir() -> Option<PathBuf> {
+    if let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) {
+        let p = PathBuf::from(home).join("Documents").join("JSFS Output");
+        if !p.as_os_str().is_empty() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+fn is_installed_location(dir: &Path) -> bool {
+    let lower = dir
+        .to_string_lossy()
+        .replace('/', "\\")
+        .to_ascii_lowercase();
+    lower.contains("\\appdata\\local\\programs\\jsfs")
+        || lower.contains("\\program files\\")
+        || lower.contains("\\program files (x86)\\")
+        || lower.ends_with("\\program files")
+}
+
+fn resolve_output_dir(
+    exe_or_pref_dir: &Path,
+    portable_base: &Path,
+    docs_out: Option<PathBuf>,
+    local_appdata_base: Option<PathBuf>,
+) -> PathBuf {
+    let local_out = local_appdata_base.map(|b| b.join("output"));
+    if is_installed_location(exe_or_pref_dir) {
+        if let Some(ref docs) = docs_out {
+            if is_dir_writable(docs) {
+                return docs.clone();
+            }
+        }
+        if let Some(ref fb) = local_out {
+            if is_dir_writable(fb) {
+                return fb.clone();
+            }
+            return fb.clone();
+        }
+    }
+
+    let portable_out = portable_base.join("output");
+    if is_dir_writable(exe_or_pref_dir) && is_dir_writable(&portable_out) {
+        return portable_out;
+    }
+    if let Some(ref docs) = docs_out {
+        if is_dir_writable(docs) {
+            return docs.clone();
+        }
+    }
+    if let Some(fb) = local_out {
+        if is_dir_writable(&fb) {
+            return fb;
+        }
+        return fb;
+    }
+    portable_out
+}
+
 fn resolve_writable_base_dir(preferred: PathBuf, fallback: Option<PathBuf>) -> PathBuf {
     if is_dir_writable(&preferred) {
         return preferred;
@@ -152,8 +213,25 @@ pub fn cache_db_path() -> PathBuf {
     cache_dir().join("jsfs_cache.db")
 }
 
+/// Resolve the output directory for exported reports (`.xlsx`, `.md`, `.csv`, `_LIST.txt`).
+///
+/// Installed builds (under `AppData\Local\Programs\JSFS` or `Program Files`) write to
+/// `%USERPROFILE%\Documents\JSFS Output` (falling back to `%LOCALAPPDATA%\JSFS\output`) so users
+/// can find reports easily. Portable runs use `./output` beside `jsfs.exe`, falling back to
+/// `Documents\JSFS Output` if read-only.
 pub fn output_dir() -> PathBuf {
-    app_base_dir().join("output")
+    RESOLVED_OUTPUT_DIR
+        .get_or_init(|| {
+            let pref = preferred_base_dir();
+            let base = app_base_dir();
+            resolve_output_dir(
+                &pref,
+                &base,
+                documents_jsfs_output_dir(),
+                local_appdata_jsfs_dir(),
+            )
+        })
+        .clone()
 }
 
 pub fn logs_dir() -> PathBuf {
@@ -296,5 +374,50 @@ mod tests {
         let _ = std::fs::remove_dir_all(&writable);
         let _ = std::fs::remove_dir_all(&fallback);
         let _ = std::fs::remove_file(&blocked_pref);
+    }
+
+    #[test]
+    fn test_installed_and_portable_output_dir_resolution() {
+        assert!(is_installed_location(Path::new(
+            r"C:\Users\Student\AppData\Local\Programs\JSFS"
+        )));
+        assert!(is_installed_location(Path::new(r"C:\Program Files\JSFS")));
+        assert!(!is_installed_location(Path::new(r"D:\PortableApps\JSFS")));
+
+        let pid = std::process::id();
+        let docs_out = std::env::temp_dir().join(format!("jsfs_docs_out_{pid}"));
+        let local_fb = std::env::temp_dir().join(format!("jsfs_local_fb_{pid}"));
+        let portable = std::env::temp_dir().join(format!("jsfs_port_dir_{pid}"));
+        let blocked = std::env::temp_dir().join(format!("jsfs_blocked_file_{pid}"));
+        std::fs::write(&blocked, b"file").expect("dummy");
+
+        let installed_out = resolve_output_dir(
+            Path::new(r"C:\Users\Student\AppData\Local\Programs\JSFS"),
+            &local_fb,
+            Some(docs_out.clone()),
+            Some(local_fb.clone()),
+        );
+        assert_eq!(installed_out, docs_out);
+
+        let port_out = resolve_output_dir(
+            &portable,
+            &portable,
+            Some(docs_out.clone()),
+            Some(local_fb.clone()),
+        );
+        assert_eq!(port_out, portable.join("output"));
+
+        let ro_port_out = resolve_output_dir(
+            &blocked,
+            &local_fb,
+            Some(docs_out.clone()),
+            Some(local_fb.clone()),
+        );
+        assert_eq!(ro_port_out, docs_out);
+
+        let _ = std::fs::remove_dir_all(&docs_out);
+        let _ = std::fs::remove_dir_all(&local_fb);
+        let _ = std::fs::remove_dir_all(&portable);
+        let _ = std::fs::remove_file(&blocked);
     }
 }
