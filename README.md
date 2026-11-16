@@ -6,16 +6,16 @@
 
 Aplikasi desktop Windows untuk mencari jurnal SINTA, Garuda, dan internasional Q1-Q4, mengecek biaya publikasi (APC), mencocokkannya dengan draf naskah Anda, hingga menyiapkan berkas pengajuan ke editor.
 
-[![Release](https://img.shields.io/badge/Release-v4.9.1-2563eb?style=flat-square)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v4.9.1)
-[![Platform](https://img.shields.io/badge/Windows-10%2F11%2064--bit-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v4.9.1)
+[![Release](https://img.shields.io/badge/Release-v4.10.0-2563eb?style=flat-square)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v4.10.0)
+[![Platform](https://img.shields.io/badge/Windows-10%2F11%2064--bit-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v4.10.0)
 [![License: MIT](https://img.shields.io/badge/License-MIT-32d74b?style=flat-square)](LICENSE)
 
-[![Download Installer](https://img.shields.io/badge/Download-Installer_Windows_(Setup.exe)-2563eb?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.9.1/JSFS-windows-x64-setup.exe)
-[![Download Portable ZIP](https://img.shields.io/badge/Download-Portable_ZIP_(Tanpa_Instal)-059669?style=for-the-badge&logo=github&logoColor=white)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.9.1/JSFS-windows-x64-portable.zip)
+[![Download Installer](https://img.shields.io/badge/Download-Installer_Windows_(Setup.exe)-2563eb?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.10.0/JSFS-windows-x64-setup.exe)
+[![Download Portable ZIP](https://img.shields.io/badge/Download-Portable_ZIP_(Tanpa_Instal)-059669?style=for-the-badge&logo=github&logoColor=white)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.10.0/JSFS-windows-x64-portable.zip)
 
-[Download jsfs.exe (Single File)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.9.1/jsfs.exe) •
-[SHA256SUMS.txt](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.9.1/SHA256SUMS.txt) •
-[Semua Rilis](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v4.9.1)
+[Download jsfs.exe (Single File)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.10.0/jsfs.exe) •
+[SHA256SUMS.txt](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.10.0/SHA256SUMS.txt) •
+[Semua Rilis](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v4.10.0)
 
 </div>
 
@@ -23,20 +23,20 @@ Aplikasi desktop Windows untuk mencari jurnal SINTA, Garuda, dan internasional Q
 
 | Pilihan Unduhan | Cocok Untuk | Lokasi Hasil Excel |
 | :--- | :--- | :--- |
-| **[Installer Windows (`JSFS-windows-x64-setup.exe`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.9.1/JSFS-windows-x64-setup.exe)** | **Direkomendasikan**: pasang rapi dengan ikon Desktop & Start Menu tanpa hak Admin | `Documents\JSFS Output` |
-| **[Portabel ZIP (`JSFS-windows-x64-portable.zip`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.9.1/JSFS-windows-x64-portable.zip)** | Langsung ekstrak dan jalankan dari folder mana saja tanpa instalasi | Folder `output\` di samping `jsfs.exe` |
+| **[Installer Windows (`JSFS-windows-x64-setup.exe`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.10.0/JSFS-windows-x64-setup.exe)** | **Direkomendasikan**: pasang rapi dengan ikon Desktop & Start Menu tanpa hak Admin | `Documents\JSFS Output` |
+| **[Portabel ZIP (`JSFS-windows-x64-portable.zip`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.10.0/JSFS-windows-x64-portable.zip)** | Langsung ekstrak dan jalankan dari folder mana saja tanpa instalasi | Folder `output\` di samping `jsfs.exe` |
 
-**Perintah Cepat PowerShell (Unduh & Jalankan Installer v4.9.1):**
+**Perintah Cepat PowerShell (Unduh & Jalankan Installer v4.10.0):**
 
 ```powershell
-$p="$env:TEMP\JSFS-windows-x64-setup.exe"; Invoke-WebRequest "https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.9.1/JSFS-windows-x64-setup.exe" -OutFile $p; Start-Process $p
+$p="$env:TEMP\JSFS-windows-x64-setup.exe"; Invoke-WebRequest "https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.10.0/JSFS-windows-x64-setup.exe" -OutFile $p; Start-Process $p
 ```
 
 1. **Unduh** `JSFS-windows-x64-setup.exe` (lalu pasang seperti aplikasi biasa) atau ekstrak `JSFS-windows-x64-portable.zip`.
 2. **Buka JSFS** (tidak perlu Visual C++ Redistributable maupun WebView2).
 3. **Ketik topik skripsi/penelitian** atau **Unggah Naskah** (`.docx` / `.pdf`), lalu klik **Mulai Cari Jurnal**.
 
-**Muncul peringatan Windows SmartScreen?** Ini wajar karena JSFS adalah proyek open-source gratis tanpa sertifikat code signing berbayar. Seluruh kode sumber terbuka dan file rilis dibangun otomatis oleh GitHub Actions. Klik **More info** lalu **Run anyway**, atau klik kanan file > **Properties** > centang **Unblock** > **OK**. Untuk memeriksa keaslian file, cocokkan hasil `Get-FileHash <namafile> -Algorithm SHA256` dengan [SHA256SUMS.txt](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.9.1/SHA256SUMS.txt).
+**Muncul peringatan Windows SmartScreen?** Ini wajar karena JSFS adalah proyek open-source gratis tanpa sertifikat code signing berbayar. Seluruh kode sumber terbuka dan file rilis dibangun otomatis oleh GitHub Actions. Klik **More info** lalu **Run anyway**, atau klik kanan file > **Properties** > centang **Unblock** > **OK**. Untuk memeriksa keaslian file, cocokkan hasil `Get-FileHash <namafile> -Algorithm SHA256` dengan [SHA256SUMS.txt](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.10.0/SHA256SUMS.txt).
 
 ## Apa yang Bisa Dilakukan JSFS?
 
@@ -47,12 +47,11 @@ $p="$env:TEMP\JSFS-windows-x64-setup.exe"; Invoke-WebRequest "https://github.com
 - **Paket Pengajuan `.docx` & `.zip` 1-Klik**: simpan profil penulis (Nama, Afiliasi, Email, ORCID, Program Studi), unduh dokumen Word siap edit (`.docx` Cover Letter & Surat Keaslian bermaterai), atau ekspor bundel **`.zip`** beserta pengingat kalender **`.ics`**.
 - **Ekspor & Kolaborasi Dosen Pembimbing**: tab **Shortlist & Dospen** untuk membandingkan kandidat favorit, melacak progres pengiriman, memicu draf pesan WhatsApp dan email redaksi, serta ekspor ke Excel (`.xlsx`), Markdown (`.md`), CSV (`.csv`), dan Zotero/Mendeley (`.ris` & `.bib`).
 
-## Baru di Rilis v4.9.1
+## Baru di Rilis v4.10.0
 
-- **Ruang Kerja Sidebar Khusus (`Detail & Persiapan` dan `Shortlist & Dospen`)**: antarmuka dipisah dari modal sempit menjadi dua ruang kerja lapang lengkap dengan fitur **Cek Cepat 1 URL OJS** tanpa harus menjalankan pencarian penuh.
-- **Koleksi Naskah Saya (Multi-Manuscript Switcher)**: menyimpan hingga 5 metadata naskah terakhir (`.docx`/`.pdf`) secara lokal agar Anda dapat berpindah antar naskah dalam 1 klik.
-- **Generator `.docx`, Pengingat `.ics`, Editor-in-Chief & Audit Sitasi**: ekspor Cover Letter dan Surat Pernyataan Keaslian format Microsoft Word asli (`.docx`), unduh kalender pengingat target terbit (`.ics`), deteksi nama Editor-in-Chief OJS, periksa paragraf panjang yang minim sitasi, serta perbarui kurs USD/IDR langsung dari menu **Pengaturan**.
-- **Tabel & Kartu Ekspor Lebih Rapi**: mode **Offline** terintegrasi di dropdown `Preset`, kolom kiri tabel rata kiri penuh tanpa terpotong, kontak editor kosong menampilkan `Belum terdata`, dan penyalinan cepat draf teks diringkas menjadi 1 dropdown + tombol **Salin Teks**.
+- **Ekstraktor Batas Plagiarisme / Similarity (Turnitin & iThenticate)**: mendeteksi otomatis persentase kemiripan maksimal (`1%` hingga `50%`) dari halaman aturan OJS (mengabaikan angka pajak) lalu menampilkannya di **Detail & Persiapan**, **Shortlist & Dospen**, checklist kesiapan naskah, dan berkas `Ringkasan_Aturan_Jurnal_*.txt` di paket `.zip`.
+- **Filter Cepat "Hanya Open Submit / CFP"**: tersedia di **Filter Lanjutan** maupun dropdown **`Preset`** pada **Pencarian Jurnal** untuk menyaring jurnal yang pendaftaran naskahnya sedang terbuka, lengkap dengan badge mikro **`Open Submit`** / **`Tutup`** di tabel hasil.
+- **Ruang Kerja Sidebar, Koleksi Naskah & Generator `.docx`**: mencakup **Cek Cepat 1 URL OJS**, **Koleksi Naskah Saya** (hingga 5 naskah tersimpan), generator `.docx` & kalender `.ics`, deteksi Editor-in-Chief, audit paragraf minim sitasi, serta pembaruan kurs USD/IDR langsung.
 
 Antarmuka tersedia dalam **Bahasa Indonesia** dan **English** dengan tema gelap maupun terang (menu **Pengaturan**).
 

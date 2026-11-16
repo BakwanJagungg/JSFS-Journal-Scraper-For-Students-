@@ -2,7 +2,7 @@ use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-pub const APP_VERSION: &str = "4.9.1";
+pub const APP_VERSION: &str = "4.10.0";
 pub const CACHE_VERSION: &str = "4.3.0";
 pub const CACHE_TTL_DAYS: i64 = 14;
 pub const MAX_WORKERS: usize = 32;

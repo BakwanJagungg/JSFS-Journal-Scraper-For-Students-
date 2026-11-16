@@ -1,12 +1,12 @@
-# Arsitektur Sistem — JSFS v4.9.1 (Pure Rust Native Desktop)
+# Arsitektur Sistem — JSFS v4.10.0 (Pure Rust Native Desktop)
 
-Dokumen ini menjelaskan arsitektur teknis **JSFS (Journal Scraper For Students) v4.9.1** yang berjalan sebagai aplikasi desktop **100% Pure Rust** dengan antarmuka GPU native (`eframe` / `egui` + `glow` OpenGL), sepenuhnya bebas dari lapisan WebView2, Tauri, maupun Node.js.
+Dokumen ini menjelaskan arsitektur teknis **JSFS (Journal Scraper For Students) v4.10.0** yang berjalan sebagai aplikasi desktop **100% Pure Rust** dengan antarmuka GPU native (`eframe` / `egui` + `glow` OpenGL), sepenuhnya bebas dari lapisan WebView2, Tauri, maupun Node.js.
 
 ---
 
 ## 1. Gambaran Umum Arsitektur
 
-JSFS v4.9.1 memisahkan rendering GPU immediate-mode dari mesin komputasi asinkron (`tokio`) menggunakan batas arsitektur berbasis **`Arc<EngineState>`** dan saluran pesan satu arah **`EventSink`**:
+JSFS v4.10.0 memisahkan rendering GPU immediate-mode dari mesin komputasi asinkron (`tokio`) menggunakan batas arsitektur berbasis **`Arc<EngineState>`** dan saluran pesan satu arah **`EventSink`**:
 
 ```text
 +-----------------------------------------------------------------------+
@@ -16,8 +16,8 @@ JSFS v4.9.1 memisahkan rendering GPU immediate-mode dari mesin komputasi asinkro
 |                         `AuthorProfile`                               |
 |  - `sidebar.rs`       : Navigasi kiri 8 tab + switch tema instan      |
 |  - `state.rs`         : State tabel, sort, preset, profil & shortlist |
-|  - `search_page.rs`   : Beranda, dropdown Preset/Offline & tabel      |
-|  - `detail_page.rs`   : Cek 1 URL OJS, Koleksi Naskah, audit & .docx  |
+|  - `search_page.rs`   : Beranda, dropdown Preset/Open CFP/Offline, tabel |
+|  - `detail_page.rs`   : Cek 1 URL OJS, Koleksi Naskah, Turnitin & .docx|
 |  - `dospen_page.rs`   : Shortlist favorit, Dospen Brief & tracker     |
 |  - Halaman Lain       : Filters, Match Engine, History, Settings, Guide |
 +--------------------------+-----------------------^--------------------+
@@ -38,7 +38,7 @@ JSFS v4.9.1 memisahkan rendering GPU immediate-mode dari mesin komputasi asinkro
 |                  Anti-Block Rate Limiter (`mod.rs`), OJS Deep Crawler |
 |  - `parser/`   : `apc.rs`, `month.rs`, `contact.rs`, `focus.rs`,      |
 |                  `doc_matcher.rs` (BM25/Fit/Topik/Sitasi Paragraf),   |
-|                  `heuristics.rs` (ISSN ISO 3297, EIC, CFP, risiko)    |
+|                  `heuristics.rs` (ISSN, EIC, CFP, Turnitin, risiko)  |
 |  - `ai/`       : Groq / Gemini / OpenAI-Compatible + Ollama Lokal     |
 |  - `cache.rs`  : SQLite WAL Cache (14-day TTL, tracker & mode offline)|
 |  - `exporter/` : Excel (`.xlsx`), MD, CSV, TXT, `citation.rs`         |
@@ -65,7 +65,7 @@ Setiap tugas berat (permintaan HTTP konkuren, parsing dokumen OOXML/PDF, dan que
 - Mengekstrak tanpa permintaan HTTP tambahan:
   - **APC Zero-Trap (`parser/apc.rs`)**: Memisahkan biaya submit Rp 0 (`Article Submission Charge`), membaca total pajak sesudah `=`, mengabaikan denda penarikan naskah (*withdrawal/retraction fee*), menolak klausa gratis historis serta frasa pembaca Open Access, dan mengonversi nominal seragam ke IDR atau USD.
   - **Bulan Terbit & Audit Keaktifan (`parser/month.rs`, `scraper/ojs_deep.rs`)**: Memindai *Current Issue*, tanggal pengumuman, dan `/issue/archive` untuk menghitung `last_issue_year` serta flag `is_dormant`.
-  - **Heuristik Integritas & Produktivitas (`parser/heuristics.rs`)**: Validasi checksum ISSN ISO 3297, deteksi domain kloning/risiko (`evaluate_journal_risk`), indeks tambahan, estimasi kecepatan review (`turnaround_weeks`), bahasa artikel & URL template naskah, gaya sitasi (`APA`/`IEEE`/`Chicago`/`Vancouver`/`Harvard`/`MLA`), batas kata (`word_limit`), serta status CFP (`submission_open`).
+  - **Heuristik Integritas & Produktivitas (`parser/heuristics.rs`)**: Validasi checksum ISSN ISO 3297, deteksi domain kloning/risiko (`evaluate_journal_risk`), indeks tambahan, estimasi kecepatan review (`turnaround_weeks`), bahasa artikel & URL template naskah, gaya sitasi (`APA`/`IEEE`/`Chicago`/`Vancouver`/`Harvard`/`MLA`), batas kata (`word_limit`), batas similarity/plagiarisme (`max_similarity_pct`), serta status CFP (`submission_open`).
   - **Kontak Editor & Email (`parser/contact.rs`)**: Dekode Cloudflare XOR `/cdn-cgi/l/email-protection` serta normalisasi nomor WhatsApp (`wa.me/62...`).
   - **Focus & Scope Higienis (`parser/focus.rs`)**: Menolak teks standar *OJS Privacy Statement* dan boilerplate navigasi.
 
@@ -84,5 +84,5 @@ Setiap tugas berat (permintaan HTTP konkuren, parsing dokumen OOXML/PDF, dan que
 ## 3. Windows DPI, Resource Embedding & Distribusi (`build.rs`, `installer/jsfs.iss`, `main.rs`)
 
 - Di Windows, `main.rs` menerapkan `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]` agar executable rilis berjalan langsung tanpa jendela konsol, dan `.cargo/config.toml` menautkan CRT secara statis (`+crt-static`) agar bebas dari dependensi runtime eksternal.
-- `build.rs` mengompilasi `assets/icon.ico`, `VersionInfo` (`4.9.1.0`), *Common Controls v6*, serta manifes **`PerMonitorV2`** DPI awareness melalui `winres` sehingga teks dan layout tetap tajam di layar Full HD, 2K, maupun 4K.
+- `build.rs` mengompilasi `assets/icon.ico`, `VersionInfo` (`4.10.0.0`), *Common Controls v6*, serta manifes **`PerMonitorV2`** DPI awareness melalui `winres` sehingga teks dan layout tetap tajam di layar Full HD, 2K, maupun 4K.
 - `installer/jsfs.iss` mengemas installer **Inno Setup 6** (`JSFS-windows-x64-setup.exe`) dengan instalasi user-level tanpa hak Administrator ke `%LOCALAPPDATA%\Programs\JSFS`.

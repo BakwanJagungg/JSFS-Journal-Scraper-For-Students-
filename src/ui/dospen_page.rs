@@ -283,8 +283,12 @@ fn render_compare_section(
                                 ui.vertical(|ui| {
                                     let sty = j.citation_style.as_deref().unwrap_or("-");
                                     let wlim = format_word_limit_label(j.word_limit, is_en);
+                                    let sim = j
+                                        .max_similarity_pct
+                                        .map(|pct| format!("Sim <= {pct}%"))
+                                        .unwrap_or_else(|| "Sim: -".to_string());
                                     ui.label(
-                                        RichText::new(format!("{sty} • {wlim}"))
+                                        RichText::new(format!("{sty} • {wlim} • {sim}"))
                                             .size(11.5)
                                             .color(p.text),
                                     );

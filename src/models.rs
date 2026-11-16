@@ -109,6 +109,8 @@ pub struct JournalRecord {
     pub submission_open: Option<bool>,
     #[serde(default)]
     pub editor_in_chief: Option<String>,
+    #[serde(default)]
+    pub max_similarity_pct: Option<u8>,
 }
 
 /// Compute human-readable journal activity label and dormancy flag against `current_year`.
@@ -317,6 +319,8 @@ pub struct UiJournalItem {
     pub extra_indexes: Vec<String>,
     #[serde(default)]
     pub editor_in_chief: Option<String>,
+    #[serde(default)]
+    pub max_similarity_pct: Option<u8>,
 }
 
 impl From<&JournalRecord> for UiJournalItem {
@@ -426,6 +430,7 @@ impl From<&JournalRecord> for UiJournalItem {
             issn_valid,
             extra_indexes: r.extra_indexes.clone(),
             editor_in_chief: r.editor_in_chief.clone(),
+            max_similarity_pct: r.max_similarity_pct,
         }
     }
 }
@@ -499,6 +504,7 @@ impl From<&UiJournalItem> for JournalRecord {
             cited_count: it.cited_count,
             submission_open: it.submission_open,
             editor_in_chief: it.editor_in_chief.clone(),
+            max_similarity_pct: it.max_similarity_pct,
             ..Default::default()
         }
     }
@@ -666,6 +672,8 @@ pub struct SearchParams {
     pub include_non_sinta_garuda: bool,
     #[serde(default = "default_true")]
     pub exclude_dormant: bool,
+    #[serde(default)]
+    pub only_open_submission: bool,
     #[serde(default)]
     pub offline_mode: bool,
     #[serde(default)]

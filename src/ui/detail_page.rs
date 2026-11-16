@@ -529,6 +529,37 @@ fn render_right_detail_cards(
                 ui.label(RichText::new(msg).size(12.0).color(p.text));
             });
         }
+        if let Some(pct) = j.max_similarity_pct {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new("[✓]").size(12.0).strong().color(p.good));
+                ui.label(
+                    RichText::new(if is_en {
+                        format!(
+                            "Plagiarism / Similarity limit detected: Max {pct}% (check Turnitin/iThenticate before upload)."
+                        )
+                    } else {
+                        format!(
+                            "Batas Similarity / Turnitin terdeteksi: Maks. {pct}% (pastikan hasil cek plagiasi di bawah batas ini)."
+                        )
+                    })
+                    .size(12.0)
+                    .color(p.text),
+                );
+            });
+        } else {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new("[•]").size(12.0).strong().color(p.muted));
+                ui.label(
+                    RichText::new(if is_en {
+                        "Similarity / Turnitin limit: Not recorded on OJS."
+                    } else {
+                        "Batas Similarity / Turnitin: Belum terdata di halaman OJS."
+                    })
+                    .size(12.0)
+                    .color(p.muted),
+                );
+            });
+        }
 
         if let Some(ms) = manuscript {
             ui.add_space(4.0);
@@ -626,6 +657,32 @@ fn render_right_detail_cards(
                 "Batas Panjang Kata"
             },
             &format_word_limit_label(j.word_limit, is_en),
+        );
+        let sim_disp = match j.max_similarity_pct {
+            Some(pct) => {
+                if is_en {
+                    format!("Max. {pct}%")
+                } else {
+                    format!("Maks. {pct}%")
+                }
+            }
+            None => {
+                if is_en {
+                    "Not recorded".to_string()
+                } else {
+                    "Belum terdata".to_string()
+                }
+            }
+        };
+        info_kv(
+            ui,
+            p,
+            if is_en {
+                "Similarity Limit / Turnitin"
+            } else {
+                "Batas Similarity / Turnitin"
+            },
+            &sim_disp,
         );
         let sub_disp = match j.submission_fee_idr {
             Some(0) => "Gratis (Rp 0 — tidak ada biaya submit)".to_string(),

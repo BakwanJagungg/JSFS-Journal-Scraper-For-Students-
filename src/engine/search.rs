@@ -181,6 +181,7 @@ pub fn apply_strict_filters(records: &mut Vec<JournalRecord>, params: &SearchPar
             &allowed_quartiles,
             params.filter_quartiles,
         ) && (!params.exclude_dormant || !r.is_dormant)
+            && (!params.only_open_submission || r.submission_open == Some(true))
             && month::lolos_filter_bulan(
                 &r.publish_month_nums,
                 &selected_months,
@@ -1043,5 +1044,54 @@ mod tests {
                 "Jurnal Dorman 2020"
             ]
         );
+    }
+
+    #[test]
+    fn test_only_open_submission_strict_filter() {
+        let mut open_rec = make_rec(
+            "Jurnal Open CFP",
+            "Gratis (Rp 0)",
+            Some(0),
+            "Sinta 3",
+            vec![6],
+        );
+        open_rec.submission_open = Some(true);
+
+        let mut closed_rec = make_rec(
+            "Jurnal Closed",
+            "Gratis (Rp 0)",
+            Some(0),
+            "Sinta 3",
+            vec![6],
+        );
+        closed_rec.submission_open = Some(false);
+
+        let mut unknown_rec = make_rec(
+            "Jurnal Unknown",
+            "Gratis (Rp 0)",
+            Some(0),
+            "Sinta 3",
+            vec![6],
+        );
+        unknown_rec.submission_open = None;
+
+        let params_only_open: SearchParams = serde_json::from_value(serde_json::json!({
+            "sinta": [3],
+            "only_open_submission": true
+        }))
+        .unwrap();
+        let mut pool = vec![open_rec.clone(), closed_rec.clone(), unknown_rec.clone()];
+        apply_strict_filters(&mut pool, &params_only_open);
+        assert_eq!(pool.len(), 1);
+        assert_eq!(pool[0].title, "Jurnal Open CFP");
+
+        let params_all: SearchParams = serde_json::from_value(serde_json::json!({
+            "sinta": [3],
+            "only_open_submission": false
+        }))
+        .unwrap();
+        let mut pool2 = vec![open_rec, closed_rec, unknown_rec];
+        apply_strict_filters(&mut pool2, &params_all);
+        assert_eq!(pool2.len(), 3);
     }
 }

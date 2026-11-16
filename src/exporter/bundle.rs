@@ -93,6 +93,7 @@ SYARAT NASKAH (AUTHOR GUIDELINES)\n\
 ------------------------------------------------------------\n\
 Gaya Sitasi         : {cit}\n\
 Batas Panjang Kata  : {word_limit_disp} (Status Naskah: {word_fit_note})\n\
+Batas Similarity    : {similarity}\n\
 Bahasa Artikel      : {langs}\n\
 Focus & Scope       : {scope}\n\
 ------------------------------------------------------------\n\
@@ -134,6 +135,10 @@ PRE-SUBMISSION READINESS SCORE: {score}%\n\
             .citation_style
             .as_deref()
             .unwrap_or("Belum terdeteksi di halaman OJS"),
+        similarity = journal
+            .max_similarity_pct
+            .map(|pct| format!("Maks. {pct}% (Turnitin / iThenticate)"))
+            .unwrap_or_else(|| "Belum terdata di halaman OJS".to_string()),
         langs = if journal.article_languages.trim().is_empty() {
             "-"
         } else {

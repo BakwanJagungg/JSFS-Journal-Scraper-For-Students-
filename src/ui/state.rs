@@ -170,6 +170,7 @@ pub struct FilterSettings {
     pub only_free: bool,
     pub include_na: bool,
     pub exclude_dormant: bool,
+    pub only_open_submission: bool,
     pub offline_mode: bool,
     pub max_turnaround_weeks: u16,
     pub target_deadline_month: u8,
@@ -203,6 +204,7 @@ impl Default for FilterSettings {
             only_free: false,
             include_na: true,
             exclude_dormant: true,
+            only_open_submission: false,
             offline_mode: false,
             max_turnaround_weeks: 0,
             target_deadline_month: 0,
@@ -328,6 +330,9 @@ impl FilterSettings {
         if !self.exclude_dormant {
             count += 1;
         }
+        if self.only_open_submission {
+            count += 1;
+        }
         if self.offline_mode {
             count += 1;
         }
@@ -388,7 +393,14 @@ impl FilterSettings {
             n => format!("{n} Bulan"),
         };
 
-        format!("Filter: {sinta_str} • {cost_str} • {month_str}")
+        let mut base = format!("Filter: {sinta_str} • {cost_str} • {month_str}");
+        if self.only_open_submission {
+            base.push_str(" • Open Submit");
+        }
+        if self.offline_mode {
+            base.push_str(" • Offline");
+        }
+        base
     }
 
     pub fn to_search_params(&mut self, keyword: &str, ollama_model: &str) -> SearchParams {
@@ -460,6 +472,7 @@ impl FilterSettings {
             match_enabled: self.match_enabled,
             include_non_sinta_garuda: self.include_non_sinta_garuda,
             exclude_dormant: self.exclude_dormant,
+            only_open_submission: self.only_open_submission,
             offline_mode: self.offline_mode,
             max_turnaround_weeks: (self.max_turnaround_weeks > 0)
                 .then_some(self.max_turnaround_weeks),

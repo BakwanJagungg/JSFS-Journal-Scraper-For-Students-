@@ -250,11 +250,13 @@ pub fn render_search_page(
                     "Preset: Kustom".to_string()
                 },
             };
-            let preset_disp = if filters.offline_mode {
-                format!("{preset_base} • Offline")
-            } else {
-                preset_base
-            };
+            let mut preset_disp = preset_base;
+            if filters.only_open_submission {
+                preset_disp.push_str(" • Open Submit");
+            }
+            if filters.offline_mode {
+                preset_disp.push_str(" • Offline");
+            }
             egui::ComboBox::from_id_salt("preset_dropdown_combo")
                 .selected_text(preset_disp)
                 .show_ui(ui, |ui| {
@@ -276,6 +278,24 @@ pub fn render_search_page(
                         }
                     }
                     ui.separator();
+                    let open_lbl = if is_en {
+                        "Open Submit / CFP Only"
+                    } else {
+                        "Hanya Open Submit / CFP"
+                    };
+                    if ui
+                        .selectable_label(filters.only_open_submission, open_lbl)
+                        .clicked()
+                    {
+                        filters.only_open_submission = !filters.only_open_submission;
+                        filters.active_preset = QuickPreset::Custom;
+                        let msg = if filters.only_open_submission {
+                            "Filter Hanya Open Submit / CFP diaktifkan."
+                        } else {
+                            "Filter Hanya Open Submit / CFP dinonaktifkan."
+                        };
+                        sink.send(crate::engine::EngineEvent::Toast(msg.to_string()));
+                    }
                     let offline_lbl = if is_en {
                         "Search Local Cache (Offline)"
                     } else {
@@ -354,8 +374,16 @@ pub fn render_search_page(
                 });
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let mut summary = filters.summary_text();
+                if filters.only_open_submission && !results.is_empty() {
+                    let open_cnt = results
+                        .iter()
+                        .filter(|r| r.submission_open == Some(true))
+                        .count();
+                    summary.push_str(&format!(" ({open_cnt}/{} lolos)", results.len()));
+                }
                 ui.add(
-                    egui::Label::new(RichText::new(filters.summary_text()).size(11.5).color(p.muted))
+                    egui::Label::new(RichText::new(summary).size(11.5).color(p.muted))
                         .truncate(),
                 );
             });
@@ -604,7 +632,7 @@ pub fn render_search_page(
         } else {
 
         let bm_filter = app_state.only_bookmarked.then_some(&app_state.bookmarked_ids);
-        let filtered = filtered_sorted_indices(
+        let mut filtered = filtered_sorted_indices(
             results,
             table_filter,
             *apc_filter,
@@ -612,6 +640,9 @@ pub fn render_search_page(
             *sort_col,
             *sort_desc,
         );
+        if filters.only_open_submission {
+            filtered.retain(|&idx| results[idx].submission_open == Some(true));
+        }
         let bm_count = app_state.bookmarked_count(results);
 
         // Table Toolbar
@@ -955,19 +986,29 @@ pub fn render_search_page(
                                             );
                                         }
                                     });
-                                    if item.terbit_terdekat != "-" {
-                                        ui.add(
-                                            egui::Label::new(
-                                                RichText::new(format!(
-                                                    "Next: {}",
-                                                    item.terbit_terdekat
-                                                ))
-                                                .size(11.0)
-                                                .color(p.muted),
-                                            )
-                                            .truncate(),
-                                        );
-                                    }
+                                    ui.horizontal(|ui| {
+                                        ui.spacing_mut().item_spacing.x = 4.0;
+                                        if let Some(open) = item.submission_open {
+                                            if open {
+                                                pill_badge(ui, "Open Submit", p.good, p.good_soft);
+                                            } else {
+                                                pill_badge(ui, "Tutup", p.bad, p.bad_soft);
+                                            }
+                                        }
+                                        if item.terbit_terdekat != "-" {
+                                            ui.add(
+                                                egui::Label::new(
+                                                    RichText::new(format!(
+                                                        "Next: {}",
+                                                        item.terbit_terdekat
+                                                    ))
+                                                    .size(11.0)
+                                                    .color(p.muted),
+                                                )
+                                                .truncate(),
+                                            );
+                                        }
+                                    });
                                 });
                             });
                         });

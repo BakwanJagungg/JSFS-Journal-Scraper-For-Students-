@@ -329,6 +329,18 @@ pub fn render_filters_page(
                 "Sembunyikan jurnal tidak aktif / dorman (>2 tahun tidak terbit)",
                 "Direkomendasikan agar tidak menyarankan jurnal mati/vakum (2019–2023).",
             );
+            card_divider(ui, p);
+            if toggle_row(
+                ui,
+                p,
+                &mut filters.only_open_submission,
+                "Hanya Jurnal dengan Status Open Submit / CFP Terbuka",
+                "Saring keluar jurnal OJS yang pendaftaran penulisnya sedang ditutup.",
+            )
+            .changed()
+            {
+                filters.active_preset = QuickPreset::Custom;
+            }
         });
 
         ui.add_space(14.0);

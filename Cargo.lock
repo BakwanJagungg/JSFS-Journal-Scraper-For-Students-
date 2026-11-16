@@ -2364,7 +2364,7 @@ dependencies = [
 
 [[package]]
 name = "jsfs"
-version = "4.9.1"
+version = "4.10.0"
 dependencies = [
  "chrono",
  "dashmap",

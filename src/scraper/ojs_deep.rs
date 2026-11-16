@@ -397,6 +397,9 @@ fn absorb_page(
     if rec.word_limit.is_none() {
         rec.word_limit = heuristics::extract_word_limit(&plain);
     }
+    if rec.max_similarity_pct.is_none() {
+        rec.max_similarity_pct = heuristics::extract_max_similarity_pct(&plain);
+    }
     for idx_name in heuristics::extract_extra_indexes(html) {
         if !rec
             .extra_indexes

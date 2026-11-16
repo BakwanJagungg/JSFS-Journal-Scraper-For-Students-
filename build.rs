@@ -16,11 +16,11 @@ fn main() {
             "LegalCopyright",
             "Copyright (c) 2026 JSFS Contributors - MIT License",
         );
-        res.set("FileVersion", "4.9.1.0");
-        res.set("ProductVersion", "4.9.1.0");
+        res.set("FileVersion", "4.10.0.0");
+        res.set("ProductVersion", "4.10.0.0");
         res.set_manifest(
             r#"<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0" xmlns:asmv3="urn:schemas-microsoft-com:asm.v3">
-  <assemblyIdentity version="4.9.1.0" processorArchitecture="*" name="JSFS.OpenSource.Desktop" type="win32" />
+  <assemblyIdentity version="4.10.0.0" processorArchitecture="*" name="JSFS.OpenSource.Desktop" type="win32" />
   <description>JSFS Academic Journal Finder and APC Validator</description>
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>

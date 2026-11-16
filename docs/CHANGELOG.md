@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.10.0] - 2026-11-16
+
+### Added
+- **Bilingual Plagiarism / Similarity Threshold Extractor (`src/models.rs`, `src/parser/heuristics.rs`, `src/scraper/ojs_deep.rs`, `src/scraper/dedup.rs`, `src/ui/detail_page.rs`, `src/ui/dospen_page.rs`, `src/exporter/bundle.rs`)**:
+  - Added `max_similarity_pct: Option<u8>` to `JournalRecord` and `UiJournalItem`, extracted via `extract_max_similarity_pct` (`1..=50%`, ignoring VAT/discount percentages) from already-fetched OJS pages.
+  - Surfaced `Batas Similarity / Turnitin` in `Detail & Persiapan` (Readiness checklist & Guidelines card), `Shortlist & Dospen` comparison table, and `Ringkasan_Aturan_Jurnal_*.txt` inside `.zip` bundles.
+- **Quick "Open Submit / CFP Only" Filter (`src/models.rs`, `src/ui/state.rs`, `src/engine/search.rs`, `src/ui/filters_page.rs`, `src/ui/search_page.rs`)**:
+  - Added `only_open_submission: bool` to `FilterSettings` and `SearchParams`, enforced in `apply_strict_filters` (`submission_open == Some(true)`), live table filtering, `filters.summary_text()` count display, **Filter Lanjutan**, the **Preset** dropdown, and micro `Open Submit` / `Tutup` table badges.
+
+---
+
 ## [4.9.1] - 2026-11-16
 
 ### Added

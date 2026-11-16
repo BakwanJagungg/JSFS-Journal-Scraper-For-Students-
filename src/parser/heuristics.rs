@@ -74,6 +74,20 @@ static RE_WORD_MAX: Lazy<Regex> = Lazy::new(|| {
     .expect("valid word max regex")
 });
 
+static RE_SIMILARITY_FORWARD: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"(?i)\b(?:similarity(?:\s+(?:index|score|rate|check|threshold|limit|level))?|plagiarisme?|plagiasi|kemiripan(?:\s+(?:naskah|teks|artikel))?|indeks\s+kemiripan|turnitin|ithenticate)\b[^\n.;]{0,55}?(?:<=|<|≤|max(?:imum)?(?:\s+of)?|maks(?:imal|imum)?|below|under|less\s+than|at\s+most|not\s+(?:exceed|more\s+than)|kurang\s+dari|di\s*bawah|tidak\s+(?:lebih\s+dari|melebihi)|batas(?:\s+maksimal)?|[:=])?\s*(\d{1,2})\s*%",
+    )
+    .expect("valid similarity forward regex")
+});
+
+static RE_SIMILARITY_BACKWARD: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"(?i)(?:<=|<|≤|max(?:imum)?|maks(?:imal|imum)?|below|under|less\s+than|at\s+most|not\s+(?:exceed|more\s+than)|kurang\s+dari|di\s*bawah|tidak\s+(?:lebih\s+dari|melebihi))\s*(\d{1,2})\s*%[^\n.;]{0,28}?\b(?:similarity|plagiarisme?|plagiasi|kemiripan|turnitin|ithenticate)\b",
+    )
+    .expect("valid similarity backward regex")
+});
+
 static RE_SUBMISSION_CLOSED: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
         r"(?i)\b(?:registration\s+(?:is\s+)?(?:currently\s+)?closed|not\s+accepting\s+(?:new\s+)?submissions?|submissions?\s+(?:are|is)\s+(?:currently\s+)?closed|no\s+longer\s+accepting\s+submissions?|tidak\s+menerima\s+(?:naskah|artikel|pengiriman)|pendaftaran\s+(?:sedang\s+)?ditutup|kuota\s+(?:naskah\s+)?penuh)\b",
@@ -851,6 +865,26 @@ pub fn extract_editor_in_chief(html_or_text: &str) -> Option<String> {
     None
 }
 
+/// Extract realistic maximum similarity / plagiarism percentage (`1..=50%`) from OJS text.
+pub fn extract_max_similarity_pct(text: &str) -> Option<u8> {
+    if text.trim().is_empty() {
+        return None;
+    }
+    for cap in RE_SIMILARITY_FORWARD
+        .captures_iter(text)
+        .chain(RE_SIMILARITY_BACKWARD.captures_iter(text))
+    {
+        if let Some(m) = cap.get(1) {
+            if let Ok(pct) = m.as_str().parse::<u8>() {
+                if (1..=50).contains(&pct) {
+                    return Some(pct);
+                }
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -963,6 +997,67 @@ mod tests {
         );
         assert_eq!(
             extract_submission_open("About the Journal and Editorial Team."),
+            None
+        );
+    }
+
+    #[test]
+    fn test_extract_max_similarity_pct() {
+        assert_eq!(
+            extract_max_similarity_pct("Persyaratan naskah: maksimal similarity 20% via Turnitin."),
+            Some(20)
+        );
+        assert_eq!(
+            extract_max_similarity_pct(
+                "Jurnal menerapkan batas plagiarisme 25% untuk semua artikel."
+            ),
+            Some(25)
+        );
+        assert_eq!(
+            extract_max_similarity_pct("Indeks kemiripan maksimal 15% menggunakan iThenticate."),
+            Some(15)
+        );
+        assert_eq!(
+            extract_max_similarity_pct("Turnitin maksimal 20%, artikel di atas batas ditolak."),
+            Some(20)
+        );
+        assert_eq!(
+            extract_max_similarity_pct("Tingkat kemiripan naskah tidak lebih dari 20%."),
+            Some(20)
+        );
+        assert_eq!(
+            extract_max_similarity_pct(
+                "The similarity index must be below 20% excluding bibliography."
+            ),
+            Some(20)
+        );
+        assert_eq!(
+            extract_max_similarity_pct(
+                "Maximum similarity of 25% is allowed by the editorial board."
+            ),
+            Some(25)
+        );
+        assert_eq!(
+            extract_max_similarity_pct("All papers undergo plagiarism check below 15%."),
+            Some(15)
+        );
+        assert_eq!(
+            extract_max_similarity_pct("Manuscripts must have less than 20% similarity score."),
+            Some(20)
+        );
+        assert_eq!(
+            extract_max_similarity_pct("Author submission gate: Turnitin <= 20%."),
+            Some(20)
+        );
+        // Must ignore VAT/tax or unrealistic percentages (>50%).
+        assert_eq!(
+            extract_max_similarity_pct(
+                "Article Publication Charge: IDR 2,000,000 (+tax 11%) = IDR 2,220,000,-"
+            ),
+            None
+        );
+        assert_eq!(
+            extract_max_similarity_pct("Discount 15% for early bird registration. Similarity check uses Turnitin 80% original."),
             None
         );
     }
