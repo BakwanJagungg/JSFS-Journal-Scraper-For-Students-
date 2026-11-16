@@ -23,6 +23,7 @@ pub struct ManuscriptSummary {
     pub summary_badge: String,
     pub cited_journals: HashMap<String, u32>,
     pub recommended_topics: Vec<String>,
+    pub uncited_long_paragraphs: u32,
 }
 
 pub fn load_manuscript_async(engine: Arc<EngineState>, sink: EventSink, path: PathBuf) {
@@ -91,6 +92,7 @@ pub fn load_manuscript_async(engine: Arc<EngineState>, sink: EventSink, path: Pa
                     summary_badge: meta.checklist.summary_badge.clone(),
                     cited_journals: meta.cited_journals.clone(),
                     recommended_topics: meta.recommended_topics.clone(),
+                    uncited_long_paragraphs: meta.checklist.uncited_long_paragraphs,
                 };
                 {
                     let mut guard = engine.manuscript.write().await;

@@ -128,14 +128,28 @@ pub fn generate_cover_letter_with_profile(
         format!("\nKata Kunci: {keywords}")
     };
 
+    let editor_name = journal
+        .editor_in_chief
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
     if lang.eq_ignore_ascii_case("en") {
+        let recipient_head = match editor_name {
+            Some(ed) => format!("{ed}\nEditor-in-Chief"),
+            None => "Editor-in-Chief".to_string(),
+        };
+        let salutation = match editor_name {
+            Some(ed) => format!("Dear {ed},"),
+            None => "Dear Editor-in-Chief,".to_string(),
+        };
         format!(
             "{today}\n\n\
 To:\n\
-Editor-in-Chief\n\
+{recipient_head}\n\
 {journal_name}{publisher_line}\n\n\
 Subject: Manuscript Submission – \"{title}\"\n\n\
-Dear Editor-in-Chief,\n\n\
+{salutation}\n\n\
 We would like to submit our original research manuscript entitled \"{title}\" for consideration for publication in {journal_name}.{abstract_block}{kw_block}\n\n\
 Our study aligns closely with the scope of {journal_name} ({scope_snippet}). We confirm that this manuscript is our original work, has not been published previously, and is not currently under consideration for publication elsewhere.\n\n\
 All authors have approved the manuscript and agree with its submission to {journal_name}. The authors declare no conflict of interest.\n\n\
@@ -147,13 +161,21 @@ Sincerely,\n\n\
             journal_name = journal.nama.trim()
         )
     } else {
+        let recipient_head = match editor_name {
+            Some(ed) => format!("{ed} (Editor-in-Chief)"),
+            None => "Dewan Redaksi / Editor-in-Chief".to_string(),
+        };
+        let salutation = match editor_name {
+            Some(ed) => format!("Dengan hormat,\nYth. {ed},"),
+            None => "Dengan hormat,".to_string(),
+        };
         format!(
             "{today}\n\n\
 Kepada Yth.\n\
-Dewan Redaksi / Editor-in-Chief\n\
+{recipient_head}\n\
 {journal_name}{publisher_line}\n\n\
 Perihal: Permohonan Publikasi Naskah Ilmiah – \"{title}\"\n\n\
-Dengan hormat,\n\n\
+{salutation}\n\n\
 Melalui surat pengantar ini, kami bermaksud mengirimkan naskah artikel ilmiah hasil penelitian kami yang berjudul:\n\
 \"{title}\"\n\
 untuk dipertimbangkan dan ditinjau (peer-review) guna publikasi pada {journal_name}.{abstract_block}{kw_block}\n\n\
@@ -216,10 +238,20 @@ pub fn generate_editor_inquiry_email_with_profile(
         format!("\nKata Kunci: {keywords}")
     };
 
+    let editor_name = journal
+        .editor_in_chief
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
     if lang.eq_ignore_ascii_case("en") {
+        let salutation = match editor_name {
+            Some(ed) => format!("Dear {ed} (Editor-in-Chief of {journal_name}),"),
+            None => format!("Dear Editor-in-Chief of {journal_name},"),
+        };
         format!(
             "Subject: Pre-Submission Inquiry – \"{title}\" ({journal_name})\n\n\
-Dear Editor-in-Chief of {journal_name},\n\n\
+{salutation}\n\n\
 I hope this email finds you well. My co-authors and I are preparing a manuscript entitled:\n\
 \"{title}\"{abstract_block}{kw_line}\n\n\
 Before submitting formally through your OJS portal, I would appreciate your brief guidance on two points:\n\
@@ -233,11 +265,17 @@ Best regards,\n\
             apc = journal.apc_label.trim()
         )
     } else {
+        let salutation = match editor_name {
+            Some(ed) => {
+                format!("Kepada Yth.\n{ed} (Editor-in-Chief {journal_name}),\n\nDengan hormat,")
+            }
+            None => format!(
+                "Kepada Yth.\nDewan Redaksi / Editor-in-Chief {journal_name},\n\nDengan hormat,"
+            ),
+        };
         format!(
             "Subjek: Konsultasi Pra-Submit Naskah – \"{title}\" ({journal_name})\n\n\
-Kepada Yth.\n\
-Dewan Redaksi / Editor-in-Chief {journal_name},\n\n\
-Dengan hormat,\n\
+{salutation}\n\
 Saya bermaksud mengajukan konsultasi singkat pra-submit terkait rencana pengiriman naskah artikel ilmiah kami yang berjudul:\n\
 \"{title}\"{abstract_block}{kw_line}\n\n\
 Sebelum melakukan submit resmi melalui laman OJS, mohon konfirmasi Bapak/Ibu terkait hal berikut:\n\
@@ -392,10 +430,20 @@ pub fn generate_followup_email_with_profile(
         submitted_date.trim().to_string()
     };
 
+    let editor_name = journal
+        .editor_in_chief
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
     if lang.eq_ignore_ascii_case("en") {
+        let salutation = match editor_name {
+            Some(ed) => format!("Dear {ed} (Editor-in-Chief of {journal_name}),"),
+            None => format!("Dear Editor-in-Chief of {journal_name},"),
+        };
         format!(
             "Subject: Manuscript Review Status Inquiry – \"{title}\" ({journal_name})\n\n\
-Dear Editor-in-Chief of {journal_name},\n\n\
+{salutation}\n\n\
 I hope you are doing well. I am writing to respectfully follow up on the review status of our manuscript entitled:\n\
 \"{title}\"\n\
 which was submitted via your OJS portal on {date_label}.\n\n\
@@ -408,11 +456,17 @@ Best regards,\n\
 {author_email}"
         )
     } else {
+        let salutation = match editor_name {
+            Some(ed) => {
+                format!("Kepada Yth.\n{ed} (Editor-in-Chief {journal_name}),\n\nDengan hormat,")
+            }
+            None => format!(
+                "Kepada Yth.\nDewan Redaksi / Editor-in-Chief {journal_name},\n\nDengan hormat,"
+            ),
+        };
         format!(
             "Subjek: Follow-Up Perkembangan Review Naskah – \"{title}\" ({journal_name})\n\n\
-Kepada Yth.\n\
-Dewan Redaksi / Editor-in-Chief {journal_name},\n\n\
-Dengan hormat,\n\
+{salutation}\n\
 Melalui email ini, saya bermaksud menanyakan perkembangan proses peninjauan (peer-review) atas naskah artikel ilmiah kami yang berjudul:\n\
 \"{title}\"\n\
 yang telah kami kirimkan melalui sistem OJS pada tanggal {date_label}.\n\n\
@@ -666,5 +720,22 @@ mod tests {
         assert!(en_msg.contains("Manuscript Review Status Inquiry"));
         assert!(en_msg.contains("Fallback Paper"));
         assert!(en_msg.contains("[Submission Date]"));
+    }
+
+    #[test]
+    fn test_personalized_editor_in_chief_salutation() {
+        let item = UiJournalItem {
+            nama: "Jurnal Sistem Cerdas".to_string(),
+            editor_in_chief: Some("Prof. Dr. Rahmat Hidayat".to_string()),
+            apc_label: "Gratis (Rp 0)".to_string(),
+            ..Default::default()
+        };
+        let cl_id = generate_cover_letter(&item, "Topik AI", None, "id");
+        assert!(cl_id.contains("Yth. Prof. Dr. Rahmat Hidayat,"));
+        let cl_en = generate_cover_letter(&item, "AI Topic", None, "en");
+        assert!(cl_en.contains("Dear Prof. Dr. Rahmat Hidayat,"));
+        let inq = generate_editor_inquiry_email(&item, "AI Topic", None, "en");
+        assert!(inq
+            .contains("Dear Prof. Dr. Rahmat Hidayat (Editor-in-Chief of Jurnal Sistem Cerdas),"));
     }
 }

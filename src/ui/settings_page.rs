@@ -40,6 +40,7 @@ pub fn render_settings_page(
     theme_mode: &mut ThemeMode,
     filters: &mut FilterSettings,
     usd_rate_text: &mut String,
+    fx_updating: &mut bool,
     engine: &Arc<EngineState>,
     sink: &EventSink,
 ) {
@@ -273,7 +274,7 @@ pub fn render_settings_page(
 
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
-                    ui.set_max_width((ui.available_width() - 180.0).max(160.0));
+                    ui.set_max_width((ui.available_width() - 330.0).max(160.0));
                     ui.label(
                         RichText::new(txt.settings_usd_label)
                             .size(13.0)
@@ -286,9 +287,34 @@ pub fn render_settings_page(
                     );
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let fx_lbl = if *fx_updating {
+                        if app_settings.language == AppLanguage::En {
+                            "Updating..."
+                        } else {
+                            "Mengambil..."
+                        }
+                    } else if app_settings.language == AppLanguage::En {
+                        "Refresh Live Rate"
+                    } else {
+                        "Perbarui Kurs Hari Ini"
+                    };
+                    if ui
+                        .add_enabled_ui(!*fx_updating, |ui| secondary_button(ui, p, fx_lbl))
+                        .inner
+                        .on_hover_text(
+                            "Ambil kurs USD->IDR terbaru (1x request 3 dtk ke open.er-api.com saat diklik)",
+                        )
+                        .clicked()
+                    {
+                        *fx_updating = true;
+                        crate::engine::file_ops::fetch_usd_to_idr_async(
+                            engine.clone(),
+                            sink.clone(),
+                        );
+                    }
                     if ui
                         .add_sized(
-                            [140.0, 32.0],
+                            [130.0, 32.0],
                             egui::TextEdit::singleline(usd_rate_text)
                                 .align(Align2::RIGHT_CENTER)
                                 .margin(Margin::symmetric(8, 5)),

@@ -1,12 +1,12 @@
-# Arsitektur Sistem — JSFS v4.8.1 (Pure Rust Native Desktop)
+# Arsitektur Sistem — JSFS v4.9.1 (Pure Rust Native Desktop)
 
-Dokumen ini menjelaskan arsitektur teknis **JSFS (Journal Scraper For Students) v4.8.1** yang berjalan sebagai aplikasi desktop **100% Pure Rust** dengan antarmuka GPU native (`eframe` / `egui` + `glow` OpenGL), sepenuhnya bebas dari lapisan WebView2, Tauri, maupun Node.js.
+Dokumen ini menjelaskan arsitektur teknis **JSFS (Journal Scraper For Students) v4.9.1** yang berjalan sebagai aplikasi desktop **100% Pure Rust** dengan antarmuka GPU native (`eframe` / `egui` + `glow` OpenGL), sepenuhnya bebas dari lapisan WebView2, Tauri, maupun Node.js.
 
 ---
 
 ## 1. Gambaran Umum Arsitektur
 
-JSFS v4.8.1 memisahkan rendering GPU immediate-mode dari mesin komputasi asinkron (`tokio`) menggunakan batas arsitektur berbasis **`Arc<EngineState>`** dan saluran pesan satu arah **`EventSink`**:
+JSFS v4.9.1 memisahkan rendering GPU immediate-mode dari mesin komputasi asinkron (`tokio`) menggunakan batas arsitektur berbasis **`Arc<EngineState>`** dan saluran pesan satu arah **`EventSink`**:
 
 ```text
 +-----------------------------------------------------------------------+
@@ -14,11 +14,11 @@ JSFS v4.8.1 memisahkan rendering GPU immediate-mode dari mesin komputasi asinkro
 |  - `theme.rs`         : Palet JSFS Dark / Daylight + Segoe UI         |
 |  - `i18n.rs`          : Kamus dwibahasa ID/EN, `DisplayCurrency` &     |
 |                         `AuthorProfile`                               |
-|  - `sidebar.rs`       : Navigasi kiri 6 halaman + switch tema instan  |
+|  - `sidebar.rs`       : Navigasi kiri 8 tab + switch tema instan      |
 |  - `state.rs`         : State tabel, sort, preset, profil & shortlist |
-|  - `search_page.rs`   : Beranda anti-overflow, chip topik & tabel     |
-|  - `detail_modal.rs`  : Readiness, bukti APC, CFP, template & bundle  |
-|  - `compare_modal.rs` : Perbandingan 2-4 jurnal favorit berdampingan  |
+|  - `search_page.rs`   : Beranda, dropdown Preset/Offline & tabel      |
+|  - `detail_page.rs`   : Cek 1 URL OJS, Koleksi Naskah, audit & .docx  |
+|  - `dospen_page.rs`   : Shortlist favorit, Dospen Brief & tracker     |
 |  - Halaman Lain       : Filters, Match Engine, History, Settings, Guide |
 +--------------------------+-----------------------^--------------------+
                            | Dispatch Async Cmd    | Non-blocking Stream
@@ -28,19 +28,22 @@ JSFS v4.8.1 memisahkan rendering GPU immediate-mode dari mesin komputasi asinkro
 |  - `engine/search.rs`     : Orkestrasi 4 fase, Smart Cache & Strict Gate|
 |  - `engine/manuscript.rs` : Parsing `.docx`/`.pdf` via `spawn_blocking`|
 |  - `engine/ai_ops.rs`     : Status engine, uji Cloud AI & Ollama      |
-|  - `engine/file_ops.rs`   : Ekspor ulang, `.zip` bundle, OS launcher  |
+|  - `engine/file_ops.rs`   : Ekspor `.docx`/`.zip`/`.ics`, cek 1 URL,  |
+|                             kurs USD/IDR & peluncur aplikasi OS       |
 |  - `engine/cache_ops.rs`  : Statistik, pencarian offline & bersihkan  |
 +-----------------------------------------------------------------------+
 |  Core Domain Modules                                                  |
+|  - `config.rs` : Konfigurasi, matcher & `saved_manuscripts.json`      |
 |  - `scraper/`  : SINTA, Garuda, OpenAlex/DOAJ/Crossref, Dedup,        |
 |                  Anti-Block Rate Limiter (`mod.rs`), OJS Deep Crawler |
 |  - `parser/`   : `apc.rs`, `month.rs`, `contact.rs`, `focus.rs`,      |
-|                  `doc_matcher.rs` (BM25/Fit/Topik), `heuristics.rs`   |
-|                  (ISSN ISO 3297, OJS redirect, CFP, sitasi, risiko)   |
+|                  `doc_matcher.rs` (BM25/Fit/Topik/Sitasi Paragraf),   |
+|                  `heuristics.rs` (ISSN ISO 3297, EIC, CFP, risiko)    |
 |  - `ai/`       : Groq / Gemini / OpenAI-Compatible + Ollama Lokal     |
 |  - `cache.rs`  : SQLite WAL Cache (14-day TTL, tracker & mode offline)|
 |  - `exporter/` : Excel (`.xlsx`), MD, CSV, TXT, `citation.rs`         |
-|                  (`.ris`/`.bib`), `templates.rs`, dan `bundle.rs`     |
+|                  (`.ris`/`.bib`), `templates.rs`, `docx_writer.rs`    |
+|                  (`.docx`), `calendar.rs` (`.ics`), dan `bundle.rs`   |
 |                  (paket `.zip` siap pengajuan)                        |
 +-----------------------------------------------------------------------+
 ```
@@ -81,5 +84,5 @@ Setiap tugas berat (permintaan HTTP konkuren, parsing dokumen OOXML/PDF, dan que
 ## 3. Windows DPI, Resource Embedding & Distribusi (`build.rs`, `installer/jsfs.iss`, `main.rs`)
 
 - Di Windows, `main.rs` menerapkan `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]` agar executable rilis berjalan langsung tanpa jendela konsol, dan `.cargo/config.toml` menautkan CRT secara statis (`+crt-static`) agar bebas dari dependensi runtime eksternal.
-- `build.rs` mengompilasi `assets/icon.ico`, `VersionInfo` (`4.8.1.0`), *Common Controls v6*, serta manifes **`PerMonitorV2`** DPI awareness melalui `winres` sehingga teks dan layout tetap tajam di layar Full HD, 2K, maupun 4K.
+- `build.rs` mengompilasi `assets/icon.ico`, `VersionInfo` (`4.9.1.0`), *Common Controls v6*, serta manifes **`PerMonitorV2`** DPI awareness melalui `winres` sehingga teks dan layout tetap tajam di layar Full HD, 2K, maupun 4K.
 - `installer/jsfs.iss` mengemas installer **Inno Setup 6** (`JSFS-windows-x64-setup.exe`) dengan instalasi user-level tanpa hak Administrator ke `%LOCALAPPDATA%\Programs\JSFS`.

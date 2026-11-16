@@ -272,3 +272,209 @@ pub fn export_submission_bundle_async(
         }
     });
 }
+
+fn spawn_output_saver<F>(engine: Arc<EngineState>, sink: EventSink, label: &'static str, work: F)
+where
+    F: FnOnce() -> Result<String, JsfsError> + Send + 'static,
+{
+    let rt = engine.runtime.handle().clone();
+    rt.spawn(async move {
+        match tokio::task::spawn_blocking(work).await {
+            Ok(Ok(path)) => {
+                let fname = std::path::Path::new(&path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(&path)
+                    .to_string();
+                let out_dir = output_dir();
+                let _ = open_with_os(&out_dir.to_string_lossy());
+                sink.send(EngineEvent::Toast(format!(
+                    "{label} tersimpan di output/: {fname}"
+                )));
+            }
+            Ok(Err(e)) => sink.send(EngineEvent::Toast(format!("Gagal menyimpan {label}: {e}"))),
+            Err(e) => sink.send(EngineEvent::Toast(format!("Tugas {label} dibatalkan: {e}"))),
+        }
+    });
+}
+
+pub fn export_cover_letter_docx_async(
+    engine: Arc<EngineState>,
+    sink: EventSink,
+    journal: UiJournalItem,
+    keyword: String,
+    manuscript: Option<crate::engine::manuscript::ManuscriptSummary>,
+    settings: crate::ui::i18n::AppSettings,
+    lang: &'static str,
+) {
+    spawn_output_saver(engine, sink, "Cover Letter (.docx)", move || {
+        crate::exporter::docx_writer::save_cover_letter_docx(
+            &journal,
+            &keyword,
+            manuscript.as_ref(),
+            Some(&settings),
+            lang,
+        )
+    });
+}
+
+pub fn export_originality_docx_async(
+    engine: Arc<EngineState>,
+    sink: EventSink,
+    journal: UiJournalItem,
+    manuscript: Option<crate::engine::manuscript::ManuscriptSummary>,
+    settings: crate::ui::i18n::AppSettings,
+    lang: &'static str,
+) {
+    spawn_output_saver(engine, sink, "Surat Keaslian (.docx)", move || {
+        crate::exporter::docx_writer::save_originality_statement_docx(
+            &journal,
+            manuscript.as_ref(),
+            Some(&settings),
+            lang,
+        )
+    });
+}
+
+pub fn export_dosbing_report_docx_async(
+    engine: Arc<EngineState>,
+    sink: EventSink,
+    candidates: Vec<UiJournalItem>,
+    manuscript: Option<crate::engine::manuscript::ManuscriptSummary>,
+    settings: crate::ui::i18n::AppSettings,
+) {
+    if candidates.is_empty() {
+        sink.send(EngineEvent::Toast(
+            "Tandai minimal 1 jurnal dengan bintang ★ untuk membuat Laporan Dospen (.docx)."
+                .to_string(),
+        ));
+        return;
+    }
+    let lang = settings.language;
+    spawn_output_saver(
+        engine,
+        sink,
+        "Laporan Konsultasi Dospen (.docx)",
+        move || {
+            let refs: Vec<&UiJournalItem> = candidates.iter().collect();
+            crate::exporter::docx_writer::save_dosbing_report_docx(
+                &refs,
+                manuscript.as_ref(),
+                Some(&settings),
+                lang,
+            )
+        },
+    );
+}
+
+pub fn export_submission_ics_async(
+    engine: Arc<EngineState>,
+    sink: EventSink,
+    journal: UiJournalItem,
+) {
+    spawn_output_saver(engine, sink, "Pengingat Kalender (.ics)", move || {
+        crate::exporter::calendar::export_submission_ics(&journal)
+    });
+}
+
+/// Analyze a single OJS journal URL directly and emit `EngineEvent::SingleUrlAnalyzed`.
+pub fn analyze_single_url_async(
+    engine: Arc<EngineState>,
+    sink: EventSink,
+    raw_url: String,
+    keyword: String,
+) {
+    let rt = engine.runtime.handle().clone();
+    rt.spawn(async move {
+        let breaker = Arc::new(crate::scraper::DomainBreaker::new());
+        let res = crate::scraper::ojs_deep::analyze_single_ojs_url(
+            &engine.http_client,
+            breaker,
+            engine.cache.clone(),
+            &raw_url,
+        )
+        .await;
+
+        match res {
+            Ok(mut rec) => {
+                let ms_opt = engine.manuscript.read().await.clone();
+                let search_kws: Vec<String> = keyword
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if !search_kws.is_empty() || ms_opt.is_some() {
+                    let (sc, lbl, reasons) = crate::parser::doc_matcher::compute_match_score(
+                        &rec,
+                        &search_kws,
+                        ms_opt.as_ref(),
+                    );
+                    rec.match_score = sc;
+                    rec.match_label = lbl;
+                    rec.match_reasons = reasons;
+                }
+                if let Some(ref ms) = ms_opt {
+                    rec.cited_count = crate::parser::doc_matcher::count_journal_citations(
+                        &ms.cited_journals,
+                        &rec.title,
+                        &rec.issn,
+                        &rec.eissn,
+                    );
+                }
+                let ui_item = UiJournalItem::from(&rec);
+                sink.send(EngineEvent::SingleUrlAnalyzed(Box::new(Ok(ui_item))));
+            }
+            Err(e) => sink.send(EngineEvent::SingleUrlAnalyzed(Box::new(Err(e)))),
+        }
+    });
+}
+
+/// Fetch USD->IDR exchange rate on-demand (ONLY when triggered explicitly by user button click).
+pub fn fetch_usd_to_idr_async(engine: Arc<EngineState>, sink: EventSink) {
+    let rt = engine.runtime.handle().clone();
+    rt.spawn(async move {
+        let client = engine.http_client.clone();
+        let req = client
+            .get("https://open.er-api.com/v6/latest/USD")
+            .timeout(std::time::Duration::from_secs(3))
+            .send()
+            .await;
+
+        match req {
+            Ok(resp) if resp.status().is_success() => {
+                match resp.json::<serde_json::Value>().await {
+                    Ok(json) => {
+                        if let Some(idr) = json
+                            .get("rates")
+                            .and_then(|r| r.get("IDR"))
+                            .and_then(|v| v.as_f64())
+                        {
+                            let rounded = idr.round() as i64;
+                            if (5_000..=50_000).contains(&rounded) {
+                                sink.send(EngineEvent::FxRateUpdated(Ok(rounded)));
+                            } else {
+                                sink.send(EngineEvent::FxRateUpdated(Err(
+                                    "Nilai kurs IDR di luar batas wajar.".to_string(),
+                                )));
+                            }
+                        } else {
+                            sink.send(EngineEvent::FxRateUpdated(Err(
+                                "Format respons API kurs tidak memuat rates.IDR.".to_string(),
+                            )));
+                        }
+                    }
+                    Err(e) => sink.send(EngineEvent::FxRateUpdated(Err(format!(
+                        "Gagal mengurai JSON kurs: {e}"
+                    )))),
+                }
+            }
+            Ok(resp) => sink.send(EngineEvent::FxRateUpdated(Err(format!(
+                "Server kurs mengembalikan HTTP {}",
+                resp.status()
+            )))),
+            Err(e) => sink.send(EngineEvent::FxRateUpdated(Err(format!(
+                "Gagal terhubung ke server kurs (gunakan input manual): {e}"
+            )))),
+        }
+    });
+}

@@ -15,6 +15,12 @@ static RE_EXPLICIT_KEYWORDS: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?im)(?:kata\s*kunci|key\s*words?)\s*[:=\-]\s*([^\r\n]{3,240})")
         .expect("valid regex")
 });
+static RE_BRACKET_CITE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\[\s*\d+(?:\s*[-–,]\s*\d+)*\s*\]").expect("valid regex"));
+static RE_AUTHOR_YEAR_CITE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\([^()\r\n]{0,80}\b(?:19|20)\d{2}[a-z]?\b[^()\r\n]*\)|[A-Z][A-Za-zÀ-ÖØ-öø-ÿ'’-]+(?:\s+(?:&|and|dan|et\s+al\.?|dkk\.?)\s+[A-Z]?[A-Za-zÀ-ÖØ-öø-ÿ'’-]*)*\s*\((?:19|20)\d{2}[a-z]?\)")
+        .expect("valid regex")
+});
 
 /// Generic high-frequency hub words that receive lower IDF rarity weight in matching.
 const GENERIC_HUB_TERMS: &[&str] = &[
@@ -1464,6 +1470,7 @@ pub fn analyze_manuscript_checklist(text: &str) -> PreSubmitChecklist {
     let estimated_refs = doi_hits.max(bracket_hits).max(year_hits).min(150);
 
     let imrad_complete = has_abstract && has_intro && has_method && has_results && has_references;
+    let uncited_long_paragraphs = count_uncited_long_paragraphs(text);
     let mut missing = Vec::new();
     if !has_abstract {
         missing.push("Abstrak");
@@ -1504,7 +1511,61 @@ pub fn analyze_manuscript_checklist(text: &str) -> PreSubmitChecklist {
         estimated_refs,
         imrad_complete,
         summary_badge,
+        uncited_long_paragraphs,
     }
+}
+
+/// Count body paragraphs (`>= 110` words) before the bibliography section that contain
+/// neither numeric `[1]` nor `(Author, Year)` in-text citations.
+pub fn count_uncited_long_paragraphs(text: &str) -> u32 {
+    let normalized = text.replace("\r\n", "\n");
+    let low = normalized.to_ascii_lowercase();
+    let body_end = low
+        .rfind("\ndaftar pustaka")
+        .or_else(|| low.rfind("\nreferences"))
+        .or_else(|| low.rfind("\nreferensi"))
+        .or_else(|| low.rfind("\nbibliography"))
+        .unwrap_or(normalized.len());
+    let body = &normalized[..body_end];
+
+    let raw_paragraphs: Vec<String> = if body.matches("\n\n").count() >= 3 {
+        body.split("\n\n")
+            .map(|p| p.split_whitespace().collect::<Vec<_>>().join(" "))
+            .collect()
+    } else {
+        body.lines().map(|l| l.trim().to_string()).collect()
+    };
+
+    let mut uncited = 0u32;
+    let mut in_abstract = false;
+    for para in raw_paragraphs {
+        let trimmed = para.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let p_low = trimmed.to_ascii_lowercase();
+        if p_low == "abstrak" || p_low == "abstract" {
+            in_abstract = true;
+            continue;
+        }
+        if p_low.contains("pendahuluan") || p_low.contains("introduction") {
+            in_abstract = false;
+        }
+        if in_abstract
+            || p_low.starts_with("abstrak:")
+            || p_low.starts_with("abstract:")
+            || p_low.starts_with("kata kunci")
+            || p_low.starts_with("keywords")
+        {
+            continue;
+        }
+        let wc = trimmed.split_whitespace().count();
+        if wc >= 110 && !RE_BRACKET_CITE.is_match(trimmed) && !RE_AUTHOR_YEAR_CITE.is_match(trimmed)
+        {
+            uncited = uncited.saturating_add(1);
+        }
+    }
+    uncited
 }
 
 /// Rank journals in `items` by BM25 similarity to the journal at `target_idx` (Feature #4 — Lookalike Finder).
@@ -2166,5 +2227,34 @@ Daftar Pustaka\n\
         let err_big = build_manuscript_meta("big_paper.docx", &oversized);
         assert!(err_big.is_err());
         assert!(err_big.unwrap_err().to_string().contains("50 MB"));
+    }
+
+    #[test]
+    fn test_uncited_long_paragraphs_detection() {
+        let cited_120 = format!(
+            "{} (Adinata, 2024).",
+            std::iter::repeat_n("kata", 118)
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+        let uncited_120 = std::iter::repeat_n("penelitian", 120)
+            .collect::<Vec<_>>()
+            .join(" ");
+        let bracket_120 = format!(
+            "{} [12].",
+            std::iter::repeat_n("metode", 118)
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+        let short_uncited = std::iter::repeat_n("ringkas", 40)
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        let doc = format!(
+            "Abstrak\n{}\n\nPendahuluan\n{cited_120}\n{uncited_120}\n{bracket_120}\n{short_uncited}\n\nDaftar Pustaka\n{}",
+            std::iter::repeat_n("ringkasan", 130).collect::<Vec<_>>().join(" "),
+            std::iter::repeat_n("pustaka", 130).collect::<Vec<_>>().join(" ")
+        );
+        assert_eq!(count_uncited_long_paragraphs(&doc), 1);
     }
 }

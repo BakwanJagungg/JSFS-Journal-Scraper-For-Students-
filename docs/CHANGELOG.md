@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.9.1] - 2026-11-16
+
+### Added
+- **Multi-Manuscript Switcher (`src/config.rs`, `src/ui/detail_page.rs`, `src/ui/mod.rs`)**:
+  - Persisted metadata for up to 5 recently loaded manuscripts in `.cache/saved_manuscripts.json` and added the **Koleksi Naskah Saya** card in `Detail & Persiapan` for one-click manuscript switching.
+
+### Improved
+- **Clean Toolbar, Left-Aligned Table Column 1 & Streamlined Export Card (`src/ui/search_page.rs`, `src/ui/detail_page.rs`)**:
+  - Moved the local SQLite **Offline** toggle into the `Preset` dropdown and removed the standalone `Offline` pill button from row 2.
+  - Adjusted `TableBuilder` width calculation (`available_width() - 16.0`) and switched column 1 (`Jurnal & Penerbit`) to left-aligned `ui.vertical` truncation so titles never clip on the left edge.
+  - Consolidated the 6 template copy buttons in Card 3 into one template selector `ComboBox` + **Salin Teks** button, and showed muted `Belum terdata` / `Not recorded` fallbacks for empty editor email or phone fields.
+
+---
+
+## [4.9.0] - 2026-11-16
+
+### Added
+- **Dedicated Sidebar Workspaces (`src/ui/detail_page.rs`, `src/ui/dospen_page.rs`, `src/ui/sidebar.rs`, `src/ui/i18n.rs`)**:
+  - Replaced modal popups with two spacious sidebar tabs below Search: **Detail & Persiapan** (with **Quick 1-URL OJS Analyzer** and Recent Inspected list) and **Shortlist & Dospen** (side-by-side comparison, Advisor Brief generator, and Submission Tracker).
+- **Native OOXML `.docx` & Calendar `.ics` Generators (`src/exporter/docx_writer.rs`, `src/exporter/calendar.rs`, `src/exporter/bundle.rs`)**:
+  - Generated editable Word `.docx` files for Cover Letters and Originality Statements (bundled inside the 1-click `.zip` package alongside rules summary), plus `.ics` submission calendar reminders.
+- **Editor-in-Chief Extraction, Live USD/IDR Rate & Citation Density Check (`src/parser/heuristics.rs`, `src/parser/doc_matcher.rs`, `src/engine/file_ops.rs`, `src/ui/settings_page.rs`)**:
+  - Extracted OJS `editor_in_chief` names for personalized Cover Letters/emails, flagged long manuscript paragraphs (`> 70` words) missing citations, and added on-demand live USD/IDR exchange rate fetching in Settings.
+
+---
+
 ## [4.8.1] - 2026-11-15
 
 ### Improved

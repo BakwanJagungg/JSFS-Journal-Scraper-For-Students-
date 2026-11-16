@@ -2,7 +2,7 @@ use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-pub const APP_VERSION: &str = "4.8.1";
+pub const APP_VERSION: &str = "4.9.1";
 pub const CACHE_VERSION: &str = "4.3.0";
 pub const CACHE_TTL_DAYS: i64 = 14;
 pub const MAX_WORKERS: usize = 32;
@@ -254,6 +254,10 @@ pub fn saved_profiles_path() -> PathBuf {
     cache_dir().join("saved_profiles.json")
 }
 
+pub fn saved_manuscripts_path() -> PathBuf {
+    cache_dir().join("saved_manuscripts.json")
+}
+
 /// Persisted user preference for JSFS Match Engine (`builtin` | `cloud` | `ollama`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -349,6 +353,63 @@ pub fn save_matcher_config_to_disk(cfg: &MatcherConfig) -> std::io::Result<()> {
     std::fs::write(path, json)
 }
 
+pub const MAX_SAVED_MANUSCRIPTS: usize = 5;
+
+/// Lightweight metadata summary for switching among recently loaded manuscripts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SavedManuscriptEntry {
+    pub file_name: String,
+    pub file_path: String,
+    pub word_count: usize,
+    pub extracted_title: String,
+    pub suggested_keywords: String,
+}
+
+/// Load saved manuscript summaries from disk, returning empty on missing/corrupt files.
+pub fn load_saved_manuscripts_from(path: &Path) -> Vec<SavedManuscriptEntry> {
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let mut entries: Vec<SavedManuscriptEntry> = serde_json::from_str(&raw).unwrap_or_default();
+    entries.truncate(MAX_SAVED_MANUSCRIPTS);
+    entries
+}
+
+pub fn load_saved_manuscripts() -> Vec<SavedManuscriptEntry> {
+    load_saved_manuscripts_from(&saved_manuscripts_path())
+}
+
+/// Persist saved manuscript summaries atomically-enough via pretty JSON.
+pub fn save_saved_manuscripts_to(
+    path: &Path,
+    entries: &[SavedManuscriptEntry],
+) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let capped: Vec<&SavedManuscriptEntry> = entries.iter().take(MAX_SAVED_MANUSCRIPTS).collect();
+    let json = serde_json::to_string_pretty(&capped)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    std::fs::write(path, json)
+}
+
+pub fn save_saved_manuscripts(entries: &[SavedManuscriptEntry]) -> std::io::Result<()> {
+    save_saved_manuscripts_to(&saved_manuscripts_path(), entries)
+}
+
+/// Insert or move `entry` to the front, deduplicating by path and capping at `MAX_SAVED_MANUSCRIPTS`.
+pub fn record_saved_manuscript(
+    entries: &mut Vec<SavedManuscriptEntry>,
+    entry: SavedManuscriptEntry,
+) {
+    if entry.file_path.trim().is_empty() {
+        return;
+    }
+    entries.retain(|item| !item.file_path.eq_ignore_ascii_case(&entry.file_path));
+    entries.insert(0, entry);
+    entries.truncate(MAX_SAVED_MANUSCRIPTS);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -423,5 +484,50 @@ mod tests {
         let _ = std::fs::remove_dir_all(&local_fb);
         let _ = std::fs::remove_dir_all(&portable);
         let _ = std::fs::remove_file(&blocked);
+    }
+
+    #[test]
+    fn test_saved_manuscripts_persistence() {
+        let path =
+            std::env::temp_dir().join(format!("jsfs_saved_ms_test_{}.json", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+
+        let mut list = Vec::new();
+        for i in 1..=6 {
+            record_saved_manuscript(
+                &mut list,
+                SavedManuscriptEntry {
+                    file_name: format!("paper_{i}.docx"),
+                    file_path: format!(r"C:\docs\paper_{i}.docx"),
+                    word_count: 3000 + i * 100,
+                    extracted_title: format!("Title {i}"),
+                    suggested_keywords: format!("kw{i}"),
+                },
+            );
+        }
+        assert_eq!(list.len(), MAX_SAVED_MANUSCRIPTS);
+        assert_eq!(list[0].file_name, "paper_6.docx");
+        assert_eq!(list[4].file_name, "paper_2.docx");
+
+        // Re-recording an older path moves it back to the front without duplicates.
+        record_saved_manuscript(
+            &mut list,
+            SavedManuscriptEntry {
+                file_name: "paper_3.docx".to_string(),
+                file_path: r"C:\docs\paper_3.docx".to_string(),
+                word_count: 4200,
+                extracted_title: "Updated Title 3".to_string(),
+                suggested_keywords: "ai, iot".to_string(),
+            },
+        );
+        assert_eq!(list.len(), MAX_SAVED_MANUSCRIPTS);
+        assert_eq!(list[0].file_name, "paper_3.docx");
+        assert_eq!(list[0].word_count, 4200);
+
+        save_saved_manuscripts_to(&path, &list).expect("save manuscripts");
+        let reloaded = load_saved_manuscripts_from(&path);
+        assert_eq!(reloaded, list);
+
+        let _ = std::fs::remove_file(&path);
     }
 }

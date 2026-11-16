@@ -68,6 +68,7 @@ pub fn normalize_journal_home_url(raw: &str) -> String {
 
 #[derive(Debug, Default)]
 struct HtmlMeta {
+    title: String,
     publisher: String,
     issn: String,
     eissn: String,
@@ -79,62 +80,83 @@ struct HtmlMeta {
 fn extract_html_meta(html: &str) -> HtmlMeta {
     let doc = Html::parse_document(html);
     let mut meta = HtmlMeta::default();
-    let Ok(sel) = Selector::parse("meta") else {
-        return meta;
-    };
-    for m in doc.select(&sel) {
-        let name = m
-            .value()
-            .attr("name")
-            .or_else(|| m.value().attr("property"))
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        let content = m.value().attr("content").unwrap_or("").trim();
-        if content.is_empty() {
-            continue;
+    if let Ok(sel) = Selector::parse("meta") {
+        for m in doc.select(&sel) {
+            let name = m
+                .value()
+                .attr("name")
+                .or_else(|| m.value().attr("property"))
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            let content = m.value().attr("content").unwrap_or("").trim();
+            if content.is_empty() {
+                continue;
+            }
+            if matches!(
+                name.as_str(),
+                "citation_journal_title" | "og:site_name" | "dc.source"
+            ) && meta.title.is_empty()
+            {
+                meta.title = content.to_string();
+            } else if matches!(name.as_str(), "dc.publisher" | "citation_publisher")
+                && meta.publisher.is_empty()
+            {
+                meta.publisher = sanitize_publisher_name(content);
+            } else if matches!(
+                name.as_str(),
+                "citation_publication_date" | "citation_date" | "dc.date.issued"
+            ) {
+                meta.issue_dates.push(content.to_string());
+            } else if matches!(
+                name.as_str(),
+                "citation_issn" | "dc.source.issn" | "dc.identifier.issn" | "prism.issn"
+            ) {
+                let digits: String = content
+                    .chars()
+                    .filter(|c| c.is_ascii_alphanumeric())
+                    .collect::<String>()
+                    .to_ascii_uppercase();
+                if digits.len() == 8 {
+                    let norm = format!("{}-{}", &digits[..4], &digits[4..]);
+                    if meta.issn.is_empty() {
+                        meta.issn = norm;
+                    } else if meta.eissn.is_empty() && norm != meta.issn {
+                        meta.eissn = norm;
+                    }
+                }
+            } else if matches!(name.as_str(), "citation_eissn" | "prism.eissn") {
+                let digits: String = content
+                    .chars()
+                    .filter(|c| c.is_ascii_alphanumeric())
+                    .collect::<String>()
+                    .to_ascii_uppercase();
+                if digits.len() == 8 {
+                    meta.eissn = format!("{}-{}", &digits[..4], &digits[4..]);
+                }
+            } else if matches!(
+                name.as_str(),
+                "dc.subject" | "keywords" | "citation_keywords" | "dc.subject.classification"
+            ) {
+                meta.subjects.push(content.to_string());
+            } else if (name.contains("email") || content.contains('@')) && content.contains('@') {
+                meta.emails.push(content.to_ascii_lowercase());
+            }
         }
-        if matches!(name.as_str(), "dc.publisher" | "citation_publisher")
-            && meta.publisher.is_empty()
-        {
-            meta.publisher = sanitize_publisher_name(content);
-        } else if matches!(
-            name.as_str(),
-            "citation_publication_date" | "citation_date" | "dc.date.issued"
-        ) {
-            meta.issue_dates.push(content.to_string());
-        } else if matches!(
-            name.as_str(),
-            "citation_issn" | "dc.source.issn" | "dc.identifier.issn" | "prism.issn"
-        ) {
-            let digits: String = content
-                .chars()
-                .filter(|c| c.is_ascii_alphanumeric())
-                .collect::<String>()
-                .to_ascii_uppercase();
-            if digits.len() == 8 {
-                let norm = format!("{}-{}", &digits[..4], &digits[4..]);
-                if meta.issn.is_empty() {
-                    meta.issn = norm;
-                } else if meta.eissn.is_empty() && norm != meta.issn {
-                    meta.eissn = norm;
+    }
+    if meta.title.is_empty() {
+        if let Ok(sel) = Selector::parse("title") {
+            if let Some(el) = doc.select(&sel).next() {
+                let t = el.text().collect::<Vec<_>>().join(" ").trim().to_string();
+                let clean = t
+                    .split(['|', '»', '—'])
+                    .next_back()
+                    .unwrap_or(&t)
+                    .trim()
+                    .to_string();
+                if clean.len() >= 4 {
+                    meta.title = clean;
                 }
             }
-        } else if matches!(name.as_str(), "citation_eissn" | "prism.eissn") {
-            let digits: String = content
-                .chars()
-                .filter(|c| c.is_ascii_alphanumeric())
-                .collect::<String>()
-                .to_ascii_uppercase();
-            if digits.len() == 8 {
-                meta.eissn = format!("{}-{}", &digits[..4], &digits[4..]);
-            }
-        } else if matches!(
-            name.as_str(),
-            "dc.subject" | "keywords" | "citation_keywords" | "dc.subject.classification"
-        ) {
-            meta.subjects.push(content.to_string());
-        } else if (name.contains("email") || content.contains('@')) && content.contains('@') {
-            meta.emails.push(content.to_ascii_lowercase());
         }
     }
     meta
@@ -339,8 +361,14 @@ fn absorb_page(
             (!meta.eissn.is_empty()).then_some(meta.eissn.as_str()),
         );
     }
+    if rec.title.trim().is_empty() && !meta.title.is_empty() {
+        rec.title = meta.title;
+    }
     if rec.publisher.trim().is_empty() && !meta.publisher.is_empty() {
         rec.publisher = meta.publisher;
+    }
+    if rec.editor_in_chief.is_none() {
+        rec.editor_in_chief = heuristics::extract_editor_in_chief(html);
     }
     if (rec.issn.is_empty() || rec.issn == INFO_NOT_FOUND) && !meta.issn.is_empty() {
         rec.issn = meta.issn;
@@ -483,8 +511,53 @@ pub async fn deep_enrich_record(
     client: &reqwest::Client,
     breaker: Arc<DomainBreaker>,
     cache: Arc<Mutex<Option<JournalCache>>>,
+    rec: JournalRecord,
+    cancel_flag: Arc<AtomicBool>,
+) -> JournalRecord {
+    deep_enrich_record_inner(client, breaker, cache, rec, cancel_flag, false).await
+}
+
+/// Analyze a single user-supplied OJS URL deeply (including `/about/editorialTeam` probe).
+pub async fn analyze_single_ojs_url(
+    client: &reqwest::Client,
+    breaker: Arc<DomainBreaker>,
+    cache: Arc<Mutex<Option<JournalCache>>>,
+    raw_url: &str,
+) -> Result<JournalRecord, String> {
+    let trimmed = raw_url.trim();
+    if trimmed.is_empty() {
+        return Err("Masukkan URL website jurnal OJS terlebih dahulu.".to_string());
+    }
+    let normalized_input = if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        trimmed.to_string()
+    } else {
+        format!("https://{trimmed}")
+    };
+    let parsed =
+        Url::parse(&normalized_input).map_err(|e| format!("Format URL tidak valid: {e}"))?;
+    let host_fallback = parsed.host_str().unwrap_or("Jurnal OJS").to_string();
+
+    let seed = JournalRecord {
+        title: String::new(),
+        website_url: normalized_input,
+        source_portal: "Cek URL OJS".to_string(),
+        ..Default::default()
+    };
+    let cancel = Arc::new(AtomicBool::new(false));
+    let mut enriched = deep_enrich_record_inner(client, breaker, cache, seed, cancel, true).await;
+    if enriched.title.trim().is_empty() {
+        enriched.title = host_fallback;
+    }
+    Ok(enriched)
+}
+
+async fn deep_enrich_record_inner(
+    client: &reqwest::Client,
+    breaker: Arc<DomainBreaker>,
+    cache: Arc<Mutex<Option<JournalCache>>>,
     mut rec: JournalRecord,
     cancel_flag: Arc<AtomicBool>,
+    probe_editorial: bool,
 ) -> JournalRecord {
     rec.cache_version = CACHE_VERSION.to_string();
     rec.publisher = sanitize_publisher_name(&rec.publisher);
@@ -641,10 +714,11 @@ pub async fn deep_enrich_record(
                     visited.insert(rec.website_url.clone());
 
                     let mut visits = 0usize;
+                    let max_visits = if probe_editorial { 6 } else { 4 };
                     for sub in candidates {
-                        if visits >= 4
-                            || has_complete_core_data(&rec)
-                            || cancel_flag.load(Ordering::Relaxed)
+                        let done_core = has_complete_core_data(&rec)
+                            && (!probe_editorial || rec.editor_in_chief.is_some());
+                        if visits >= max_visits || done_core || cancel_flag.load(Ordering::Relaxed)
                         {
                             break;
                         }
@@ -664,6 +738,38 @@ pub async fn deep_enrich_record(
                                     &mut archive_hints,
                                     &mut broken_archive,
                                 );
+                            }
+                        }
+                    }
+
+                    if probe_editorial
+                        && rec.editor_in_chief.is_none()
+                        && !cancel_flag.load(Ordering::Relaxed)
+                    {
+                        for ed_url in [
+                            format!("{effective_base}/about/editorialTeam"),
+                            format!("{effective_base}/about/contact"),
+                        ] {
+                            if !visited.insert(ed_url.clone()) {
+                                continue;
+                            }
+                            if let Ok(ed_out) =
+                                safe_fetch_html(client, &breaker, &ed_url, per_req).await
+                            {
+                                if ed_out.status == 200 && !ed_out.cloudflare_blocked {
+                                    absorb_page(
+                                        &mut rec,
+                                        &ed_url,
+                                        &ed_out.html,
+                                        false,
+                                        &mut agg_text,
+                                        &mut archive_hints,
+                                        &mut broken_archive,
+                                    );
+                                    if rec.editor_in_chief.is_some() {
+                                        break;
+                                    }
+                                }
                             }
                         }
                     }

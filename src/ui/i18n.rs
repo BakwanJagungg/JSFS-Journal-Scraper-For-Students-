@@ -109,6 +109,8 @@ pub fn save_app_settings(settings: &AppSettings) -> std::io::Result<()> {
 pub struct Texts {
     // Sidebar
     pub nav_search: &'static str,
+    pub nav_detail: &'static str,
+    pub nav_dospen: &'static str,
     pub nav_filters: &'static str,
     pub nav_match: &'static str,
     pub nav_history: &'static str,
@@ -217,6 +219,8 @@ pub struct Texts {
 
 const ID_TEXTS: Texts = Texts {
     nav_search: "Pencarian Jurnal",
+    nav_detail: "Detail & Persiapan",
+    nav_dospen: "Shortlist & Dospen",
     nav_filters: "Filter Lanjutan",
     nav_match: "Match Engine & AI",
     nav_history: "Riwayat & Ekspor",
@@ -326,6 +330,8 @@ const ID_TEXTS: Texts = Texts {
 
 const EN_TEXTS: Texts = Texts {
     nav_search: "Journal Search",
+    nav_detail: "Journal Workspace",
+    nav_dospen: "Shortlist & Advisor",
     nav_filters: "Advanced Filters",
     nav_match: "Match Engine & AI",
     nav_history: "History & Export",

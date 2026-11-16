@@ -162,6 +162,19 @@ pub fn write_submission_bundle_zip_to(
         generate_cover_letter_with_profile(journal, keyword, manuscript, Some(settings), lang);
     let originality = generate_originality_statement(journal, manuscript, Some(settings), lang);
     let rules = generate_journal_rules_summary(journal, manuscript, lang);
+    let cover_docx = crate::exporter::docx_writer::build_cover_letter_docx_bytes(
+        journal,
+        keyword,
+        manuscript,
+        Some(settings),
+        lang,
+    )?;
+    let orig_docx = crate::exporter::docx_writer::build_originality_statement_docx_bytes(
+        journal,
+        manuscript,
+        Some(settings),
+        lang,
+    )?;
 
     let file = File::create(dest_path)?;
     let mut zip = ZipWriter::new(file);
@@ -171,9 +184,17 @@ pub fn write_submission_bundle_zip_to(
         .map_err(|e| JsfsError::Document(format!("ZIP start_file error: {e}")))?;
     zip.write_all(cover_letter.as_bytes())?;
 
+    zip.start_file(format!("Cover_Letter_{slug}.docx"), opts)
+        .map_err(|e| JsfsError::Document(format!("ZIP start_file error: {e}")))?;
+    zip.write_all(&cover_docx)?;
+
     zip.start_file(format!("Surat_Pernyataan_Keaslian_{slug}.txt"), opts)
         .map_err(|e| JsfsError::Document(format!("ZIP start_file error: {e}")))?;
     zip.write_all(originality.as_bytes())?;
+
+    zip.start_file(format!("Surat_Pernyataan_Keaslian_{slug}.docx"), opts)
+        .map_err(|e| JsfsError::Document(format!("ZIP start_file error: {e}")))?;
+    zip.write_all(&orig_docx)?;
 
     zip.start_file(format!("Ringkasan_Aturan_Jurnal_{slug}.txt"), opts)
         .map_err(|e| JsfsError::Document(format!("ZIP start_file error: {e}")))?;
@@ -248,22 +269,37 @@ mod tests {
 
         let f = File::open(&zip_path).unwrap();
         let mut archive = ZipArchive::new(f).unwrap();
-        assert_eq!(archive.len(), 3);
+        assert_eq!(archive.len(), 5);
 
         let mut names = Vec::new();
         let mut combined_txt = String::new();
         for i in 0..archive.len() {
             let mut entry = archive.by_index(i).unwrap();
-            names.push(entry.name().to_string());
-            let mut s = String::new();
-            entry.read_to_string(&mut s).unwrap();
-            combined_txt.push_str(&s);
+            let name = entry.name().to_string();
+            if name.ends_with(".docx") {
+                let mut raw = Vec::new();
+                entry.read_to_end(&mut raw).unwrap();
+                assert!(raw.starts_with(b"PK"));
+            } else {
+                let mut s = String::new();
+                entry.read_to_string(&mut s).unwrap();
+                combined_txt.push_str(&s);
+            }
+            names.push(name);
         }
 
-        assert!(names.iter().any(|n| n.starts_with("Cover_Letter_")));
         assert!(names
             .iter()
-            .any(|n| n.starts_with("Surat_Pernyataan_Keaslian_")));
+            .any(|n| n.starts_with("Cover_Letter_") && n.ends_with(".txt")));
+        assert!(names
+            .iter()
+            .any(|n| n.starts_with("Cover_Letter_") && n.ends_with(".docx")));
+        assert!(names
+            .iter()
+            .any(|n| n.starts_with("Surat_Pernyataan_Keaslian_") && n.ends_with(".txt")));
+        assert!(names
+            .iter()
+            .any(|n| n.starts_with("Surat_Pernyataan_Keaslian_") && n.ends_with(".docx")));
         assert!(names
             .iter()
             .any(|n| n.starts_with("Ringkasan_Aturan_Jurnal_")));

@@ -1,7 +1,7 @@
-//! Root native application shell coordinating the navigation sidebar, 5 views, live events, and detail modal.
+//! Root native application shell coordinating the navigation sidebar and workspace pages.
 
-pub mod compare_modal;
-pub mod detail_modal;
+pub mod detail_page;
+pub mod dospen_page;
 pub mod filters_page;
 pub mod guide_page;
 pub mod history_page;
@@ -13,14 +13,17 @@ pub mod sidebar;
 pub mod state;
 pub mod theme;
 
+use crate::config::{
+    load_saved_manuscripts, record_saved_manuscript, save_saved_manuscripts, SavedManuscriptEntry,
+};
 use crate::engine::ai_ops::{refresh_ai_status_async, AiStatusExtended};
 use crate::engine::manuscript::{clear_manuscript_async, load_manuscript_async, ManuscriptSummary};
 use crate::engine::search::{start_search, stop_search};
 use crate::engine::{EngineEvent, EngineState, EventSink};
 use crate::models::{reformat_ui_results_currency, DisplayCurrency, UiJournalItem};
 use crate::parser::doc_matcher::apply_cited_counts;
-use crate::ui::compare_modal::{render_compare_modal, CompareModalAction};
-use crate::ui::detail_modal::{render_detail_modal, DetailModalAction};
+use crate::ui::detail_page::{render_detail_page, DetailPageAction};
+use crate::ui::dospen_page::{render_dospen_page, DospenPageAction};
 use crate::ui::filters_page::render_filters_page;
 use crate::ui::guide_page::render_guide_page;
 use crate::ui::history_page::{render_history_page, HistoryPageAction};
@@ -51,11 +54,16 @@ pub struct JsfsNativeApp {
     target_text: String,
     filters: FilterSettings,
     manuscript: Option<ManuscriptSummary>,
+    saved_manuscripts: Vec<SavedManuscriptEntry>,
+    detail_copy_idx: usize,
 
     results: Vec<UiJournalItem>,
     selected_idx: Option<usize>,
-    detail_open_idx: Option<usize>,
-    compare_open: bool,
+    inspected_journal: Option<UiJournalItem>,
+    recent_inspected: Vec<UiJournalItem>,
+    quick_url_input: String,
+    quick_url_loading: bool,
+    fx_updating: bool,
 
     table_filter: String,
     apc_filter: ApcFilter,
@@ -128,10 +136,15 @@ impl JsfsNativeApp {
             target_text,
             filters,
             manuscript: None,
+            saved_manuscripts: load_saved_manuscripts(),
+            detail_copy_idx: 0,
             results: Vec::new(),
             selected_idx: None,
-            detail_open_idx: None,
-            compare_open: false,
+            inspected_journal: None,
+            recent_inspected: Vec::new(),
+            quick_url_input: String::new(),
+            quick_url_loading: false,
+            fx_updating: false,
             table_filter: String::new(),
             apc_filter: ApcFilter::All,
             app_state,
@@ -312,6 +325,17 @@ impl JsfsNativeApp {
                     };
                     self.set_toast(msg);
                     apply_cited_counts(&mut self.results, &summary.cited_journals);
+                    record_saved_manuscript(
+                        &mut self.saved_manuscripts,
+                        SavedManuscriptEntry {
+                            file_name: summary.name.clone(),
+                            file_path: summary.path.clone(),
+                            word_count: summary.word_count,
+                            extracted_title: summary.extracted_title.clone(),
+                            suggested_keywords: summary.suggested_keyword.clone(),
+                        },
+                    );
+                    let _ = save_saved_manuscripts(&self.saved_manuscripts);
                     self.manuscript = Some(summary);
                 }
                 EngineEvent::ManuscriptLoaded(Err(err)) => {
@@ -326,6 +350,48 @@ impl JsfsNativeApp {
                 EngineEvent::CacheCleared(Err(err)) => {
                     self.set_toast(format!("Gagal membersihkan cache: {err}"));
                 }
+                EngineEvent::SingleUrlAnalyzed(res) => match *res {
+                    Ok(mut item) => {
+                        self.quick_url_loading = false;
+                        reformat_ui_results_currency(
+                            std::slice::from_mut(&mut item),
+                            self.app_settings.display_currency,
+                            self.app_settings.usd_to_idr,
+                        );
+                        let title = item.nama.clone();
+                        self.open_journal_detail(item);
+                        self.set_toast(format!("Analisis URL OJS selesai: {title}"));
+                    }
+                    Err(err) => {
+                        self.quick_url_loading = false;
+                        self.set_toast(format!("Gagal menganalisis URL OJS: {err}"));
+                    }
+                },
+                EngineEvent::FxRateUpdated(Ok(rate)) => {
+                    self.fx_updating = false;
+                    self.app_settings.usd_to_idr = rate;
+                    self.filters.usd_to_idr = rate;
+                    self.usd_rate_text = rate.to_string();
+                    let _ = save_app_settings(&self.app_settings);
+                    reformat_ui_results_currency(
+                        &mut self.results,
+                        self.app_settings.display_currency,
+                        rate,
+                    );
+                    if let Some(ref mut j) = self.inspected_journal {
+                        reformat_ui_results_currency(
+                            std::slice::from_mut(j),
+                            self.app_settings.display_currency,
+                            rate,
+                        );
+                    }
+                    self.last_currency_sig = (self.app_settings.display_currency, rate);
+                    self.set_toast(format!("Kurs 1 USD diperbarui ke Rp {rate}."));
+                }
+                EngineEvent::FxRateUpdated(Err(err)) => {
+                    self.fx_updating = false;
+                    self.set_toast(err);
+                }
                 EngineEvent::Toast(msg) => {
                     self.set_toast(msg);
                 }
@@ -337,6 +403,24 @@ impl JsfsNativeApp {
                 self.toast = None;
             }
         }
+    }
+
+    fn lang_code(&self) -> &'static str {
+        if self.app_settings.language == crate::ui::i18n::AppLanguage::En {
+            "en"
+        } else {
+            "id"
+        }
+    }
+
+    fn open_journal_detail(&mut self, item: UiJournalItem) {
+        let key = AppState::bookmark_key(&item);
+        self.recent_inspected
+            .retain(|existing| AppState::bookmark_key(existing) != key);
+        self.recent_inspected.insert(0, item.clone());
+        self.recent_inspected.truncate(12);
+        self.inspected_journal = Some(item);
+        self.current_page = NavPage::DetailWorkspace;
     }
 
     fn trigger_search(&mut self) {
@@ -363,7 +447,6 @@ impl JsfsNativeApp {
 
         self.results.clear();
         self.selected_idx = None;
-        self.detail_open_idx = None;
         self.progress = SearchProgressView {
             phase: "fase1_portal".to_string(),
             status_text: "Menghubungi portal SINTA & Garuda...".to_string(),
@@ -392,9 +475,14 @@ impl eframe::App for JsfsNativeApp {
             _ => true,
         };
         let is_searching = self.engine.is_busy();
-        if is_searching || self.toast.is_some() {
+        if is_searching || self.quick_url_loading || self.fx_updating || self.toast.is_some() {
             ui.ctx().request_repaint_after(Duration::from_millis(250));
         }
+
+        let shortlist_count = self
+            .app_state
+            .collect_shortlisted_items(&self.results, &self.recent_inspected)
+            .len();
 
         // Left Navigation Sidebar
         Panel::left("jsfs_sidebar")
@@ -416,6 +504,7 @@ impl eframe::App for JsfsNativeApp {
                         engine_ready,
                         is_searching,
                         result_count: self.results.len(),
+                        shortlist_count,
                         active_filter_count: self.filters.active_filter_count(),
                         theme_mode: self.theme_mode,
                         lang: self.app_settings.language,
@@ -477,11 +566,13 @@ impl eframe::App for JsfsNativeApp {
                             clear_manuscript_async(self.engine.clone(), self.sink.clone());
                         }
                         SearchPageAction::OpenDetail(idx) => {
-                            self.selected_idx = Some(idx);
-                            self.detail_open_idx = Some(idx);
+                            if let Some(item) = self.results.get(idx).cloned() {
+                                self.selected_idx = Some(idx);
+                                self.open_journal_detail(item);
+                            }
                         }
                         SearchPageAction::OpenCompare => {
-                            self.compare_open = true;
+                            self.current_page = NavPage::DospenWorkspace;
                         }
                         SearchPageAction::CopyWa(indices) => {
                             let refs: Vec<&UiJournalItem> = indices
@@ -508,6 +599,181 @@ impl eframe::App for JsfsNativeApp {
                             self.current_page = NavPage::Filters;
                         }
                         SearchPageAction::None => {}
+                    }
+                }
+                NavPage::DetailWorkspace => {
+                    let act = render_detail_page(
+                        ui,
+                        &p,
+                        self.inspected_journal.as_ref(),
+                        &self.recent_inspected,
+                        &mut self.quick_url_input,
+                        self.quick_url_loading,
+                        &self.keyword,
+                        self.manuscript.as_ref(),
+                        &self.saved_manuscripts,
+                        &mut self.detail_copy_idx,
+                        &self.app_settings,
+                        &mut self.app_state,
+                        &self.sink,
+                    );
+                    let lang_code = self.lang_code();
+                    match act {
+                        DetailPageAction::AnalyzeUrl(raw_url) => {
+                            self.quick_url_loading = true;
+                            crate::engine::file_ops::analyze_single_url_async(
+                                self.engine.clone(),
+                                self.sink.clone(),
+                                raw_url,
+                                self.keyword.clone(),
+                            );
+                        }
+                        DetailPageAction::SelectInspected(item) => {
+                            self.open_journal_detail(item);
+                        }
+                        DetailPageAction::LoadSavedManuscript(entry) => {
+                            let path = std::path::PathBuf::from(&entry.file_path);
+                            if path.is_file() {
+                                load_manuscript_async(
+                                    self.engine.clone(),
+                                    self.sink.clone(),
+                                    path,
+                                );
+                            } else {
+                                self.set_toast(format!(
+                                    "File '{}' tidak lagi ditemukan di lokasi aslinya.",
+                                    entry.file_name
+                                ));
+                            }
+                        }
+                        DetailPageAction::FindSimilar(seed) => {
+                            let seed_key = AppState::bookmark_key(&seed);
+                            let seed_name = seed.nama.clone();
+                            let pos_opt = self
+                                .results
+                                .iter()
+                                .position(|r| AppState::bookmark_key(r) == seed_key);
+                            if let Some(target_idx) = pos_opt {
+                                let ranked = crate::parser::doc_matcher::rank_similar_journals(
+                                    target_idx,
+                                    &self.results,
+                                );
+                                for (r_idx, sim_sc) in ranked {
+                                    if let Some(row) = self.results.get_mut(r_idx) {
+                                        row.match_score = sim_sc;
+                                        row.kesesuaian_naskah = if sim_sc >= 75.0 {
+                                            format!("Mirip '{seed_name}'")
+                                        } else {
+                                            "Topik Serupa".to_string()
+                                        };
+                                    }
+                                }
+                                self.sort_col = SortColumn::MatchScore;
+                                self.sort_desc = true;
+                                self.current_page = NavPage::Search;
+                                self.set_toast(format!(
+                                    "Tabel diurutkan berdasarkan kemiripan topik dengan '{seed_name}'."
+                                ));
+                            } else {
+                                self.set_toast(
+                                    "Jalankan pencarian di Pencarian Jurnal untuk membandingkan kemiripan terhadap hasil tabel.",
+                                );
+                            }
+                        }
+                        DetailPageAction::ExportCoverDocx(j_item) => {
+                            crate::engine::file_ops::export_cover_letter_docx_async(
+                                self.engine.clone(),
+                                self.sink.clone(),
+                                j_item,
+                                self.keyword.clone(),
+                                self.manuscript.clone(),
+                                self.app_settings.clone(),
+                                lang_code,
+                            );
+                        }
+                        DetailPageAction::ExportOriginalityDocx(j_item) => {
+                            crate::engine::file_ops::export_originality_docx_async(
+                                self.engine.clone(),
+                                self.sink.clone(),
+                                j_item,
+                                self.manuscript.clone(),
+                                self.app_settings.clone(),
+                                lang_code,
+                            );
+                        }
+                        DetailPageAction::ExportBundleZip(j_item) => {
+                            crate::engine::file_ops::export_submission_bundle_async(
+                                self.engine.clone(),
+                                self.sink.clone(),
+                                j_item,
+                                self.keyword.clone(),
+                                self.manuscript.clone(),
+                                self.app_settings.clone(),
+                                lang_code,
+                            );
+                        }
+                        DetailPageAction::ExportIcs(j_item) => {
+                            crate::engine::file_ops::export_submission_ics_async(
+                                self.engine.clone(),
+                                self.sink.clone(),
+                                j_item,
+                            );
+                        }
+                        DetailPageAction::None => {}
+                    }
+                }
+                NavPage::DospenWorkspace => {
+                    let act = render_dospen_page(
+                        ui,
+                        &p,
+                        &self.results,
+                        &self.recent_inspected,
+                        &self.keyword,
+                        self.manuscript.as_ref(),
+                        &self.app_settings,
+                        &mut self.app_state,
+                        &self.sink,
+                    );
+                    let lang_code = self.lang_code();
+                    match act {
+                        DospenPageAction::OpenDetail(item) => {
+                            self.open_journal_detail(item);
+                        }
+                        DospenPageAction::ExportDosbingDocx(candidates) => {
+                            crate::engine::file_ops::export_dosbing_report_docx_async(
+                                self.engine.clone(),
+                                self.sink.clone(),
+                                candidates,
+                                self.manuscript.clone(),
+                                self.app_settings.clone(),
+                            );
+                        }
+                        DospenPageAction::ExportBundleZip(j_item) => {
+                            crate::engine::file_ops::export_submission_bundle_async(
+                                self.engine.clone(),
+                                self.sink.clone(),
+                                j_item,
+                                self.keyword.clone(),
+                                self.manuscript.clone(),
+                                self.app_settings.clone(),
+                                lang_code,
+                            );
+                        }
+                        DospenPageAction::SaveTrack(track) => {
+                            if let Ok(guard) = self.engine.cache.lock() {
+                                if let Some(ref db) = *guard {
+                                    let _ = db.upsert_submission_track(&track);
+                                }
+                            }
+                            self.app_state
+                                .submission_tracks
+                                .insert(track.journal_key.clone(), track.clone());
+                            self.set_toast(format!(
+                                "Status pengiriman '{}' disimpan ke SQLite.",
+                                track.status
+                            ));
+                        }
+                        DospenPageAction::None => {}
                     }
                 }
                 NavPage::Filters => {
@@ -565,7 +831,6 @@ impl eframe::App for JsfsNativeApp {
                                     apply_cited_counts(&mut self.results, &ms.cited_journals);
                                 }
                                 self.selected_idx = None;
-                                self.detail_open_idx = None;
                                 let kpi_total = self.results.len();
                                 let kpi_free = self
                                     .results
@@ -621,6 +886,7 @@ impl eframe::App for JsfsNativeApp {
                         &mut self.theme_mode,
                         &mut self.filters,
                         &mut self.usd_rate_text,
+                        &mut self.fx_updating,
                         &self.engine,
                         &self.sink,
                     );
@@ -636,117 +902,10 @@ impl eframe::App for JsfsNativeApp {
         );
         if cur_sig != self.last_currency_sig {
             reformat_ui_results_currency(&mut self.results, cur_sig.0, cur_sig.1);
+            if let Some(ref mut j) = self.inspected_journal {
+                reformat_ui_results_currency(std::slice::from_mut(j), cur_sig.0, cur_sig.1);
+            }
             self.last_currency_sig = cur_sig;
-        }
-
-        // Journal Detail Modal
-        if let Some(idx) = self.detail_open_idx {
-            let item = self.results.get(idx).cloned();
-            match render_detail_modal(
-                ui.ctx(),
-                &p,
-                idx,
-                item.as_ref(),
-                &self.keyword,
-                self.manuscript.as_ref(),
-                &self.app_settings,
-                &mut self.app_state,
-                &self.sink,
-            ) {
-                DetailModalAction::Close => {
-                    self.detail_open_idx = None;
-                }
-                DetailModalAction::ExportBundle(target_idx) => {
-                    if let Some(j_item) = self.results.get(target_idx).cloned() {
-                        let lang_code =
-                            if self.app_settings.language == crate::ui::i18n::AppLanguage::En {
-                                "en"
-                            } else {
-                                "id"
-                            };
-                        crate::engine::file_ops::export_submission_bundle_async(
-                            self.engine.clone(),
-                            self.sink.clone(),
-                            j_item,
-                            self.keyword.clone(),
-                            self.manuscript.clone(),
-                            self.app_settings.clone(),
-                            lang_code,
-                        );
-                    }
-                }
-                DetailModalAction::FindSimilar(target_idx) => {
-                    let seed_name = self
-                        .results
-                        .get(target_idx)
-                        .map(|r| r.nama.clone())
-                        .unwrap_or_default();
-                    let ranked = crate::parser::doc_matcher::rank_similar_journals(
-                        target_idx,
-                        &self.results,
-                    );
-                    for (r_idx, sim_sc) in ranked {
-                        if let Some(row) = self.results.get_mut(r_idx) {
-                            row.match_score = sim_sc;
-                            row.kesesuaian_naskah = if sim_sc >= 75.0 {
-                                format!("Mirip '{seed_name}'")
-                            } else {
-                                "Topik Serupa".to_string()
-                            };
-                        }
-                    }
-                    self.sort_col = SortColumn::MatchScore;
-                    self.sort_desc = true;
-                    self.detail_open_idx = None;
-                    self.set_toast(format!(
-                        "Tabel diurutkan berdasarkan kemiripan topik dengan '{seed_name}'."
-                    ));
-                }
-                DetailModalAction::SaveTrack(track) => {
-                    if let Ok(guard) = self.engine.cache.lock() {
-                        if let Some(ref db) = *guard {
-                            let _ = db.upsert_submission_track(&track);
-                        }
-                    }
-                    self.app_state
-                        .submission_tracks
-                        .insert(track.journal_key.clone(), track.clone());
-                    self.set_toast(format!(
-                        "Status pengiriman '{}' disimpan ke SQLite.",
-                        track.status
-                    ));
-                }
-                DetailModalAction::None => {}
-            }
-        }
-
-        // Side-by-Side Compare Modal (2..=4 shortlisted journals)
-        if self.compare_open {
-            let compared: Vec<(usize, UiJournalItem)> = self
-                .results
-                .iter()
-                .enumerate()
-                .filter(|(_, r)| self.app_state.is_bookmarked(r))
-                .take(4)
-                .map(|(i, r)| (i, r.clone()))
-                .collect();
-            match render_compare_modal(
-                ui.ctx(),
-                &p,
-                &compared,
-                self.manuscript.as_ref(),
-                self.app_settings.language,
-            ) {
-                CompareModalAction::Close => {
-                    self.compare_open = false;
-                }
-                CompareModalAction::OpenDetail(idx) => {
-                    self.compare_open = false;
-                    self.selected_idx = Some(idx);
-                    self.detail_open_idx = Some(idx);
-                }
-                CompareModalAction::None => {}
-            }
         }
 
         // Floating Toast Notification (fixed horizontal banner width so it never wraps vertically)

@@ -11,6 +11,8 @@ use egui::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NavPage {
     Search,
+    DetailWorkspace,
+    DospenWorkspace,
     Filters,
     MatchEngine,
     History,
@@ -24,6 +26,7 @@ pub struct SidebarProps<'a> {
     pub engine_ready: bool,
     pub is_searching: bool,
     pub result_count: usize,
+    pub shortlist_count: usize,
     pub active_filter_count: usize,
     pub theme_mode: ThemeMode,
     pub lang: AppLanguage,
@@ -37,6 +40,8 @@ pub struct SidebarAction {
 fn tile_color(page: NavPage) -> Color32 {
     match page {
         NavPage::Search => Color32::from_rgb(0x0a, 0x84, 0xff),
+        NavPage::DetailWorkspace => Color32::from_rgb(0x14, 0xb8, 0xa6),
+        NavPage::DospenWorkspace => Color32::from_rgb(0xf5, 0x9e, 0x0b),
         NavPage::Filters => Color32::from_rgb(0x5e, 0x5c, 0xe6),
         NavPage::MatchEngine => Color32::from_rgb(0x30, 0xb9, 0x4d),
         NavPage::History => Color32::from_rgb(0xff, 0x9f, 0x0a),
@@ -48,6 +53,8 @@ fn tile_color(page: NavPage) -> Color32 {
 fn nav_icon(page: NavPage) -> VectorIcon {
     match page {
         NavPage::Search => VectorIcon::Search,
+        NavPage::DetailWorkspace => VectorIcon::Document,
+        NavPage::DospenWorkspace => VectorIcon::Star,
         NavPage::Filters => VectorIcon::Sliders,
         NavPage::MatchEngine => VectorIcon::Spark,
         NavPage::History => VectorIcon::Folder,
@@ -60,6 +67,8 @@ fn nav_label(page: NavPage, lang: AppLanguage) -> &'static str {
     let txt = t(lang);
     match page {
         NavPage::Search => txt.nav_search,
+        NavPage::DetailWorkspace => txt.nav_detail,
+        NavPage::DospenWorkspace => txt.nav_dospen,
         NavPage::Filters => txt.nav_filters,
         NavPage::MatchEngine => txt.nav_match,
         NavPage::History => txt.nav_history,
@@ -225,6 +234,12 @@ pub fn render_sidebar(ui: &mut Ui, p: &Palette, props: SidebarProps<'_>) -> Side
         (
             NavPage::Search,
             (props.result_count > 0).then(|| props.result_count.to_string()),
+            None,
+        ),
+        (NavPage::DetailWorkspace, None, None),
+        (
+            NavPage::DospenWorkspace,
+            (props.shortlist_count > 0).then(|| props.shortlist_count.to_string()),
             None,
         ),
         (

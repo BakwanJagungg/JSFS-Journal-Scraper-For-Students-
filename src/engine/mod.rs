@@ -47,6 +47,8 @@ pub enum EngineEvent {
     },
     ManuscriptLoaded(Result<ManuscriptSummary, String>),
     CacheCleared(Result<(usize, usize), String>),
+    SingleUrlAnalyzed(Box<Result<UiJournalItem, String>>),
+    FxRateUpdated(Result<i64, String>),
     Toast(String),
 }
 

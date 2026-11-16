@@ -87,6 +87,23 @@ impl AppState {
     pub fn bookmarked_count(&self, results: &[UiJournalItem]) -> usize {
         results.iter().filter(|it| self.is_bookmarked(it)).count()
     }
+
+    /// Collect unique shortlisted (`★`) items across search results and recent inspected journals.
+    pub fn collect_shortlisted_items(
+        &self,
+        results: &[UiJournalItem],
+        recent_inspected: &[UiJournalItem],
+    ) -> Vec<UiJournalItem> {
+        let mut out = Vec::new();
+        let mut seen = HashSet::new();
+        for item in results.iter().chain(recent_inspected.iter()) {
+            let key = Self::bookmark_key(item);
+            if self.bookmarked_ids.contains(&key) && seen.insert(key) {
+                out.push(item.clone());
+            }
+        }
+        out
+    }
 }
 
 pub const MONTH_NAMES: [&str; 12] = [

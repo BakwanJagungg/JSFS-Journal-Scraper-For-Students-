@@ -107,6 +107,8 @@ pub struct JournalRecord {
     pub cited_count: u32,
     #[serde(default)]
     pub submission_open: Option<bool>,
+    #[serde(default)]
+    pub editor_in_chief: Option<String>,
 }
 
 /// Compute human-readable journal activity label and dormancy flag against `current_year`.
@@ -313,6 +315,8 @@ pub struct UiJournalItem {
     pub issn_valid: bool,
     #[serde(default)]
     pub extra_indexes: Vec<String>,
+    #[serde(default)]
+    pub editor_in_chief: Option<String>,
 }
 
 impl From<&JournalRecord> for UiJournalItem {
@@ -421,6 +425,7 @@ impl From<&JournalRecord> for UiJournalItem {
             bot_protected: r.bot_protected,
             issn_valid,
             extra_indexes: r.extra_indexes.clone(),
+            editor_in_chief: r.editor_in_chief.clone(),
         }
     }
 }
@@ -493,6 +498,7 @@ impl From<&UiJournalItem> for JournalRecord {
             word_limit: it.word_limit,
             cited_count: it.cited_count,
             submission_open: it.submission_open,
+            editor_in_chief: it.editor_in_chief.clone(),
             ..Default::default()
         }
     }
@@ -797,6 +803,8 @@ pub struct PreSubmitChecklist {
     pub estimated_refs: usize,
     pub imrad_complete: bool,
     pub summary_badge: String,
+    #[serde(default)]
+    pub uncited_long_paragraphs: u32,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

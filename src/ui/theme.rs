@@ -112,6 +112,8 @@ impl Palette {
 #[derive(Debug, Clone, Copy)]
 pub enum VectorIcon {
     Search,
+    Document,
+    Star,
     Sliders,
     Spark,
     Folder,
@@ -415,6 +417,29 @@ pub fn draw_vector_icon(painter: &egui::Painter, rect: Rect, icon: VectorIcon, c
                 ],
                 stroke,
             );
+        }
+        VectorIcon::Document => {
+            let doc_r = Rect::from_center_size(c, Vec2::new(s * 0.54, s * 0.68));
+            painter.rect_stroke(doc_r, 2.0, stroke, StrokeKind::Middle);
+            for dy in [-0.14_f32, 0.0, 0.14] {
+                painter.line_segment(
+                    [
+                        Pos2::new(c.x - s * 0.15, c.y + s * dy),
+                        Pos2::new(c.x + s * 0.15, c.y + s * dy),
+                    ],
+                    stroke,
+                );
+            }
+        }
+        VectorIcon::Star => {
+            let mut pts = Vec::with_capacity(10);
+            for i in 0..10 {
+                let angle = -std::f32::consts::FRAC_PI_2 + (i as f32) * std::f32::consts::PI / 5.0;
+                let rad = if i % 2 == 0 { s * 0.36 } else { s * 0.16 };
+                let (sin_a, cos_a) = angle.sin_cos();
+                pts.push(Pos2::new(c.x + cos_a * rad, c.y + sin_a * rad));
+            }
+            painter.add(egui::Shape::closed_line(pts, stroke));
         }
         VectorIcon::Sliders => {
             for (idx, knob_x) in [-0.14_f32, 0.16, -0.02].iter().enumerate() {

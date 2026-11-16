@@ -42,6 +42,24 @@ static RE_CITATION_STYLE: Lazy<Regex> = Lazy::new(|| {
     .expect("valid citation style regex")
 });
 
+static RE_EDITOR_ROLE_LINE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"(?i)^(?:Editor[- ]in[- ]Chief|Chief\s+Editor|Ketua\s+(?:Dewan\s+)?(?:Redaksi|Editor|Penyunting)|Pemimpin\s+Redaksi|Principal\s+Editor|Managing\s+Editor)\b\s*[:\-–|]?\s*(.*)$",
+    )
+    .expect("valid editor role regex")
+});
+
+static RE_EDITOR_NAME_BEFORE_ROLE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"(?i)^([A-Za-z][A-Za-zÀ-ÖØ-öø-ÿ'.,\-\s]{4,68}?)\s*(?:\(|,|[-–])\s*(?:Editor[- ]in[- ]Chief|Chief\s+Editor|Ketua\s+(?:Dewan\s+)?Redaksi|Pemimpin\s+Redaksi|Principal\s+Editor)\b",
+    )
+    .expect("valid editor name-before-role regex")
+});
+
+static RE_HTML_BREAK_TAG: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?is)<(?:br\s*/?|/(?:p|div|li|tr|h[1-6]|section))>").expect("regex"));
+static RE_HTML_ANY_TAG: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?is)<[^>]+>").expect("regex"));
+
 static RE_WORD_RANGE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
         r"(?i)(?:between\s+|antara\s+)?(\d{1,2}[.,]?\d{3}|\d{3,5})\s*(?:-|–|—|to|and|sampai|hingga|s\.?d\.?)\s*(\d{1,2}[.,]?\d{3}|\d{3,5})\s*(?:words?|kata)\b",
@@ -716,6 +734,123 @@ pub fn extract_submission_open(text: &str) -> Option<bool> {
     None
 }
 
+fn clean_editor_name_candidate(raw: &str) -> Option<String> {
+    let mut s = raw
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .trim()
+        .to_string();
+    for sep in ["(", "[", "|", " - ", " – ", "mailto:", "http", "@"] {
+        if let Some(pos) = s.to_ascii_lowercase().find(sep) {
+            // Avoid truncating before email if `@` is at end of line; take part before it
+            s = s[..pos].trim().to_string();
+        }
+    }
+    // Strip trailing affiliation starting after `, ` if an institutional keyword follows
+    if let Some(pos) = s
+        .to_ascii_lowercase()
+        .find(", universitas")
+        .or_else(|| s.to_ascii_lowercase().find(", university"))
+        .or_else(|| s.to_ascii_lowercase().find(", institut"))
+        .or_else(|| s.to_ascii_lowercase().find(", politeknik"))
+        .or_else(|| s.to_ascii_lowercase().find(", fakultas"))
+        .or_else(|| s.to_ascii_lowercase().find(", faculty"))
+        .or_else(|| s.to_ascii_lowercase().find(", department"))
+        .or_else(|| s.to_ascii_lowercase().find(", school of"))
+    {
+        s = s[..pos].trim().to_string();
+    }
+
+    let cleaned = s
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim_matches(|c: char| matches!(c, ':' | '-' | '–' | ',' | ';'))
+        .trim()
+        .to_string();
+
+    if cleaned.len() < 5 || cleaned.len() > 75 {
+        return None;
+    }
+    let words: Vec<&str> = cleaned.split_whitespace().collect();
+    if words.len() < 2 || words.len() > 9 {
+        return None;
+    }
+    if cleaned.chars().filter(|c| c.is_ascii_digit()).count() > 0 {
+        return None;
+    }
+
+    let low = cleaned.to_ascii_lowercase();
+    let blocked = [
+        "editorial team",
+        "editorial board",
+        "dewan redaksi",
+        "chief editor",
+        "editor in chief",
+        "editor-in-chief",
+        "managing editor",
+        "about the journal",
+        "contact",
+        "submission",
+        "email",
+        "phone",
+        "telepon",
+        "address",
+        "alamat",
+        "scopus",
+        "sinta",
+        "orcid",
+        "affiliation",
+    ];
+    if blocked.iter().any(|b| low.contains(b)) {
+        return None;
+    }
+    if !cleaned.chars().any(|c| c.is_ascii_alphabetic()) {
+        return None;
+    }
+    Some(cleaned)
+}
+
+/// Extract the *Editor-in-Chief* / *Ketua Dewan Redaksi* name from OJS editorial/contact HTML or text.
+pub fn extract_editor_in_chief(html_or_text: &str) -> Option<String> {
+    let text = if html_or_text.contains('<') && html_or_text.contains('>') {
+        let with_breaks = RE_HTML_BREAK_TAG.replace_all(html_or_text, "\n");
+        RE_HTML_ANY_TAG.replace_all(&with_breaks, " ").into_owned()
+    } else {
+        html_or_text.to_string()
+    };
+
+    let lines: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+
+    for (idx, line) in lines.iter().enumerate() {
+        if let Some(cap) = RE_EDITOR_NAME_BEFORE_ROLE.captures(line) {
+            if let Some(m) = cap.get(1) {
+                if let Some(name) = clean_editor_name_candidate(m.as_str()) {
+                    return Some(name);
+                }
+            }
+        }
+        if let Some(cap) = RE_EDITOR_ROLE_LINE.captures(line) {
+            let rest = cap.get(1).map(|m| m.as_str()).unwrap_or("").trim();
+            if !rest.is_empty() {
+                if let Some(name) = clean_editor_name_candidate(rest) {
+                    return Some(name);
+                }
+            } else if let Some(next_line) = lines.get(idx + 1) {
+                if let Some(name) = clean_editor_name_candidate(next_line) {
+                    return Some(name);
+                }
+            }
+        }
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -881,6 +1016,36 @@ mod tests {
         assert_eq!(
             redir.as_deref(),
             Some("https://ojs3.kampus.ac.id/index.php/ji")
+        );
+    }
+
+    #[test]
+    fn test_extract_editor_in_chief_html_and_plain() {
+        let html = r#"
+        <div class="editorial_team">
+          <h3>Editor-in-Chief</h3>
+          <p>Prof. Dr. Budi Santoso, M.Kom. (Universitas Indonesia)</p>
+        </div>"#;
+        assert_eq!(
+            extract_editor_in_chief(html).as_deref(),
+            Some("Prof. Dr. Budi Santoso, M.Kom.")
+        );
+
+        let inline = "Ketua Dewan Redaksi: Dr. Rina Wijaya, Universitas Gadjah Mada";
+        assert_eq!(
+            extract_editor_in_chief(inline).as_deref(),
+            Some("Dr. Rina Wijaya")
+        );
+
+        let trailing_role = "Ahmad Fauzi, M.T. (Editor-in-Chief)";
+        assert_eq!(
+            extract_editor_in_chief(trailing_role).as_deref(),
+            Some("Ahmad Fauzi, M.T.")
+        );
+
+        assert_eq!(
+            extract_editor_in_chief("About the Journal and Editorial Team"),
+            None
         );
     }
 }

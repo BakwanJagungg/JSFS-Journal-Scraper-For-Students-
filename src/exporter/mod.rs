@@ -1,6 +1,8 @@
 pub mod bundle;
+pub mod calendar;
 pub mod citation;
 pub mod csv_writer;
+pub mod docx_writer;
 pub mod list_txt;
 pub mod markdown;
 pub mod templates;
