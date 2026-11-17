@@ -15,7 +15,8 @@ Aplikasi desktop Windows untuk mencari jurnal SINTA, Garuda, dan internasional Q
 
 [Download jsfs.exe (Single File)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.12.1/jsfs.exe) •
 [SHA256SUMS.txt](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.12.1/SHA256SUMS.txt) •
-[Semua Rilis](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v4.12.1)
+[Semua Rilis](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases) •
+[Catatan Riwayat Rilis (CHANGELOG.md)](docs/CHANGELOG.md)
 
 </div>
 
@@ -54,6 +55,8 @@ $p="$env:TEMP\JSFS-windows-x64-setup.exe"; Invoke-WebRequest "https://github.com
 - **Pintasan Keyboard Global & Tampilan Adaptif**: Pintasan cepat `Ctrl+K` (fokus cari), `Esc` (bersihkan/tutup), `Ctrl+E` (buka file Excel terakhir), toggle kepadatan tabel **Padat / Lega**, serta jaring pengaman horizontal scrollbar untuk laptop 1366×768 (scaling 125%).
 - **Etika Publikasi & Generator Dokumen Resmi (.docx)**: Peringatan pencegahan submisi ganda (*Double-Submission Guard*), generator otomatis **Matriks Tanggapan Reviewer (.docx)** untuk status *Revision*, serta **Lembar Persetujuan Dosbing (.docx)**.
 - **Pemeriksa Update GitHub & Cadangan Data Lokal**: Notifikasi pembaruan otomatis yang aman (*panic-safe*), alur kerja bernomor di sidebar (1. Cari Jurnal, 2. Detail & Naskah, 3. Shortlist & Dospen), serta pencadangan data lokal (`.json`).
+
+> Riwayat perubahan lengkap untuk seluruh versi (v3.0.0 – v4.12.1) dapat dilihat di dokumen **[docs/CHANGELOG.md](docs/CHANGELOG.md)**.
 
 Antarmuka tersedia dalam **Bahasa Indonesia** dan **English** dengan tema gelap maupun terang (menu **Pengaturan**).
 
