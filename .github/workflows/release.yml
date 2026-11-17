@@ -66,17 +66,18 @@ jobs:
           Copy-Item target\i686-pc-windows-msvc\release\jsfs.exe release-pkg-x86\jsfs.exe -Force
           Copy-Item README.md release-pkg-x86\README.md -Force
           Copy-Item LICENSE release-pkg-x86\LICENSE -Force
-          @"
-JSFS - Journal Scraper For Students (Windows 32-bit / x86 Edition)
-
-Paket portabel ini dikompilasi khusus untuk arsitektur Windows 10/11 32-bit (i686-pc-windows-msvc).
-Dapat dijalankan langsung di Windows 32-bit maupun Windows 64-bit (via subsistem WOW64) tanpa instalasi.
-
-Cara pakai:
-1. Ekstrak seluruh isi file zip ini ke folder mana saja di komputer Anda.
-2. Jalankan jsfs.exe.
-3. Seluruh hasil ekspor akan otomatis disimpan pada folder output\ di samping file jsfs.exe.
-"@ | Set-Content -Path release-pkg-x86\README-32bit.txt -Encoding UTF8
+          $readme32 = @(
+            'JSFS - Journal Scraper For Students (Windows 32-bit / x86 Edition)'
+            ''
+            'Paket portabel ini dikompilasi khusus untuk arsitektur Windows 10/11 32-bit (i686-pc-windows-msvc).'
+            'Dapat dijalankan langsung di Windows 32-bit maupun Windows 64-bit (via subsistem WOW64) tanpa instalasi.'
+            ''
+            'Cara pakai:'
+            '1. Ekstrak seluruh isi file zip ini ke folder mana saja di komputer Anda.'
+            '2. Jalankan jsfs.exe.'
+            '3. Seluruh hasil ekspor akan otomatis disimpan pada folder output\ di samping file jsfs.exe.'
+          ) -join "`r`n"
+          $readme32 | Set-Content -Path release-pkg-x86\README-32bit.txt -Encoding UTF8
 
           $zipX86 = "JSFS-windows-x86-portable.zip"
           Compress-Archive -Path release-pkg-x86\jsfs.exe, release-pkg-x86\README.md, release-pkg-x86\LICENSE, release-pkg-x86\README-32bit.txt -DestinationPath $zipX86 -Force
