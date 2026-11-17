@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.13.0] - 2026-11-17
+
+### Added
+- **Dukungan Penuh Arsitektur Windows 32-bit (`.cargo/config.toml`, `.github/workflows/release.yml`)**:
+  - Penambahan target resmi `i686-pc-windows-msvc` dengan kompilasi statis CRT `+crt-static` berdampingan dengan 64-bit `x86_64-pc-windows-msvc`.
+  - Pembuatan paket portabel resmi `JSFS-windows-x86-portable.zip` lengkap dengan berkas panduan `README-32bit.txt` untuk pengguna Windows 10 dan 11 32-bit.
+  - Alokasi memori sangat hemat pada perangkat 32-bit dengan penggunaan RAM sekitar 107 MB saat antarmuka aktif.
+
+---
+
 ## [4.12.1] - 2026-11-17
 
 ### Fixed

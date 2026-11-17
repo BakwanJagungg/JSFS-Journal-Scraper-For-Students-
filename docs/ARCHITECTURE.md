@@ -1,12 +1,12 @@
-# Arsitektur Sistem — JSFS v4.12.1 (Pure Rust Native Desktop)
+# Arsitektur Sistem — JSFS v4.13.0 (Pure Rust Native Desktop)
 
-Dokumen ini menjelaskan arsitektur teknis **JSFS (Journal Scraper For Students) v4.12.1** yang berjalan sebagai aplikasi desktop **100% Pure Rust** dengan antarmuka GPU native (`eframe` / `egui` + `glow` OpenGL), sepenuhnya bebas dari lapisan WebView2, Tauri, maupun Node.js.
+Dokumen ini menjelaskan arsitektur teknis **JSFS (Journal Scraper For Students) v4.13.0** yang berjalan sebagai aplikasi desktop **100% Pure Rust** dengan antarmuka GPU native (`eframe` / `egui` + `glow` OpenGL), sepenuhnya bebas dari lapisan WebView2, Tauri, maupun Node.js.
 
 ---
 
 ## 1. Gambaran Umum Arsitektur
 
-JSFS v4.12.1 memisahkan rendering GPU immediate-mode dari mesin komputasi asinkron (`tokio`) menggunakan batas arsitektur berbasis **`Arc<EngineState>`** dan saluran pesan satu arah **`EventSink`**:
+JSFS v4.13.0 memisahkan rendering GPU immediate-mode dari mesin komputasi asinkron (`tokio`) menggunakan batas arsitektur berbasis **`Arc<EngineState>`** dan saluran pesan satu arah **`EventSink`**:
 
 ```text
 +-----------------------------------------------------------------------+
@@ -85,6 +85,7 @@ Setiap tugas berat (permintaan HTTP konkuren, parsing dokumen OOXML/PDF, dan que
 
 ## 3. Windows DPI, Resource Embedding & Distribusi (`build.rs`, `installer/jsfs.iss`, `main.rs`)
 
-- Di Windows, `main.rs` menerapkan `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]` agar executable rilis berjalan langsung tanpa jendela konsol, dan `.cargo/config.toml` menautkan CRT secara statis (`+crt-static`) agar bebas dari dependensi runtime eksternal.
-- `build.rs` mengompilasi `assets/icon.ico`, `VersionInfo` (`4.12.1.0`), *Common Controls v6*, serta manifes **`PerMonitorV2`** DPI awareness melalui `winres` sehingga teks dan layout tetap tajam di layar Full HD, 2K, maupun 4K.
+- Di Windows, `main.rs` menerapkan `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]` agar executable rilis berjalan langsung tanpa jendela konsol, dan `.cargo/config.toml` menautkan CRT secara statis (`+crt-static`) untuk target ganda `x86_64-pc-windows-msvc` (64-bit) dan `i686-pc-windows-msvc` (32-bit) agar bebas dari dependensi runtime eksternal.
+- `build.rs` mengompilasi `assets/icon.ico`, `VersionInfo` (`4.13.0.0`), *Common Controls v6*, serta manifes **`PerMonitorV2`** DPI awareness melalui `winres` sehingga teks dan layout tetap tajam di layar Full HD, 2K, maupun 4K.
+- Distribusi biner mencakup installer Inno Setup 6 (`JSFS-windows-x64-setup.exe`), arsip portabel 64-bit (`JSFS-windows-x64-portable.zip`), arsip portabel 32-bit (`JSFS-windows-x86-portable.zip`), dan single executable (`jsfs.exe`).
 - `installer/jsfs.iss` mengemas installer **Inno Setup 6** (`JSFS-windows-x64-setup.exe`) dengan instalasi user-level tanpa hak Administrator ke `%LOCALAPPDATA%\Programs\JSFS`.
