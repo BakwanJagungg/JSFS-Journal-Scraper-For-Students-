@@ -218,9 +218,9 @@ pub struct Texts {
 }
 
 const ID_TEXTS: Texts = Texts {
-    nav_search: "Pencarian Jurnal",
-    nav_detail: "Detail & Persiapan",
-    nav_dospen: "Shortlist & Dospen",
+    nav_search: "1. Cari Jurnal",
+    nav_detail: "2. Detail & Naskah",
+    nav_dospen: "3. Shortlist & Dospen",
     nav_filters: "Filter Lanjutan",
     nav_match: "Match Engine & AI",
     nav_history: "Riwayat & Ekspor",
@@ -254,7 +254,7 @@ const ID_TEXTS: Texts = Texts {
     col_journal: "Jurnal & Penerbit",
     col_accred: "SINTA / Q",
     col_match: "Match",
-    col_apc: "Biaya APC",
+    col_apc: "Biaya Publikasi",
     col_activity: "Keaktifan & Terbit",
     col_action: "Aksi",
 
@@ -329,9 +329,9 @@ const ID_TEXTS: Texts = Texts {
 };
 
 const EN_TEXTS: Texts = Texts {
-    nav_search: "Journal Search",
-    nav_detail: "Journal Workspace",
-    nav_dospen: "Shortlist & Advisor",
+    nav_search: "1. Search Journals",
+    nav_detail: "2. Journal & Paper",
+    nav_dospen: "3. Shortlist & Advisor",
     nav_filters: "Advanced Filters",
     nav_match: "Match Engine & AI",
     nav_history: "History & Export",
@@ -365,7 +365,7 @@ const EN_TEXTS: Texts = Texts {
     col_journal: "Journal & Publisher",
     col_accred: "SINTA / Q",
     col_match: "Match",
-    col_apc: "APC Fee",
+    col_apc: "Publication Fee",
     col_activity: "Activity & Issue",
     col_action: "Actions",
 
@@ -453,8 +453,8 @@ mod tests {
 
     #[test]
     fn test_i18n_switch_and_app_settings_persistence() {
-        assert_eq!(t(AppLanguage::Id).nav_search, "Pencarian Jurnal");
-        assert_eq!(t(AppLanguage::En).nav_search, "Journal Search");
+        assert_eq!(t(AppLanguage::Id).nav_search, "1. Cari Jurnal");
+        assert_eq!(t(AppLanguage::En).nav_search, "1. Search Journals");
         assert_eq!(t(AppLanguage::Id).nav_settings, "Pengaturan");
         assert_eq!(t(AppLanguage::En).nav_settings, "Settings");
         assert_eq!(AppLanguage::Id.toggled(), AppLanguage::En);

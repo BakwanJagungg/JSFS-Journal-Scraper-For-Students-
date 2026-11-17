@@ -41,6 +41,7 @@ pub fn render_settings_page(
     filters: &mut FilterSettings,
     usd_rate_text: &mut String,
     fx_updating: &mut bool,
+    app_state: &mut crate::ui::state::AppState,
     engine: &Arc<EngineState>,
     sink: &EventSink,
 ) {
@@ -568,6 +569,176 @@ pub fn render_settings_page(
                         "https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases",
                         sink,
                     );
+                }
+            });
+        });
+
+        ui.add_space(12.0);
+
+        // Card 5: Local Backup & Restore (.json)
+        card(ui, p, |ui| {
+            let is_en = app_settings.language == AppLanguage::En;
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(if is_en {
+                        "Local Data Backup & Restore (.json)"
+                    } else {
+                        "Cadangan & Pemulihan Data Lokal (.json)"
+                    })
+                    .size(13.5)
+                    .strong()
+                    .color(p.text),
+                );
+                pill_badge(
+                    ui,
+                    if is_en { "Portable JSON" } else { "JSON Portabel" },
+                    p.accent,
+                    p.accent_soft,
+                );
+            });
+            ui.label(
+                RichText::new(if is_en {
+                    "Export all preferences, author profiles, saved manuscripts, shortlisted journals (★), and submission tracker statuses into a single portable JSON file, or restore them onto another device."
+                } else {
+                    "Gabungkan seluruh pengaturan, profil penulis, riwayat naskah, daftar jurnal pilihan (★), dan status pelacak submisi ke 1 file JSON portabel, atau pulihkan saat berpindah perangkat."
+                })
+                .size(11.5)
+                .color(p.muted),
+            );
+            card_divider(ui, p);
+
+            ui.horizontal_wrapped(|ui| {
+                if accent_button(
+                    ui,
+                    p,
+                    if is_en {
+                        "Export Backup (.json)"
+                    } else {
+                        "Ekspor Cadangan (.json)"
+                    },
+                )
+                .on_hover_text(if is_en {
+                    "Save full settings, profiles, shortlist, and tracker data into a JSON backup file"
+                } else {
+                    "Simpan seluruh pengaturan, profil, shortlist, dan pelacak submisi ke file cadangan JSON"
+                })
+                .clicked()
+                {
+                    let ts = chrono::Local::now().format("%Y%m%d_%H%M%S");
+                    let default_name = format!("jsfs_backup_{ts}.json");
+                    if let Some(dest) = rfd::FileDialog::new()
+                        .set_file_name(&default_name)
+                        .add_filter("JSON File (*.json)", &["json"])
+                        .save_file()
+                    {
+                        let settings_val = serde_json::to_value(&*app_settings).unwrap_or_default();
+                        let profiles_val = serde_json::to_value(&app_state.saved_profiles).unwrap_or_default();
+                        let shortlisted: Vec<String> = app_state.bookmarked_ids.iter().cloned().collect();
+                        let tracks: Vec<crate::cache::SubmissionTrack> = app_state.submission_tracks.values().cloned().collect();
+                        let bundle = crate::config::create_backup_bundle(
+                            settings_val,
+                            profiles_val,
+                            shortlisted,
+                            app_state.saved_shortlist_items.clone(),
+                            tracks,
+                        );
+                        match crate::config::save_backup_bundle_to_path(&bundle, &dest) {
+                            Ok(_) => {
+                                sink.send(EngineEvent::Toast(if is_en {
+                                    format!("Backup successfully exported to: {}", dest.display())
+                                } else {
+                                    format!("Cadangan berhasil diekspor ke: {}", dest.display())
+                                }));
+                            }
+                            Err(e) => {
+                                sink.send(EngineEvent::Toast(format!("Gagal mengekspor cadangan: {e}")));
+                            }
+                        }
+                    }
+                }
+
+                if secondary_button(
+                    ui,
+                    p,
+                    if is_en {
+                        "Import Backup (.json)"
+                    } else {
+                        "Impor Cadangan (.json)"
+                    },
+                )
+                .on_hover_text(if is_en {
+                    "Load and restore settings, profiles, and tracked journals from a JSON backup file"
+                } else {
+                    "Muat dan pulihkan pengaturan, profil, dan jurnal terlacak dari berkas cadangan JSON"
+                })
+                .clicked()
+                {
+                    if let Some(src) = rfd::FileDialog::new()
+                        .add_filter("JSON File (*.json)", &["json"])
+                        .pick_file()
+                    {
+                        match std::fs::read_to_string(&src) {
+                            Ok(content) => match crate::config::JsfsBackupBundle::from_json_str(&content) {
+                                Ok(bundle) => {
+                                    // 1. Restore AppSettings
+                                    if let Ok(st) = serde_json::from_value::<AppSettings>(bundle.settings) {
+                                        *app_settings = st;
+                                        *usd_rate_text = app_settings.usd_to_idr.to_string();
+                                        filters.apply_app_settings(app_settings);
+                                        let _ = crate::ui::i18n::save_app_settings(app_settings);
+                                    }
+                                    // 2. Restore Saved Profiles
+                                    if let Ok(profs) = serde_json::from_value::<Vec<crate::ui::state::SavedSearchProfile>>(bundle.saved_profiles) {
+                                        app_state.saved_profiles = profs;
+                                        let _ = crate::ui::state::save_saved_profiles_to(
+                                            &crate::config::saved_profiles_path(),
+                                            &app_state.saved_profiles,
+                                        );
+                                    }
+                                    // 3. Restore Saved Manuscripts
+                                    if !bundle.saved_manuscripts.is_empty() {
+                                        let _ = crate::config::save_saved_manuscripts(&bundle.saved_manuscripts);
+                                    }
+                                    // 4. Restore Shortlist IDs & Items
+                                    let added_bm = bundle.shortlisted_keys.len().max(bundle.saved_shortlist.len());
+                                    for k in bundle.shortlisted_keys {
+                                        app_state.bookmarked_ids.insert(k);
+                                    }
+                                    for item in bundle.saved_shortlist {
+                                        let key = crate::ui::state::AppState::bookmark_key(&item);
+                                        app_state.bookmarked_ids.insert(key.clone());
+                                        if !app_state.saved_shortlist_items.iter().any(|it| crate::ui::state::AppState::bookmark_key(it) == key) {
+                                            app_state.saved_shortlist_items.push(item);
+                                        }
+                                    }
+                                    let _ = crate::config::save_saved_shortlist(&app_state.saved_shortlist_items);
+                                    // 5. Restore Submission Tracks
+                                    let added_tr = bundle.submission_tracks.len();
+                                    if let Ok(guard) = engine.cache.lock() {
+                                        if let Some(ref db) = *guard {
+                                            for tr in &bundle.submission_tracks {
+                                                let _ = db.upsert_submission_track(tr);
+                                            }
+                                        }
+                                    }
+                                    for tr in bundle.submission_tracks {
+                                        app_state.submission_tracks.insert(tr.journal_key.clone(), tr);
+                                    }
+                                    sink.send(EngineEvent::Toast(if is_en {
+                                        format!("Backup restored! ({added_bm} starred, {added_tr} tracked journals)")
+                                    } else {
+                                        format!("Cadangan berhasil dipulihkan! ({added_bm} bintang ★, {added_tr} status pelacak)")
+                                    }));
+                                }
+                                Err(e) => {
+                                    sink.send(EngineEvent::Toast(format!("File JSON cadangan tidak valid: {e}")));
+                                }
+                            },
+                            Err(e) => {
+                                sink.send(EngineEvent::Toast(format!("Gagal membaca berkas cadangan: {e}")));
+                            }
+                        }
+                    }
                 }
             });
         });

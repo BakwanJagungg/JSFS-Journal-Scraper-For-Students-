@@ -467,6 +467,493 @@ pub fn save_dosbing_report_docx(
     write_dosbing_report_docx(&dest, candidates, manuscript, profile, lang)
 }
 
+/// Write a standard 3-column academic Response to Reviewers Matrix (`Matriks Revisi`) `.docx`.
+pub fn write_revision_matrix_docx(
+    dest_path: &Path,
+    journal: &UiJournalItem,
+    manuscript: Option<&ManuscriptSummary>,
+    profile: Option<&AppSettings>,
+    lang: AppLanguage,
+) -> Result<String, JsfsError> {
+    let is_en = matches!(lang, AppLanguage::En);
+    let today = Local::now().format("%d %B %Y").to_string();
+    let author_line = profile
+        .map(|p| {
+            let name = if p.author_name.trim().is_empty() {
+                "-"
+            } else {
+                p.author_name.trim()
+            };
+            let id = p.author_id.trim();
+            let aff = p.author_affiliation.trim();
+            match (id.is_empty(), aff.is_empty()) {
+                (false, false) => format!("{name} ({id}) – {aff}"),
+                (false, true) => format!("{name} ({id})"),
+                (true, false) => format!("{name} – {aff}"),
+                (true, true) => name.to_string(),
+            }
+        })
+        .unwrap_or_else(|| "-".to_string());
+
+    let mut body = String::new();
+    body.push_str(&ooxml_paragraph(
+        if is_en {
+            "RESPONSE TO REVIEWERS & REVISION MATRIX"
+        } else {
+            "MATRIKS REVISI & TANGGAPAN TERHADAP KOMENTAR REVIEWER"
+        },
+        true,
+        26,
+        "center",
+        120,
+    ));
+    body.push_str(&ooxml_paragraph(
+        &format!(
+            "{}: {}",
+            if is_en {
+                "Target Journal"
+            } else {
+                "Jurnal Target"
+            },
+            journal.nama.trim()
+        ),
+        true,
+        21,
+        "left",
+        40,
+    ));
+    body.push_str(&ooxml_paragraph(
+        &format!(
+            "{}: {author_line}",
+            if is_en {
+                "Authors / Researchers"
+            } else {
+                "Penulis / Peneliti"
+            }
+        ),
+        false,
+        21,
+        "left",
+        40,
+    ));
+    if let Some(ms) = manuscript {
+        body.push_str(&ooxml_paragraph(
+            &format!(
+                "{}: {} ({} {})",
+                if is_en {
+                    "Manuscript Title"
+                } else {
+                    "Judul Naskah"
+                },
+                if ms.extracted_title.trim().is_empty() {
+                    &ms.name
+                } else {
+                    &ms.extracted_title
+                },
+                ms.word_count,
+                if is_en { "words" } else { "kata" }
+            ),
+            false,
+            21,
+            "left",
+            40,
+        ));
+    }
+    body.push_str(&ooxml_paragraph(
+        &format!("{}: {today}", if is_en { "Date" } else { "Tanggal" }),
+        false,
+        21,
+        "left",
+        100,
+    ));
+
+    // Introductory polite note
+    body.push_str(&ooxml_paragraph(
+        if is_en {
+            "Dear Editor and Reviewers,\nWe sincerely appreciate the constructive feedback and valuable suggestions provided. Below is our point-by-point response and detailed summary of changes incorporated into the revised manuscript."
+        } else {
+            "Kepada Yth. Editor dan Tim Reviewer,\nPenulis mengucapkan terima kasih yang sebesar-besarnya atas saran, koreksi, dan masukan berharga yang diberikan. Berikut kami sampaikan tanggapan butir-per-butir serta rincian perbaikan yang telah dilakukan pada naskah revisi."
+        },
+        false,
+        21,
+        "both",
+        120,
+    ));
+
+    let headers: [&str; 3] = if is_en {
+        [
+            "No & Reviewer Comments",
+            "Author's Response",
+            "Changes in Manuscript & Page",
+        ]
+    } else {
+        [
+            "No & Komentar Reviewer",
+            "Tanggapan Penulis",
+            "Perubahan pada Naskah & Halaman",
+        ]
+    };
+
+    let sample_rows: Vec<Vec<String>> = if is_en {
+        vec![
+            vec![
+                "Reviewer #1 - Comment 1:\nThe abstract should clarify the key novelty and quantitative benchmark results.".to_string(),
+                "Thank you for the suggestion. We have revised the abstract to clearly state the novelty and empirical improvements.".to_string(),
+                "Page 1, Abstract, Lines 18-24.".to_string(),
+            ],
+            vec![
+                "Reviewer #1 - Comment 2:\nPlease provide details of baseline comparison and evaluation metrics.".to_string(),
+                "We have added a comprehensive comparison table with Accuracy, Precision, Recall, and F1-score.".to_string(),
+                "Page 6, Section 4.2, Table 3.".to_string(),
+            ],
+            vec![
+                "Reviewer #2 - Comment 1:\nReferences should be updated with recent literature from the past 5 years.".to_string(),
+                "We updated the references, incorporating 8 high-impact publications from 2022-2026.".to_string(),
+                "Pages 9-11, References section.".to_string(),
+            ],
+        ]
+    } else {
+        vec![
+            vec![
+                "Reviewer #1 - Butir 1:\nAbstrak dan pendahuluan perlu mempertegas kebaruan (novelty) serta hasil evaluasi kuantitatif penelitian.".to_string(),
+                "Terima kasih atas masukan berharga. Penulis telah merevisi alinea abstrak dan paragraf penutup Pendahuluan untuk memperjelas kontribusi kebaruan metode.".to_string(),
+                "Halaman 1 (Abstrak) dan Halaman 2 (Pendahuluan, Alinea Terakhir).".to_string(),
+            ],
+            vec![
+                "Reviewer #1 - Butir 2:\nMetodologi evaluasi perlu menyertakan metrik perbandingan yang jelas terhadap metode baseline.".to_string(),
+                "Telah ditambahkan tabel perbandingan komprehensif mencakup metrik Akurasi, Presisi, Recall, dan F1-Score.".to_string(),
+                "Halaman 6, Bagian 4.2, Tabel 3.".to_string(),
+            ],
+            vec![
+                "Reviewer #2 - Butir 1:\nDaftar pustaka disarankan diperbarui dengan rujukan primer bereputasi 5 tahun terakhir.".to_string(),
+                "Penulis telah memperbarui daftar pustaka dengan menyitir 8 rujukan mutakhir terbitan 2022–2026.".to_string(),
+                "Halaman 9–11, Daftar Pustaka.".to_string(),
+            ],
+        ]
+    };
+
+    body.push_str(&ooxml_table(&headers, &sample_rows, &[3500, 3200, 2326]));
+    body.push_str(&ooxml_paragraph("", false, 20, "left", 100));
+    body.push_str(&ooxml_paragraph(
+        if is_en {
+            "Generated via JSFS Academic Copilot – Format compliant with OJS/Taylor&Francis/Elsevier revision guidelines."
+        } else {
+            "Dibuat melalui JSFS Academic Copilot – Format matriks sesuai standar pengajuan revisi OJS / jurnal ilmiah."
+        },
+        false,
+        18,
+        "left",
+        0,
+    ));
+
+    let bytes = build_docx_from_body_xml(&body)?;
+    write_bytes_to_path(dest_path, &bytes)
+}
+
+pub fn save_revision_matrix_docx(
+    journal: &UiJournalItem,
+    manuscript: Option<&ManuscriptSummary>,
+    profile: Option<&AppSettings>,
+    lang: AppLanguage,
+) -> Result<String, JsfsError> {
+    let slug = sanitize_slug(&journal.nama);
+    let ts = Local::now().format("%Y%m%d_%H%M%S");
+    let dest = output_dir().join(format!("Matriks_Revisi_{slug}_{ts}.docx"));
+    write_revision_matrix_docx(&dest, journal, manuscript, profile, lang)
+}
+
+/// Write an official Supervisor Candidate Approval Sheet (`Lembar Persetujuan Dosen Pembimbing`) `.docx`.
+pub fn write_dospen_approval_docx(
+    dest_path: &Path,
+    candidates: &[&UiJournalItem],
+    manuscript: Option<&ManuscriptSummary>,
+    profile: Option<&AppSettings>,
+    lang: AppLanguage,
+) -> Result<String, JsfsError> {
+    let is_en = matches!(lang, AppLanguage::En);
+    let today = Local::now().format("%d %B %Y").to_string();
+
+    let student_name = profile
+        .map(|p| {
+            if p.author_name.trim().is_empty() {
+                "-"
+            } else {
+                p.author_name.trim()
+            }
+        })
+        .unwrap_or("-");
+    let student_id = profile
+        .map(|p| {
+            if p.author_id.trim().is_empty() {
+                "-"
+            } else {
+                p.author_id.trim()
+            }
+        })
+        .unwrap_or("-");
+    let student_aff = profile
+        .map(|p| {
+            if p.author_affiliation.trim().is_empty() {
+                "-"
+            } else {
+                p.author_affiliation.trim()
+            }
+        })
+        .unwrap_or("-");
+    let student_email = profile
+        .map(|p| {
+            if p.author_email.trim().is_empty() {
+                "-"
+            } else {
+                p.author_email.trim()
+            }
+        })
+        .unwrap_or("-");
+
+    let mut body = String::new();
+    body.push_str(&ooxml_paragraph(
+        if is_en {
+            "THESIS SUPERVISOR APPROVAL SHEET\nFOR TARGET SCIENTIFIC JOURNAL SUBMISSION"
+        } else {
+            "LEMBAR PERSETUJUAN DOSEN PEMBIMBING\nSUBMISI PUBLIKASI KARYA ILMIAH KE JURNAL TARGET"
+        },
+        true,
+        26,
+        "center",
+        140,
+    ));
+
+    // Student Metadata
+    body.push_str(&ooxml_paragraph(
+        if is_en {
+            "A. STUDENT & MANUSCRIPT IDENTIFICATION"
+        } else {
+            "A. IDENTITAS MAHASISWA & NASKAH"
+        },
+        true,
+        22,
+        "left",
+        60,
+    ));
+    body.push_str(&ooxml_paragraph(
+        &format!(
+            "{}: {student_name}",
+            if is_en {
+                "Student Name"
+            } else {
+                "Nama Mahasiswa"
+            }
+        ),
+        false,
+        21,
+        "left",
+        30,
+    ));
+    body.push_str(&ooxml_paragraph(
+        &format!(
+            "{}: {student_id}",
+            if is_en {
+                "Student ID (NIM)"
+            } else {
+                "Nomor Induk Mahasiswa (NIM)"
+            }
+        ),
+        false,
+        21,
+        "left",
+        30,
+    ));
+    body.push_str(&ooxml_paragraph(
+        &format!(
+            "{}: {student_aff}",
+            if is_en {
+                "Department / Study Program"
+            } else {
+                "Program Studi / Jurusan"
+            }
+        ),
+        false,
+        21,
+        "left",
+        30,
+    ));
+    body.push_str(&ooxml_paragraph(
+        &format!(
+            "{}: {student_email}",
+            if is_en {
+                "Correspondence Email"
+            } else {
+                "Email Korespondensi"
+            }
+        ),
+        false,
+        21,
+        "left",
+        30,
+    ));
+
+    let ms_title = manuscript
+        .map(|m| {
+            if m.extracted_title.trim().is_empty() {
+                m.name.as_str()
+            } else {
+                m.extracted_title.as_str()
+            }
+        })
+        .unwrap_or("-");
+    let ms_words = manuscript.map(|m| m.word_count).unwrap_or(0);
+    body.push_str(&ooxml_paragraph(
+        &format!(
+            "{}: {ms_title} ({} {})",
+            if is_en {
+                "Manuscript Title"
+            } else {
+                "Judul Naskah"
+            },
+            ms_words,
+            if is_en { "words" } else { "kata" }
+        ),
+        false,
+        21,
+        "left",
+        100,
+    ));
+
+    // Section B: Target Journal Candidates
+    body.push_str(&ooxml_paragraph(
+        if is_en {
+            "B. APPROVED TARGET JOURNAL CANDIDATES"
+        } else {
+            "B. DAFTAR KANDIDAT JURNAL TARGET YANG DISETUJUI"
+        },
+        true,
+        22,
+        "left",
+        60,
+    ));
+
+    let headers: [&str; 5] = if is_en {
+        [
+            "No",
+            "Target Journal & Publisher",
+            "Index / SINTA",
+            "APC Fee",
+            "Turnaround & Status",
+        ]
+    } else {
+        [
+            "No",
+            "Nama Jurnal & Penerbit",
+            "Akreditasi / SINTA",
+            "Biaya APC",
+            "Keaktifan & Jadwal Terbit",
+        ]
+    };
+
+    let rows: Vec<Vec<String>> = candidates
+        .iter()
+        .take(4)
+        .enumerate()
+        .map(|(idx, j)| {
+            let rank = if let Some(ref q) = j.quartile {
+                if !q.trim().is_empty() {
+                    q.trim().to_string()
+                } else if !j.sinta.trim().is_empty() && j.sinta != "-" {
+                    format!("SINTA {}", j.sinta.trim())
+                } else {
+                    j.sumber.clone()
+                }
+            } else if !j.sinta.trim().is_empty() && j.sinta != "-" {
+                format!("SINTA {}", j.sinta.trim())
+            } else {
+                j.sumber.clone()
+            };
+            vec![
+                (idx + 1).to_string(),
+                format!("{} ({})", j.nama.trim(), j.penerbit.trim()),
+                rank,
+                j.apc_label.trim().to_string(),
+                format!(
+                    "{} (Terbit: {})",
+                    if j.turnaround_label.is_empty() {
+                        "-"
+                    } else {
+                        &j.turnaround_label
+                    },
+                    j.terbit_terdekat.trim()
+                ),
+            ]
+        })
+        .collect();
+
+    body.push_str(&ooxml_table(
+        &headers,
+        &rows,
+        &[450, 3400, 1500, 1600, 2076],
+    ));
+    body.push_str(&ooxml_paragraph("", false, 20, "left", 80));
+
+    // Declaration statement
+    body.push_str(&ooxml_paragraph(
+        if is_en {
+            "Approval Statement:\nWith this document, the supervisor confirms that the manuscript specified above has been duly reviewed, complies with ethical publication standards, and is approved for submission to one of the approved target journals listed above. Simultaneous multiple submissions (dual submission) are strictly prohibited."
+        } else {
+            "Pernyataan Persetujuan:\nDengan ini Dosen Pembimbing menyatakan bahwa naskah ilmiah di atas telah melalui proses pembimbingan dan telaah substantif, memenuhi kaidah etika publikasi ilmiah, dan disetujui untuk diajukan (submit) ke salah satu jurnal target yang tertera di atas. Pengiriman naskah secara bersamaan ke lebih dari 1 jurnal (dual submission) dilarang keras."
+        },
+        false,
+        21,
+        "both",
+        120,
+    ));
+
+    // Signatures Block
+    body.push_str(&ooxml_paragraph(
+        &format!(
+            "{}, {today}",
+            if is_en { "Date" } else { "Tanggal Persetujuan" }
+        ),
+        false,
+        21,
+        "right",
+        80,
+    ));
+
+    let sig_headers = ["", ""];
+    let sig_rows = vec![
+        vec![
+            if is_en {
+                "Student / First Author,".to_string()
+            } else {
+                "Mahasiswa / Penulis Pertama,".to_string()
+            },
+            if is_en {
+                "Approved by,\nThesis Supervisor,".to_string()
+            } else {
+                "Menyetujui,\nDosen Pembimbing,".to_string()
+            },
+        ],
+        vec![
+            format!("\n\n\n\n({student_name})\nNIM: {student_id}"),
+            "\n\n\n\n(......................................................)\nNIDN / NIP: .......................................".to_string(),
+        ],
+    ];
+    body.push_str(&ooxml_table(&sig_headers, &sig_rows, &[4513, 4513]));
+
+    let bytes = build_docx_from_body_xml(&body)?;
+    write_bytes_to_path(dest_path, &bytes)
+}
+
+pub fn save_dospen_approval_docx(
+    candidates: &[&UiJournalItem],
+    manuscript: Option<&ManuscriptSummary>,
+    profile: Option<&AppSettings>,
+    lang: AppLanguage,
+) -> Result<String, JsfsError> {
+    let ts = Local::now().format("%Y%m%d_%H%M%S");
+    let dest = output_dir().join(format!("Lembar_Persetujuan_Dospen_{ts}.docx"));
+    write_dospen_approval_docx(&dest, candidates, manuscript, profile, lang)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -539,6 +1026,24 @@ mod tests {
         let rep_xml = read_docx_document_xml(&std::fs::read(&rep_path).unwrap());
         assert!(rep_xml.contains("LAPORAN KANDIDAT JURNAL TARGET"));
         assert!(rep_xml.contains("SINTA 2"));
+
+        let rev_path = dir.join("revision_matrix.docx");
+        write_revision_matrix_docx(&rev_path, &item, None, Some(&profile), AppLanguage::Id)
+            .unwrap();
+        let rev_xml = read_docx_document_xml(&std::fs::read(&rev_path).unwrap());
+        assert!(rev_xml.contains("MATRIKS REVISI"));
+        assert!(rev_xml.contains("Reviewer"));
+        assert!(rev_xml.contains("Tanggapan Penulis"));
+        assert!(rev_xml.contains("w:tbl"));
+
+        let appr_path = dir.join("dospen_approval.docx");
+        write_dospen_approval_docx(&appr_path, &[&item], None, Some(&profile), AppLanguage::Id)
+            .unwrap();
+        let appr_xml = read_docx_document_xml(&std::fs::read(&appr_path).unwrap());
+        assert!(appr_xml.contains("LEMBAR PERSETUJUAN DOSEN PEMBIMBING"));
+        assert!(appr_xml.contains("Budi Pratama"));
+        assert!(appr_xml.contains("22010099"));
+        assert!(appr_xml.contains("Mahasiswa / Penulis Pertama"));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

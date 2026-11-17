@@ -2,7 +2,7 @@ use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-pub const APP_VERSION: &str = "4.10.0";
+pub const APP_VERSION: &str = "4.12.1";
 pub const CACHE_VERSION: &str = "4.3.0";
 pub const CACHE_TTL_DAYS: i64 = 14;
 pub const MAX_WORKERS: usize = 32;
@@ -258,6 +258,39 @@ pub fn saved_manuscripts_path() -> PathBuf {
     cache_dir().join("saved_manuscripts.json")
 }
 
+pub fn saved_shortlist_path() -> PathBuf {
+    cache_dir().join("saved_shortlist.json")
+}
+
+/// Load saved shortlisted journals (`★`) from disk, returning empty on missing/corrupt files.
+pub fn load_saved_shortlist_from(path: &Path) -> Vec<crate::models::UiJournalItem> {
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    serde_json::from_str(&raw).unwrap_or_default()
+}
+
+pub fn load_saved_shortlist() -> Vec<crate::models::UiJournalItem> {
+    load_saved_shortlist_from(&saved_shortlist_path())
+}
+
+/// Persist saved shortlisted journals (`★`) atomically-enough via pretty JSON.
+pub fn save_saved_shortlist_to(
+    path: &Path,
+    items: &[crate::models::UiJournalItem],
+) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let json = serde_json::to_string_pretty(items)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    std::fs::write(path, json)
+}
+
+pub fn save_saved_shortlist(items: &[crate::models::UiJournalItem]) -> std::io::Result<()> {
+    save_saved_shortlist_to(&saved_shortlist_path(), items)
+}
+
 /// Persisted user preference for JSFS Match Engine (`builtin` | `cloud` | `ollama`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -410,6 +443,80 @@ pub fn record_saved_manuscript(
     entries.truncate(MAX_SAVED_MANUSCRIPTS);
 }
 
+/// Portable backup bundle combining all user configurations, profiles, saved manuscripts, shortlisted journals, and submission tracks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsfsBackupBundle {
+    pub bundle_version: String,
+    pub jsfs_version: String,
+    pub exported_at: String,
+    pub settings: serde_json::Value,
+    pub saved_profiles: serde_json::Value,
+    pub saved_manuscripts: Vec<SavedManuscriptEntry>,
+    pub shortlisted_keys: Vec<String>,
+    #[serde(default)]
+    pub saved_shortlist: Vec<crate::models::UiJournalItem>,
+    pub submission_tracks: Vec<crate::cache::SubmissionTrack>,
+}
+
+impl JsfsBackupBundle {
+    pub fn new(
+        settings_val: serde_json::Value,
+        profiles_val: serde_json::Value,
+        manuscripts: Vec<SavedManuscriptEntry>,
+        shortlisted: Vec<String>,
+        saved_shortlist: Vec<crate::models::UiJournalItem>,
+        tracks: Vec<crate::cache::SubmissionTrack>,
+    ) -> Self {
+        Self {
+            bundle_version: "1.0".to_string(),
+            jsfs_version: APP_VERSION.to_string(),
+            exported_at: chrono::Local::now().to_rfc3339(),
+            settings: settings_val,
+            saved_profiles: profiles_val,
+            saved_manuscripts: manuscripts,
+            shortlisted_keys: shortlisted,
+            saved_shortlist,
+            submission_tracks: tracks,
+        }
+    }
+
+    pub fn to_json_pretty(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string_pretty(self)
+    }
+
+    pub fn from_json_str(raw: &str) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(raw)
+    }
+}
+
+pub fn create_backup_bundle(
+    settings_val: serde_json::Value,
+    profiles_val: serde_json::Value,
+    shortlisted: Vec<String>,
+    saved_shortlist: Vec<crate::models::UiJournalItem>,
+    tracks: Vec<crate::cache::SubmissionTrack>,
+) -> JsfsBackupBundle {
+    let manuscripts = load_saved_manuscripts();
+    JsfsBackupBundle::new(
+        settings_val,
+        profiles_val,
+        manuscripts,
+        shortlisted,
+        saved_shortlist,
+        tracks,
+    )
+}
+
+pub fn save_backup_bundle_to_path(bundle: &JsfsBackupBundle, dest: &Path) -> std::io::Result<()> {
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let json = bundle
+        .to_json_pretty()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    std::fs::write(dest, json)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -529,5 +636,85 @@ mod tests {
         assert_eq!(reloaded, list);
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_backup_bundle_serialization_roundtrip() {
+        let bundle = JsfsBackupBundle::new(
+            serde_json::json!({ "theme": "dark", "polite": true }),
+            serde_json::json!([{ "name": "Skripsi AI" }]),
+            vec![SavedManuscriptEntry {
+                file_name: "skripsi.docx".to_string(),
+                file_path: "C:\\skripsi.docx".to_string(),
+                word_count: 5500,
+                extracted_title: "Analisis Sentimen".to_string(),
+                suggested_keywords: "nlp, svm".to_string(),
+            }],
+            vec!["https://ojs.example.ac.id/journal".to_string()],
+            vec![crate::models::UiJournalItem {
+                nama: "Jurnal Teknologi Informasi".to_string(),
+                url: "https://ojs.example.ac.id/journal".to_string(),
+                sinta: "2".to_string(),
+                ..Default::default()
+            }],
+            vec![crate::cache::SubmissionTrack {
+                journal_key: "https://ojs.example.ac.id/journal".to_string(),
+                status: "Submitted".to_string(),
+                submitted_date: "2026-11-17".to_string(),
+                notes: "Menunggu reviewer".to_string(),
+                updated_at: "2026-11-17T08:00:00Z".to_string(),
+            }],
+        );
+
+        let json = bundle.to_json_pretty().expect("serialize backup bundle");
+        assert!(json.contains("bundle_version"));
+        assert!(json.contains("skripsi.docx"));
+        assert!(json.contains("Jurnal Teknologi Informasi"));
+        assert!(json.contains("Menunggu reviewer"));
+
+        let restored = JsfsBackupBundle::from_json_str(&json).expect("deserialize backup bundle");
+        assert_eq!(restored.bundle_version, "1.0");
+        assert_eq!(restored.saved_manuscripts.len(), 1);
+        assert_eq!(restored.shortlisted_keys.len(), 1);
+        assert_eq!(restored.saved_shortlist.len(), 1);
+        assert_eq!(restored.saved_shortlist[0].sinta, "2");
+        assert_eq!(restored.submission_tracks.len(), 1);
+        assert_eq!(restored.submission_tracks[0].status, "Submitted");
+    }
+
+    #[test]
+    fn test_saved_shortlist_persistence() {
+        let dir = std::env::temp_dir().join(format!("jsfs_shortlist_test_{}", std::process::id()));
+        let path = dir.join("saved_shortlist.json");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let items = vec![
+            crate::models::UiJournalItem {
+                nama: "Jurnal Rekayasa Sistem".to_string(),
+                penerbit: "Universitas Negeri".to_string(),
+                url: "https://jrs.example.ac.id".to_string(),
+                sinta: "2".to_string(),
+                apc_label: "Rp 0".to_string(),
+                ..Default::default()
+            },
+            crate::models::UiJournalItem {
+                nama: "Jurnal Sains Komputer".to_string(),
+                penerbit: "Institut Teknologi".to_string(),
+                url: "https://jsk.example.ac.id".to_string(),
+                sinta: "3".to_string(),
+                apc_label: "Rp 500.000".to_string(),
+                ..Default::default()
+            },
+        ];
+
+        save_saved_shortlist_to(&path, &items).expect("save shortlist");
+        let loaded = load_saved_shortlist_from(&path);
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded[0].nama, "Jurnal Rekayasa Sistem");
+        assert_eq!(loaded[0].sinta, "2");
+        assert_eq!(loaded[1].nama, "Jurnal Sains Komputer");
+        assert_eq!(loaded[1].apc_label, "Rp 500.000");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

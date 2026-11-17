@@ -22,6 +22,8 @@ pub enum DospenPageAction {
     None,
     OpenDetail(UiJournalItem),
     ExportDosbingDocx(Vec<UiJournalItem>),
+    ExportDospenApprovalDocx(Vec<UiJournalItem>),
+    ExportRevisionMatrix(UiJournalItem),
     ExportBundleZip(UiJournalItem),
     SaveTrack(SubmissionTrack),
 }
@@ -82,16 +84,87 @@ fn render_compare_section(
         });
         card_divider(ui, p);
 
-        if shortlisted.len() < 2 {
+        if shortlisted.is_empty() {
             ui.label(
                 RichText::new(if is_en {
-                    "Star 2 to 4 candidate journals (★) in Journal Search or Detail Workspace to compare them side by side."
+                    "Star 2 to 4 candidate journals (★) in Search Journals or Detail & Paper to compare them side by side."
                 } else {
-                    "Tandai 2–4 jurnal kandidat dengan ikon bintang ★ di Pencarian Jurnal atau Detail & Persiapan untuk melihat perbandingan berdampingan."
+                    "Tandai 2–4 jurnal kandidat dengan ikon bintang ★ di Cari Jurnal atau Detail & Naskah untuk melihat perbandingan berdampingan."
                 })
                 .size(12.5)
                 .color(p.muted),
             );
+            return;
+        }
+
+        if shortlisted.len() == 1 {
+            let j = &shortlisted[0];
+            Frame::new()
+                .fill(p.control_bg)
+                .stroke(Stroke::new(1.0, p.line))
+                .corner_radius(CornerRadius::same(8))
+                .inner_margin(Margin::same(12))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(&j.nama).size(14.0).strong().color(p.text));
+                        pill_badge(ui, &format_accreditation_text(j), p.accent, p.accent_soft);
+                    });
+                    ui.label(
+                        RichText::new(format!("{} • {}", j.penerbit, j.sumber))
+                            .size(11.5)
+                            .color(p.muted),
+                    );
+                    ui.add_space(8.0);
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spacing_mut().item_spacing.x = 16.0;
+                        ui.label(
+                            RichText::new(format!("Biaya Publikasi: {}", j.apc_label))
+                                .size(12.0)
+                                .color(p.text),
+                        );
+                        ui.label(
+                            RichText::new(format!("Jadwal Terbit: {}", j.jadwal_terbit))
+                                .size(12.0)
+                                .color(p.text),
+                        );
+                        let match_fg = if j.match_score >= 70.0 {
+                            p.good
+                        } else if j.match_score >= 45.0 {
+                            p.warn
+                        } else {
+                            p.muted
+                        };
+                        ui.label(
+                            RichText::new(format!("Skor Kecocokan: {:.0}%", j.match_score))
+                                .size(12.0)
+                                .color(match_fg),
+                        );
+                        if !j.turnaround_label.trim().is_empty() {
+                            ui.label(
+                                RichText::new(format!("Lama Review: {}", j.turnaround_label))
+                                    .size(12.0)
+                                    .color(p.muted),
+                            );
+                        }
+                    });
+                });
+            ui.add_space(10.0);
+            Frame::new()
+                .fill(p.accent_soft)
+                .stroke(Stroke::new(1.0, p.accent))
+                .corner_radius(CornerRadius::same(7))
+                .inner_margin(Margin::symmetric(12, 9))
+                .show(ui, |ui| {
+                    ui.label(
+                        RichText::new(if is_en {
+                            "💡 Star 1 to 3 more candidate journals with the ★ icon in Search Journals to compare them side by side."
+                        } else {
+                            "💡 Tandai 1–3 jurnal kandidat lagi dengan ikon ★ di Cari Jurnal untuk membandingkannya secara berdampingan."
+                        })
+                        .size(12.0)
+                        .color(p.accent),
+                    );
+                });
             return;
         }
 
@@ -472,6 +545,24 @@ pub fn render_dospen_page(
                 {
                     action = DospenPageAction::ExportDosbingDocx(shortlisted.clone());
                 }
+
+                if ui
+                    .add_enabled_ui(!shortlisted.is_empty(), |ui| {
+                        secondary_button(
+                            ui,
+                            p,
+                            if is_en {
+                                "Supervisor Approval Sheet (.docx)"
+                            } else {
+                                "Lembar Persetujuan Dospen (.docx)"
+                            },
+                        )
+                    })
+                    .inner
+                    .clicked()
+                {
+                    action = DospenPageAction::ExportDospenApprovalDocx(shortlisted.clone());
+                }
             });
         });
 
@@ -535,6 +626,30 @@ pub fn render_dospen_page(
                 if !tracker_keys.contains(tk) {
                     tracker_keys.push(tk.clone());
                 }
+            }
+
+            let active_sub_count = app_state.active_submissions_count();
+            if active_sub_count >= 2 {
+                Frame::new()
+                    .fill(p.bad_soft)
+                    .stroke(Stroke::new(1.2, p.bad))
+                    .corner_radius(CornerRadius::same(8))
+                    .inner_margin(Margin::symmetric(12, 10))
+                    .show(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(
+                                RichText::new(if is_en {
+                                    format!("⚠️ Academic Ethics Warning: {active_sub_count} journals currently marked as active (Submitted / Under Review / Revision). Submitting the same manuscript to more than one journal simultaneously violates international academic publication ethics and risks editor blacklisting.")
+                                } else {
+                                    format!("⚠️ Peringatan Etika Akademik: Terdeteksi {active_sub_count} jurnal berstatus aktif (Submitted / Under Review / Revision). Mengirim 1 naskah yang sama ke lebih dari satu jurnal secara bersamaan melanggar etika publikasi ilmiah & sanksi blacklist redaksi.")
+                                })
+                                .size(12.0)
+                                .strong()
+                                .color(p.bad),
+                            );
+                        });
+                    });
+                ui.add_space(8.0);
             }
 
             if tracker_keys.is_empty() {
@@ -643,6 +758,26 @@ pub fn render_dospen_page(
                                             "English Follow-Up Email copied.".to_string(),
                                         ));
                                     }
+                                    if entry.status == "Revision"
+                                        && secondary_button_h(
+                                            ui,
+                                            p,
+                                            if is_en {
+                                                "Revision Matrix (.docx)"
+                                            } else {
+                                                "Unduh Matriks Revisi (.docx)"
+                                            },
+                                            26.0,
+                                        )
+                                        .on_hover_text(if is_en {
+                                            "Generate 3-column academic Response to Reviewers Matrix (.docx)"
+                                        } else {
+                                            "Buat dokumen Word Matriks Revisi 3 kolom untuk respon reviewer"
+                                        })
+                                        .clicked()
+                                    {
+                                        action = DospenPageAction::ExportRevisionMatrix(j.clone());
+                                    }
                                     if secondary_button_h(ui, p, "Buka di Detail", 26.0).clicked() {
                                         action = DospenPageAction::OpenDetail(j.clone());
                                     }
@@ -668,6 +803,15 @@ pub fn render_dospen_page(
                         });
 
                     if changed_now {
+                        if matches!(entry.status.trim(), "Submitted" | "Under Review" | "Revision")
+                            && active_sub_count >= 1
+                        {
+                            sink.send(EngineEvent::Toast(if is_en {
+                                "⚠️ Ethics Notice: Another journal is already active. Avoid simultaneous multiple submissions!".to_string()
+                            } else {
+                                "⚠️ Peringatan Etika: Terdeteksi jurnal aktif lain. Hindari pengiriman ganda (dual-submission)!".to_string()
+                            }));
+                        }
                         action = DospenPageAction::SaveTrack(entry.clone());
                     }
                     ui.add_space(8.0);

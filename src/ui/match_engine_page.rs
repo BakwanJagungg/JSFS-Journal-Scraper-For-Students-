@@ -8,9 +8,7 @@ use crate::engine::ai_ops::{
 use crate::engine::{EngineState, EventSink};
 use crate::ui::i18n::{t, AppLanguage};
 use crate::ui::state::MatcherFormState;
-use crate::ui::theme::{
-    accent_button, card, card_divider, page_header, pill_badge, secondary_button, Palette,
-};
+use crate::ui::theme::{accent_button, card, card_divider, pill_badge, secondary_button, Palette};
 use egui::{CornerRadius, Frame, Margin, ProgressBar, RichText, ScrollArea, Sense, Stroke, Ui};
 use std::sync::Arc;
 
@@ -80,7 +78,26 @@ pub fn render_match_engine_page(
     sink: &EventSink,
 ) {
     let txt = t(lang);
-    page_header(ui, p, txt.match_title, txt.match_subtitle);
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        ui.label(
+            RichText::new(txt.match_title)
+                .size(21.0)
+                .strong()
+                .color(p.text),
+        );
+        let badge_txt = if matches!(lang, AppLanguage::En) {
+            "Active by Default"
+        } else {
+            "Otomatis Aktif"
+        };
+        pill_badge(ui, badge_txt, p.good, p.good_soft);
+    });
+    if !txt.match_subtitle.is_empty() {
+        ui.add_space(2.0);
+        ui.label(RichText::new(txt.match_subtitle).size(13.5).color(p.muted));
+    }
+    ui.add_space(10.0);
 
     ScrollArea::vertical().show(ui, |ui| {
         if mode_card(

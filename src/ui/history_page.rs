@@ -23,6 +23,7 @@ pub enum HistoryPageAction {
     None,
     LoadHistoryResults(usize),
     ApplyHistoryFilter(usize),
+    DeleteHistoryEntry(usize),
 }
 
 fn scope_label_localized(scope: ExportScope, lang: AppLanguage) -> &'static str {
@@ -356,6 +357,35 @@ pub fn render_history_page(
             });
             card_divider(ui, p);
 
+            let is_en = matches!(lang, AppLanguage::En);
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("🔍").size(12.0).color(p.muted));
+                ui.add_sized(
+                    [ui.available_width().min(260.0), 26.0],
+                    egui::TextEdit::singleline(&mut app_state.history_filter)
+                        .hint_text(if is_en { "Search history topics..." } else { "Cari riwayat topik..." }),
+                );
+                if !app_state.history_filter.is_empty() && secondary_button(ui, p, "✕").clicked() {
+                    app_state.history_filter.clear();
+                }
+            });
+            ui.add_space(6.0);
+
+            let filter_query = app_state.history_filter.trim().to_ascii_lowercase();
+            let matched_entries: Vec<(usize, &SearchHistoryEntry)> = search_history
+                .iter()
+                .enumerate()
+                .filter(|(_, entry)| {
+                    if filter_query.is_empty() {
+                        true
+                    } else {
+                        entry.keyword.to_ascii_lowercase().contains(&filter_query)
+                            || entry.filter_summary.to_ascii_lowercase().contains(&filter_query)
+                            || entry.timestamp.to_ascii_lowercase().contains(&filter_query)
+                    }
+                })
+                .collect();
+
             if search_history.is_empty() {
                 ui.label(
                     RichText::new(
@@ -364,8 +394,18 @@ pub fn render_history_page(
                     .size(12.0)
                     .color(p.muted),
                 );
+            } else if matched_entries.is_empty() {
+                ui.label(
+                    RichText::new(if is_en {
+                        "No search history matches your filter."
+                    } else {
+                        "Tidak ada riwayat pencarian yang cocok dengan kata kunci pencarian Anda."
+                    })
+                    .size(12.0)
+                    .color(p.muted),
+                );
             } else {
-                for (idx, entry) in search_history.iter().enumerate() {
+                for (real_idx, entry) in matched_entries {
                     Frame::new()
                         .fill(p.control_bg)
                         .stroke(Stroke::new(1.0, p.line))
@@ -403,26 +443,30 @@ pub fn render_history_page(
                                 );
 
                                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    if secondary_button(ui, p, if is_en { "Delete" } else { "Hapus" })
+                                        .on_hover_text(if is_en { "Remove this search session from history" } else { "Hapus sesi pencarian ini dari riwayat" })
+                                        .clicked()
+                                    {
+                                        action = HistoryPageAction::DeleteHistoryEntry(real_idx);
+                                    }
                                     if secondary_button(ui, p, txt.apply_filter_btn).clicked() {
-                                        action = HistoryPageAction::ApplyHistoryFilter(idx);
+                                        action = HistoryPageAction::ApplyHistoryFilter(real_idx);
                                     }
                                     if ui
                                         .add_enabled_ui(!entry.records.is_empty(), |ui| {
-                                            accent_button(ui, p, txt.load_results_btn)
+                                             accent_button(ui, p, txt.load_results_btn)
                                         })
                                         .inner
                                         .clicked()
                                     {
-                                        action = HistoryPageAction::LoadHistoryResults(idx);
+                                        action = HistoryPageAction::LoadHistoryResults(real_idx);
                                     }
                                 });
                             });
                             ui.add_space(4.0);
                             pill_badge(ui, &entry.filter_summary, p.muted, p.card_bg);
                         });
-                    if idx + 1 < search_history.len() {
-                        ui.add_space(6.0);
-                    }
+                    ui.add_space(6.0);
                 }
             }
         });

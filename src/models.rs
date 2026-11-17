@@ -873,9 +873,9 @@ pub fn compute_submission_readiness(
     checklist.push((
         topic_ok,
         if is_en {
-            format!("Topic relevance (BM25): {:.0}%", item.match_score)
+            format!("Topic Relevance: {:.0}%", item.match_score)
         } else {
-            format!("Kesesuaian topik (BM25): {:.0}%", item.match_score)
+            format!("Kecocokan Topik Naskah: {:.0}%", item.match_score)
         },
     ));
 

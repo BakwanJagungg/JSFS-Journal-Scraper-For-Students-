@@ -7,6 +7,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.12.1] - 2026-11-17
+
+### Fixed
+- **Persistensi Permanen Favorit Shortlist (`src/config.rs`, `src/ui/state.rs`, `src/ui/mod.rs`, `src/ui/settings_page.rs`)**:
+  - Menyimpan seluruh item jurnal bertanda bintang `★` ke `.cache/saved_shortlist.json` secara instan setiap kali bintang diklik di tabel pencarian, halaman detail, maupun pembanding shortlist.
+  - Memuat otomatis data shortlist saat aplikasi pertama kali dibuka (*cold start*), sehingga badge menu `3. Shortlist & Dospen` dan daftar kandidat langsung terisi tanpa harus mengulang pencarian.
+  - Mengintegrasikan item shortlist tersimpan ke dalam cadangan data lokal `JsfsBackupBundle` pada menu Pengaturan.
+
+---
+
+## [4.12.0] - 2026-11-17
+
+### Added
+- **Kartu Aksi Cepat Beranda Kosong (*Quick-Start Onboarding Cards*) (`src/ui/search_page.rs`)**:
+  - Menampilkan 3 kartu panduan pemula saat hasil pencarian masih kosong: **Target Skripsi S1 (SINTA 3–5)**, **Cari Jurnal Gratis (Rp 0)**, dan **Unggah Naskah Word / PDF**.
+- **Pemandu Lanjut Otomatis Setelah Unggah Naskah (*Post-Upload Action Bar*) (`src/ui/search_page.rs`)**:
+  - Tombol 1-klik **Cari Jurnal Cocok Sekarang** di dalam kartu naskah untuk langsung mengisi kata kunci topik naskah teratas dan menjalankan pencarian instan.
+- **Penanda Jurnal Pernah Dilihat (*Visited Indicator*) (`src/ui/search_page.rs`, `src/ui/state.rs`)**:
+  - Menandai jurnal yang sudah pernah dibuka halaman detailnya dengan badge abu-abu halus `[Dilihat]` agar pengguna tidak mengulang evaluasi jurnal yang sama.
+- **Toggle Kepadatan Baris Tabel (*Table Density Toggle*) (`src/ui/search_page.rs`, `src/ui/state.rs`)**:
+  - Pilihan mode **Padat (Compact)** untuk efisiensi layar laptop dan **Lega (Spacious)** untuk kenyamanan membaca.
+- **Pintasan Keyboard Global (*Productivity Shortcuts*) (`src/ui/mod.rs`, `src/ui/search_page.rs`)**:
+  - `Ctrl+K`: Langsung fokus ke kolom input pencarian utama.
+  - `Esc`: Membersihkan pencarian atau menutup dialog/modal yang aktif.
+  - `Ctrl+E`: Membuka file ekspor Excel terakhir yang dihasilkan.
+- **Pencegah Submisi Ganda (*Double-Submission Ethics Guard*) (`src/ui/dospen_page.rs`)**:
+  - Banner peringatan etika publikasi COPE (*Committee on Publication Ethics*) jika terdeteksi lebih dari 1 jurnal berstatus *Submitted* atau *Under Review* secara bersamaan.
+- **Generator Dokumen Word OOXML Resmi (.docx) (`src/exporter/docx_writer.rs`, `src/ui/dospen_page.rs`, `src/engine/file_ops.rs`)**:
+  - **Matriks Revisi Reviewer (.docx)**: Template respon komentar reviewer dan revisi naskah yang muncul otomatis ketika jurnal berstatus *Revision*.
+  - **Lembar Persetujuan Dosen Pembimbing (.docx)**: Dokumen formal pengajuan publikasi skripsi/tesis lengkap dengan tanda tangan persetujuan dosbing.
+- **Filter Pencarian & Hapus Riwayat Sesi (`src/ui/history_page.rs`, `src/cache.rs`)**:
+  - Kolom pencarian instan riwayat penelusuran dan tombol hapus per sesi riwayat.
+- **Cadangan & Pemulihan Data Lokal (*Backup & Restore*) (`src/config.rs`, `src/ui/settings_page.rs`)**:
+  - Fitur ekspor dan impor seluruh konfigurasi lokal, riwayat pencarian, submission tracker, dan shortlist favorit ke dalam satu berkas `.json`.
+
+---
+
+## [4.11.1] - 2026-11-17
+
+### Improved
+- **Alur Kerja Bernomor di Sidebar & Label Ramah Pemula (`src/ui/i18n.rs`, `src/ui/sidebar.rs`, `src/ui/search_page.rs`, `src/ui/detail_page.rs`)**:
+  - Menomori 3 menu utama alur kerja di sidebar: **`1. Cari Jurnal`**, **`2. Detail & Naskah`**, dan **`3. Shortlist & Dospen`**.
+  - Menyederhanakan istilah teknis: *Biaya Publikasi* menggantikan *APC*, *Kecocokan Topik Naskah* menggantikan istilah rumus teknis.
+  - Menambahkan badge **`Otomatis Aktif`** pada Match Engine untuk memperjelas bahwa pencocokan BM25 berjalan langsung tanpa perlu konfigurasi AI eksternal.
+  - Kartu panduan kandidat tunggal di tab Shortlist saat baru 1 jurnal yang ditandai bintang `★`.
+  - Meringkas badge APC panjang pada tabel menjadi `Proteksi Bot` dan `Cek Web OJS` agar bebas terpotong pada resolusi kompak.
+
+---
+
+## [4.11.0] - 2026-11-16
+
+### Added
+- **Pemeriksa Pembaruan GitHub Otomatis di Latar Belakang (`src/engine/updater.rs`, `src/main.rs`, `src/ui/mod.rs`)**:
+  - Pengecekan versi rilis terbaru GitHub secara aman dan asinkron di latar belakang (*panic-safe*) dengan notifikasi popup unobtrusive dan dialog native Windows jika terjadi kendala startup.
+- **Menu Klik-Kanan Baris Tabel (*Context Menu*) (`src/ui/search_page.rs`)**:
+  - Klik kanan pada baris jurnal mana saja untuk langsung menyalin Nama, URL, ISSN, atau membuka website OJS.
+- **Tombol Reset Filter Cepat (`src/ui/search_page.rs`, `src/ui/state.rs`)**:
+  - Tombol 1-klik untuk mengembalikan seluruh filter pencarian ke pengaturan standar.
+
+### Improved
+- **Lebar Kolom Adaptif & Horizontal Scroll Guard (`src/ui/search_page.rs`, `src/main.rs`)**:
+  - Perhitungan lebar kolom adaptif berdasarkan lebar jendela yang tersedia (`table_w < 880.0 px`) untuk layar laptop 1366×768 dengan Windows scaling 125%.
+  - Pembungkus `egui::ScrollArea::horizontal()` mencegah kolom aksi kanan terpotong pada ukuran layar sekecil apa pun.
+  - Penyesuaian ukuran jendela minimum menjadi `860 × 600 px`.
+
+---
+
 ## [4.10.0] - 2026-11-16
 
 ### Added

@@ -55,6 +55,10 @@ pub struct AppState {
     pub active_track_edit: crate::cache::SubmissionTrack,
     pub similar_seed_name: Option<String>,
     pub update_check_status: Option<String>,
+    pub visited_journals: HashSet<String>,
+    pub compact_table: bool,
+    pub history_filter: String,
+    pub saved_shortlist_items: Vec<UiJournalItem>,
 }
 
 impl AppState {
@@ -77,9 +81,20 @@ impl AppState {
     pub fn toggle_bookmark(&mut self, item: &UiJournalItem) -> bool {
         let key = Self::bookmark_key(item);
         if !self.bookmarked_ids.remove(&key) {
-            self.bookmarked_ids.insert(key);
+            self.bookmarked_ids.insert(key.clone());
+            if !self
+                .saved_shortlist_items
+                .iter()
+                .any(|it| Self::bookmark_key(it) == key)
+            {
+                self.saved_shortlist_items.push(item.clone());
+            }
+            let _ = crate::config::save_saved_shortlist(&self.saved_shortlist_items);
             true
         } else {
+            self.saved_shortlist_items
+                .retain(|it| Self::bookmark_key(it) != key);
+            let _ = crate::config::save_saved_shortlist(&self.saved_shortlist_items);
             false
         }
     }
@@ -88,7 +103,23 @@ impl AppState {
         results.iter().filter(|it| self.is_bookmarked(it)).count()
     }
 
-    /// Collect unique shortlisted (`★`) items across search results and recent inspected journals.
+    pub fn mark_visited(&mut self, item: &UiJournalItem) {
+        self.visited_journals.insert(Self::bookmark_key(item));
+    }
+
+    pub fn is_visited(&self, item: &UiJournalItem) -> bool {
+        self.visited_journals.contains(&Self::bookmark_key(item))
+    }
+
+    pub fn active_submissions_count(&self) -> usize {
+        self.submission_tracks
+            .values()
+            .filter(|t| matches!(t.status.trim(), "Submitted" | "Under Review" | "Revision"))
+            .count()
+    }
+
+    /// Collect unique shortlisted (`★`) items across search results, recent inspected journals,
+    /// and permanently saved shortlist items from `.cache/saved_shortlist.json`.
     pub fn collect_shortlisted_items(
         &self,
         results: &[UiJournalItem],
@@ -97,6 +128,12 @@ impl AppState {
         let mut out = Vec::new();
         let mut seen = HashSet::new();
         for item in results.iter().chain(recent_inspected.iter()) {
+            let key = Self::bookmark_key(item);
+            if self.bookmarked_ids.contains(&key) && seen.insert(key) {
+                out.push(item.clone());
+            }
+        }
+        for item in &self.saved_shortlist_items {
             let key = Self::bookmark_key(item);
             if self.bookmarked_ids.contains(&key) && seen.insert(key) {
                 out.push(item.clone());
@@ -1104,5 +1141,75 @@ mod tests {
         assert_eq!(loaded_prof.len(), 1);
         assert_eq!(loaded_prof[0].name, "Skripsi AI");
         let _ = std::fs::remove_file(&prof_tmp);
+
+        // Test Double-Submission Guard detection
+        let mut state = AppState::default();
+        assert_eq!(state.active_submissions_count(), 0);
+
+        state.submission_tracks.insert(
+            "j1".to_string(),
+            crate::cache::SubmissionTrack {
+                journal_key: "j1".to_string(),
+                status: "Belum Dikirim".to_string(),
+                submitted_date: String::new(),
+                notes: String::new(),
+                updated_at: String::new(),
+            },
+        );
+        assert_eq!(state.active_submissions_count(), 0);
+
+        state.submission_tracks.insert(
+            "j2".to_string(),
+            crate::cache::SubmissionTrack {
+                journal_key: "j2".to_string(),
+                status: "Submitted".to_string(),
+                submitted_date: "2026-11-01".to_string(),
+                notes: String::new(),
+                updated_at: String::new(),
+            },
+        );
+        assert_eq!(state.active_submissions_count(), 1);
+
+        state.submission_tracks.insert(
+            "j3".to_string(),
+            crate::cache::SubmissionTrack {
+                journal_key: "j3".to_string(),
+                status: "Revision".to_string(),
+                submitted_date: "2026-10-15".to_string(),
+                notes: String::new(),
+                updated_at: String::new(),
+            },
+        );
+        assert_eq!(state.active_submissions_count(), 2);
+
+        // Test visited tracker
+        let item = UiJournalItem {
+            nama: "Jurnal Teknologi".to_string(),
+            url: "https://jt.example.ac.id".to_string(),
+            ..Default::default()
+        };
+        assert!(!state.is_visited(&item));
+        state.mark_visited(&item);
+        assert!(state.is_visited(&item));
+
+        // Test shortlist persistence and cross-session collection
+        let mut shortlist_state = AppState::default();
+        let item1 = UiJournalItem {
+            nama: "Jurnal Pertama".to_string(),
+            url: "https://p.example.ac.id".to_string(),
+            ..Default::default()
+        };
+        shortlist_state.toggle_bookmark(&item1);
+        assert_eq!(shortlist_state.saved_shortlist_items.len(), 1);
+        assert_eq!(shortlist_state.collect_shortlisted_items(&[], &[]).len(), 1);
+        assert_eq!(
+            shortlist_state.collect_shortlisted_items(&[], &[])[0].nama,
+            "Jurnal Pertama"
+        );
+
+        // Toggle off
+        shortlist_state.toggle_bookmark(&item1);
+        assert_eq!(shortlist_state.saved_shortlist_items.len(), 0);
+        assert_eq!(shortlist_state.collect_shortlisted_items(&[], &[]).len(), 0);
     }
 }

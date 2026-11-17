@@ -3,7 +3,7 @@
 
 use crate::engine::file_ops::open_url_with_feedback;
 use crate::engine::manuscript::ManuscriptSummary;
-use crate::engine::EventSink;
+use crate::engine::{EngineEvent, EventSink};
 use crate::models::UiJournalItem;
 use crate::ui::i18n::{t, AppLanguage};
 use crate::ui::state::{
@@ -150,6 +150,7 @@ pub fn render_search_page(
     apc_filter: &mut ApcFilter,
     sort_col: &mut SortColumn,
     sort_desc: &mut bool,
+    focus_search_input: &mut bool,
     sink: &EventSink,
 ) -> SearchPageAction {
     let mut action = SearchPageAction::None;
@@ -221,6 +222,10 @@ pub fn render_search_page(
                         .margin(Margin::symmetric(10, 7))
                         .hint_text(txt.keyword_hint),
                 );
+                if *focus_search_input {
+                    resp.request_focus();
+                    *focus_search_input = false;
+                }
                 if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                     enter_pressed = true;
                 }
@@ -466,6 +471,27 @@ pub fn render_search_page(
                         }
                     }
 
+                    let auto_search_lbl = if is_en {
+                        "🔍 Find Matching Journals Now"
+                    } else {
+                        "🔍 Cari Jurnal Cocok Sekarang"
+                    };
+                    if accent_button_h(ui, p, auto_search_lbl, 26.0).clicked() && !is_searching {
+                        let top_topics = chips.iter().take(3).cloned().collect::<Vec<_>>();
+                        if !top_topics.is_empty() {
+                            *keyword = top_topics.join(", ");
+                        }
+                        if let Ok(n) = target_text.trim().parse::<usize>() {
+                            filters.clamp_target(n);
+                        }
+                        action = SearchPageAction::StartSearch;
+                        sink.send(crate::engine::EngineEvent::Toast(if is_en {
+                            format!("Searching journals matching: {}", keyword)
+                        } else {
+                            format!("Mencari jurnal cocok untuk: {}", keyword)
+                        }));
+                    }
+
                     let use_all_lbl = if is_en {
                         "Use All Topics"
                     } else {
@@ -578,56 +604,202 @@ pub fn render_search_page(
         ui.set_max_width((page_w - 24.0).max(480.0));
         if results.is_empty() {
             ui.vertical_centered(|ui| {
-                ui.add_space(28.0);
+                ui.add_space(20.0);
                 ui.label(
-                    RichText::new("Temukan Jurnal SINTA & Garuda dalam Hitungan Detik")
-                        .size(17.0)
-                        .strong()
-                        .color(p.text),
+                    RichText::new(if is_en {
+                        "Quick-Start: Choose Your Student Workflow"
+                    } else {
+                        "Mulai Cepat: Pilih Alur Pencarian Mahasiswa"
+                    })
+                    .size(17.0)
+                    .strong()
+                    .color(p.text),
                 );
                 ui.add_space(4.0);
                 ui.label(
-                    RichText::new("Ketik bidang penelitian di atas, pilih preset mahasiswa, lalu klik Mulai Cari Jurnal.")
-                        .size(12.5)
-                        .color(p.muted),
+                    RichText::new(if is_en {
+                        "Click any quick-action card below or type your research topic in the bar above."
+                    } else {
+                        "Klik salah satu kartu aksi 1-klik di bawah atau ketik topik penelitian pada kolom di atas."
+                    })
+                    .size(12.5)
+                    .color(p.muted),
                 );
-                ui.add_space(14.0);
+                ui.add_space(16.0);
                 ui.columns(3, |cols| {
-                    for (idx, (num, head, body)) in [
-                        (
-                            "1",
-                            "Topik atau Naskah",
-                            "Isi topik riset (target 1-1000) atau lampirkan naskah .docx/.pdf.",
-                        ),
-                        (
-                            "2",
-                            "Audit Keaktifan & APC",
-                            "Zero-trap scanner memverifikasi halaman biaya OJS & tahun edisi terakhir.",
-                        ),
-                        (
-                            "3",
-                            "Ekspor & Kontak Editor",
-                            "Buka detail jurnal, salin draf WA ke editor, atau ekspor otomatis ke Excel.",
-                        ),
-                    ]
-                    .into_iter()
-                    .enumerate()
-                    {
-                        Frame::new()
-                            .fill(p.control_bg)
-                            .stroke(Stroke::new(1.0, p.line))
-                            .corner_radius(CornerRadius::same(8))
-                            .inner_margin(Margin::same(10))
-                            .show(&mut cols[idx], |ui| {
-                                ui.set_min_width(ui.available_width());
-                                pill_badge(ui, &format!("Langkah {num}"), p.accent, p.accent_soft);
-                                ui.add_space(4.0);
-                                ui.label(RichText::new(head).size(12.5).strong().color(p.text));
-                                ui.label(RichText::new(body).size(11.5).color(p.muted));
-                            });
+                    // Card 1: Target Skripsi S1 (SINTA 3-5)
+                    let card1_resp = Frame::new()
+                        .fill(p.control_bg)
+                        .stroke(Stroke::new(1.0, p.line))
+                        .corner_radius(CornerRadius::same(10))
+                        .inner_margin(Margin::same(12))
+                        .show(&mut cols[0], |ui| {
+                            ui.set_min_width(ui.available_width());
+                            pill_badge(
+                                ui,
+                                if is_en { "🎓 Recommended S1" } else { "🎓 Target Skripsi S1" },
+                                p.accent,
+                                p.accent_soft,
+                            );
+                            ui.add_space(6.0);
+                            ui.label(
+                                RichText::new(if is_en {
+                                    "S1 Thesis Target (SINTA 3–5)"
+                                } else {
+                                    "Target Skripsi S1 (SINTA 3–5)"
+                                })
+                                .size(13.0)
+                                .strong()
+                                .color(p.text),
+                            );
+                            ui.label(
+                                RichText::new(if is_en {
+                                    "Applies S1 preset (SINTA 3–5, fast turnaround) and starts search instantly."
+                                } else {
+                                    "Terapkan preset SINTA 3–5 dengan review bersahabat & langsung mulai cari."
+                                })
+                                .size(11.5)
+                                .color(p.muted),
+                            );
+                            ui.add_space(8.0);
+                            ui.label(
+                                RichText::new(if is_en { "→ Start 1-Click Search" } else { "→ Mulai Cari 1-Klik" })
+                                    .size(11.5)
+                                    .strong()
+                                    .color(p.accent),
+                            );
+                        })
+                        .response
+                        .interact(Sense::click());
+
+                    if card1_resp.clicked() && !is_searching {
+                        filters.apply_preset(QuickPreset::SkripsiS1);
+                        *target_text = filters.target_count.to_string();
+                        if keyword.trim().is_empty() {
+                            *keyword = "Sistem Informasi".to_string();
+                        }
+                        action = SearchPageAction::StartSearch;
+                        sink.send(crate::engine::EngineEvent::Toast(if is_en {
+                            "Applied S1 Thesis Preset & searching...".to_string()
+                        } else {
+                            "Preset Skripsi S1 aktif & memulai pencarian...".to_string()
+                        }));
+                    }
+
+                    // Card 2: Cari Jurnal Gratis (Rp 0)
+                    let card2_resp = Frame::new()
+                        .fill(p.control_bg)
+                        .stroke(Stroke::new(1.0, p.line))
+                        .corner_radius(CornerRadius::same(10))
+                        .inner_margin(Margin::same(12))
+                        .show(&mut cols[1], |ui| {
+                            ui.set_min_width(ui.available_width());
+                            pill_badge(
+                                ui,
+                                if is_en { "💎 Free (Rp 0 APC)" } else { "💎 Bebas Biaya (Rp 0)" },
+                                p.good,
+                                p.good_soft,
+                            );
+                            ui.add_space(6.0);
+                            ui.label(
+                                RichText::new(if is_en {
+                                    "Free Journals (Rp 0 APC)"
+                                } else {
+                                    "Cari Jurnal Gratis (Rp 0)"
+                                })
+                                .size(13.0)
+                                .strong()
+                                .color(p.text),
+                            );
+                            ui.label(
+                                RichText::new(if is_en {
+                                    "Filter zero-fee Diamond Open Access journals without any APC fees."
+                                } else {
+                                    "Saring jurnal Diamond Open Access tanpa biaya APC sepeserpun untuk mahasiswa."
+                                })
+                                .size(11.5)
+                                .color(p.muted),
+                            );
+                            ui.add_space(8.0);
+                            ui.label(
+                                RichText::new(if is_en { "→ Search Free Journals" } else { "→ Cari Jurnal Bebas Biaya" })
+                                    .size(11.5)
+                                    .strong()
+                                    .color(p.good),
+                            );
+                        })
+                        .response
+                        .interact(Sense::click());
+
+                    if card2_resp.clicked() && !is_searching {
+                        filters.apply_preset(QuickPreset::JurnalGratis);
+                        *target_text = filters.target_count.to_string();
+                        if keyword.trim().is_empty() {
+                            *keyword = "Informatika".to_string();
+                        }
+                        action = SearchPageAction::StartSearch;
+                        sink.send(crate::engine::EngineEvent::Toast(if is_en {
+                            "Applied Free Journals Filter & searching...".to_string()
+                        } else {
+                            "Filter Jurnal Gratis Rp 0 aktif & memulai pencarian...".to_string()
+                        }));
+                    }
+
+                    // Card 3: Unggah Naskah Word / PDF
+                    let card3_resp = Frame::new()
+                        .fill(p.control_bg)
+                        .stroke(Stroke::new(1.0, p.line))
+                        .corner_radius(CornerRadius::same(10))
+                        .inner_margin(Margin::same(12))
+                        .show(&mut cols[2], |ui| {
+                            ui.set_min_width(ui.available_width());
+                            pill_badge(
+                                ui,
+                                if is_en { "📄 Auto-Match Doc" } else { "📄 Cocokkan Naskah" },
+                                p.warn,
+                                p.warn_soft,
+                            );
+                            ui.add_space(6.0);
+                            ui.label(
+                                RichText::new(if is_en {
+                                    "Upload Manuscript (Word/PDF)"
+                                } else {
+                                    "Unggah Naskah Word / PDF"
+                                })
+                                .size(13.0)
+                                .strong()
+                                .color(p.text),
+                            );
+                            ui.label(
+                                RichText::new(if is_en {
+                                    "Extracts title, keywords, and word count 100% locally in RAM (Zero Upload)."
+                                } else {
+                                    "Pencocokan judul, abstrak, dan ekstraksi kata kunci 100% lokal di RAM."
+                                })
+                                .size(11.5)
+                                .color(p.muted),
+                            );
+                            ui.add_space(8.0);
+                            ui.label(
+                                RichText::new(if is_en { "→ Browse File (.docx/.pdf)" } else { "→ Pilih Berkas (.docx/.pdf)" })
+                                    .size(11.5)
+                                    .strong()
+                                    .color(p.warn),
+                            );
+                        })
+                        .response
+                        .interact(Sense::click());
+
+                    if card3_resp.clicked() {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("Dokumen Naskah", &["docx", "pdf"])
+                            .pick_file()
+                        {
+                            action = SearchPageAction::PickManuscript(path);
+                        }
                     }
                 });
-                ui.add_space(24.0);
+                ui.add_space(20.0);
             });
         } else {
 
@@ -698,6 +870,64 @@ pub fn render_search_page(
             }
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                // Tombol Reset Filter — tampil jika ada filter non-default aktif
+                let has_active_filters = filters.only_open_submission
+                    || filters.only_free
+                    || filters.min_rp > 0
+                    || filters.max_rp < 1_500_000
+                    || filters.months.iter().any(|&m| !m)
+                    || filters.max_turnaround_weeks > 0
+                    || filters.target_deadline_month > 0;
+                if has_active_filters {
+                    let reset_btn = egui::Button::new(
+                        RichText::new("↺ Reset").size(11.5).color(p.warn),
+                    )
+                    .fill(p.warn_soft)
+                    .stroke(Stroke::new(1.0, p.warn))
+                    .corner_radius(CornerRadius::same(7));
+                    if ui
+                        .add(reset_btn)
+                        .on_hover_text("Kembalikan semua filter ke pengaturan default")
+                        .clicked()
+                    {
+                        let saved_target = filters.target_count;
+                        let saved_usd = filters.usd_to_idr;
+                        let saved_currency = filters.display_currency;
+                        let saved_portals = (
+                            filters.garuda,
+                            filters.sinta_src,
+                            filters.openalex,
+                            filters.doaj,
+                        );
+                        *filters = FilterSettings::default();
+                        filters.target_count = saved_target;
+                        filters.usd_to_idr = saved_usd;
+                        filters.display_currency = saved_currency;
+                        filters.garuda = saved_portals.0;
+                        filters.sinta_src = saved_portals.1;
+                        filters.openalex = saved_portals.2;
+                        filters.doaj = saved_portals.3;
+                        sink.send(EngineEvent::Toast(
+                            "Filter dikembalikan ke default.".to_string(),
+                        ));
+                    }
+                }
+                let density_btn_lbl = if app_state.compact_table {
+                    if is_en { "Compact" } else { "Padat" }
+                } else {
+                    if is_en { "Spacious" } else { "Lega" }
+                };
+                if secondary_button(ui, p, density_btn_lbl)
+                    .on_hover_text(if is_en {
+                        "Toggle row density: Compact (42px) vs Spacious (58px)"
+                    } else {
+                        "Ganti kerapatan baris: Padat (42px) vs Lega (58px)"
+                    })
+                    .clicked()
+                {
+                    app_state.compact_table = !app_state.compact_table;
+                }
+
                 if secondary_button(ui, p, "Excel")
                     .on_hover_text("Buka file Excel hasil pencarian terakhir")
                     .clicked()
@@ -761,7 +991,13 @@ pub fn render_search_page(
                 .id_salt("results_h_scroll")
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    let fixed_w = 80.0 + 62.0 + 144.0 + 170.0 + 146.0;
+                    let (col_sinta, col_match, col_apc, col_activity, col_action) =
+                        if table_w < 880.0 {
+                            (72.0_f32, 52.0, 126.0, 148.0, 132.0) // compact
+                        } else {
+                            (80.0_f32, 62.0, 144.0, 170.0, 146.0) // standard
+                        };
+                    let fixed_w = col_sinta + col_match + col_apc + col_activity + col_action;
                     let col0_w = (table_w - fixed_w).max(220.0);
                     let table = TableBuilder::new(ui)
                         .striped(true)
@@ -770,11 +1006,11 @@ pub fn render_search_page(
                         .max_scroll_height(avail_h)
                         .cell_layout(Layout::left_to_right(Align::Center))
                         .column(Column::exact(col0_w).clip(true))
-                        .column(Column::exact(80.0))
-                        .column(Column::exact(62.0))
-                        .column(Column::exact(144.0))
-                        .column(Column::exact(170.0))
-                        .column(Column::exact(146.0));
+                        .column(Column::exact(col_sinta))
+                        .column(Column::exact(col_match))
+                        .column(Column::exact(col_apc))
+                        .column(Column::exact(col_activity))
+                        .column(Column::exact(col_action));
 
             table
                 .header(28.0, |mut header| {
@@ -788,13 +1024,21 @@ pub fn render_search_page(
                     ] {
                         header.col(|ui| {
                             table_cell(ui, |ui| {
-                                ui.label(RichText::new(title).size(11.5).strong().color(p.muted));
+                                let resp = ui.label(RichText::new(title).size(11.5).strong().color(p.muted));
+                                if title == txt.col_apc {
+                                    resp.on_hover_text(if matches!(lang, AppLanguage::En) {
+                                        "APC (Article Processing Charge): publishing fee after manuscript acceptance"
+                                    } else {
+                                        "APC (Article Processing Charge): biaya penerbitan artikel setelah naskah diterima"
+                                    });
+                                }
                             });
                         });
                     }
                 })
                 .body(|body| {
-                    body.rows(62.0, filtered.len(), |mut row| {
+                    let row_h = if app_state.compact_table { 42.0 } else { 58.0 };
+                    body.rows(row_h, filtered.len(), |mut row| {
                         let real_idx = filtered[row.index()];
                         let item = &results[real_idx];
 
@@ -876,6 +1120,52 @@ pub fn render_search_page(
                                     if link_resp.clicked() {
                                         action = SearchPageAction::OpenDetail(real_idx);
                                     }
+                                    // Context menu (right-click) pada baris jurnal
+                                    link_resp.context_menu(|ui| {
+                                        ui.set_min_width(200.0);
+                                        if ui.button("🔍 Buka Detail & Persiapan").clicked() {
+                                            action = SearchPageAction::OpenDetail(real_idx);
+                                            ui.close();
+                                        }
+                                        let web_url = if item.url.starts_with("http") {
+                                            item.url.clone()
+                                        } else {
+                                            item.garuda_url.clone()
+                                        };
+                                        if ui.button("🌐 Buka Website OJS").clicked() {
+                                            open_url_with_feedback(&web_url, sink);
+                                            ui.close();
+                                        }
+                                        if ui.button("📋 Salin Link OJS").clicked() {
+                                            ui.ctx().copy_text(web_url.clone());
+                                            ui.close();
+                                        }
+                                        ui.separator();
+                                        let wa_text = format!(
+                                            "*{}*\nPenerbit: {}\nSINTA: {}\nAPC: {}\n{}",
+                                            item.nama,
+                                            item.penerbit,
+                                            if item.sinta.is_empty() { "-" } else { &item.sinta },
+                                            item.apc_label,
+                                            web_url,
+                                        );
+                                        if ui.button("💬 Salin Ringkasan WA").clicked() {
+                                            ui.ctx().copy_text(wa_text);
+                                            ui.close();
+                                        }
+                                        let starred = app_state.is_bookmarked(item);
+                                        if ui
+                                            .button(if starred {
+                                                "☆ Hapus dari Shortlist ★"
+                                            } else {
+                                                "★ Tandai ke Shortlist"
+                                            })
+                                            .clicked()
+                                        {
+                                            app_state.toggle_bookmark(item);
+                                            ui.close();
+                                        }
+                                    });
                                     let track_key =
                                         crate::cache::SubmissionTrack::canonical_key(
                                             &item.url,
@@ -896,10 +1186,16 @@ pub fn render_search_page(
                                         } else {
                                             String::new()
                                         };
+                                    let is_visited = app_state.is_visited(item);
+                                    let visited_prefix = if is_visited {
+                                        if is_en { "[Visited] • " } else { "[Dilihat] • " }
+                                    } else {
+                                        ""
+                                    };
                                     ui.add(
                                         egui::Label::new(
                                             RichText::new(format!(
-                                                "{} • {}{lang_suffix}{status_suffix}",
+                                                "{visited_prefix}{} • {}{lang_suffix}{status_suffix}",
                                                 item.penerbit, item.email_short
                                             ))
                                             .size(11.5)
@@ -956,7 +1252,32 @@ pub fn render_search_page(
                                     "paid" => (p.warn, p.warn_soft),
                                     _ => (p.muted, p.control_bg),
                                 };
-                                pill_badge(ui, &item.apc_label, fg, bg);
+                                let (disp_text, hover_hint): (&str, Option<&str>) =
+                                    if item.apc_label.contains("Proteksi Bot") {
+                                        (
+                                            "Proteksi Bot",
+                                            Some(
+                                                "Situs jurnal memakai perlindungan Cloudflare — klik Detail atau Web untuk membuka di browser",
+                                            ),
+                                        )
+                                    } else if item.apc_label.contains("Tidak dicantumkan") {
+                                        (
+                                            "Cek Web OJS",
+                                            Some(
+                                                "Nominal biaya tidak tertulis di halaman depan — periksa panduan penulis di web jurnal",
+                                            ),
+                                        )
+                                    } else {
+                                        (item.apc_label.as_str(), None)
+                                    };
+                                let badge_resp = ui
+                                    .scope(|ui| {
+                                        pill_badge(ui, disp_text, fg, bg);
+                                    })
+                                    .response;
+                                if let Some(hint) = hover_hint {
+                                    badge_resp.on_hover_text(hint);
+                                }
                             });
                         });
 

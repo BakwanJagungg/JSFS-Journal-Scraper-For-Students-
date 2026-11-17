@@ -3,6 +3,7 @@ pub mod cache_ops;
 pub mod file_ops;
 pub mod manuscript;
 pub mod search;
+pub mod updater;
 
 use crate::config::MatcherConfig;
 use crate::models::{JournalRecord, ManuscriptMeta, ProgressEvent, UiJournalItem};
@@ -50,6 +51,8 @@ pub enum EngineEvent {
     SingleUrlAnalyzed(Box<Result<UiJournalItem, String>>),
     FxRateUpdated(Result<i64, String>),
     Toast(String),
+    /// A newer version is available on GitHub: (tag_name, release_body_snippet)
+    UpdateAvailable(String, String),
 }
 
 /// Thread-safe event broadcaster that wakes the `egui` render loop immediately upon delivery.

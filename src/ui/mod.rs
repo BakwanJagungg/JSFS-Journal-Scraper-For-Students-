@@ -41,7 +41,6 @@ use egui::{Align2, CentralPanel, CornerRadius, Frame, Margin, Panel, RichText, S
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
-
 pub struct JsfsNativeApp {
     engine: Arc<EngineState>,
     sink: EventSink,
@@ -86,6 +85,13 @@ pub struct JsfsNativeApp {
 
     toast: Option<(String, Instant)>,
     fonts_loaded: bool,
+
+    focus_search_input: bool,
+
+    /// Notifikasi update GitHub: Some((tag, body_snippet)) jika versi lebih baru ditemukan.
+    update_banner: Option<(String, String)>,
+    update_dismissed: bool,
+    update_check_fired: bool,
 }
 
 impl JsfsNativeApp {
@@ -119,9 +125,17 @@ impl JsfsNativeApp {
                     .and_then(|db| db.load_all_submission_tracks().ok())
             })
             .unwrap_or_default();
+        let saved_shortlist = crate::config::load_saved_shortlist();
+        let mut bookmarked_ids = std::collections::HashSet::new();
+        for item in &saved_shortlist {
+            bookmarked_ids.insert(AppState::bookmark_key(item));
+        }
+
         let app_state = AppState {
             saved_profiles: load_saved_profiles(),
             submission_tracks,
+            saved_shortlist_items: saved_shortlist,
+            bookmarked_ids,
             ..Default::default()
         };
 
@@ -166,6 +180,10 @@ impl JsfsNativeApp {
             matcher_form: MatcherFormState::default(),
             toast: None,
             fonts_loaded: true,
+            focus_search_input: false,
+            update_banner: None,
+            update_dismissed: false,
+            update_check_fired: false,
         }
     }
 
@@ -395,6 +413,11 @@ impl JsfsNativeApp {
                 EngineEvent::Toast(msg) => {
                     self.set_toast(msg);
                 }
+                EngineEvent::UpdateAvailable(tag, body) => {
+                    if !self.update_dismissed {
+                        self.update_banner = Some((tag, body));
+                    }
+                }
             }
         }
 
@@ -414,6 +437,7 @@ impl JsfsNativeApp {
     }
 
     fn open_journal_detail(&mut self, item: UiJournalItem) {
+        self.app_state.mark_visited(&item);
         let key = AppState::bookmark_key(&item);
         self.recent_inspected
             .retain(|existing| AppState::bookmark_key(existing) != key);
@@ -467,6 +491,45 @@ impl eframe::App for JsfsNativeApp {
             self.fonts_loaded = true;
         }
         self.drain_events();
+
+        // Spawn update checker sekali saat startup
+        if !self.update_check_fired {
+            self.update_check_fired = true;
+            crate::engine::updater::spawn_update_check(self.sink.clone());
+        }
+
+        // Global Productivity Shortcuts: Ctrl+K, Esc, Ctrl+E
+        let (trigger_ctrl_k, trigger_esc, trigger_ctrl_e) = ui.ctx().input(|i| {
+            let ctrl_k = i.modifiers.command && i.key_pressed(egui::Key::K);
+            let esc = i.key_pressed(egui::Key::Escape);
+            let ctrl_e = i.modifiers.command && i.key_pressed(egui::Key::E);
+            (ctrl_k, esc, ctrl_e)
+        });
+
+        if trigger_ctrl_k {
+            self.current_page = NavPage::Search;
+            self.focus_search_input = true;
+        }
+        if trigger_esc && !self.table_filter.is_empty() {
+            self.table_filter.clear();
+        }
+        if trigger_ctrl_e {
+            if !self.results.is_empty() {
+                crate::engine::file_ops::open_excel_async(
+                    self.engine.clone(),
+                    self.sink.clone(),
+                    self.last_excel_path.clone(),
+                );
+            } else {
+                self.set_toast(
+                    if self.app_settings.language == crate::ui::i18n::AppLanguage::En {
+                        "No search results to export yet."
+                    } else {
+                        "Belum ada hasil pencarian untuk diekspor ke Excel."
+                    },
+                );
+            }
+        }
 
         let p = Palette::from_mode(self.theme_mode);
         let engine_ready = match self.ai_status.matcher_mode.as_str() {
@@ -528,7 +591,69 @@ impl eframe::App for JsfsNativeApp {
                     .fill(p.content_bg)
                     .inner_margin(Margin::symmetric(22, 14)),
             )
-            .show(ui, |ui| match self.current_page {
+            .show(ui, |ui| {
+                // â”€â”€ Banner update tersedia â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                if let Some((ref tag, ref body)) = self.update_banner.clone() {
+                    if !self.update_dismissed {
+                        Frame::new()
+                            .fill(p.accent_soft)
+                            .stroke(Stroke::new(1.4, p.accent))
+                            .corner_radius(CornerRadius::same(8))
+                            .inner_margin(Margin::symmetric(14, 10))
+                            .show(ui, |ui| {
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.label(
+                                        RichText::new(format!(
+                                            "ðŸš€ Pembaruan Tersedia: JSFS {tag}"
+                                        ))
+                                        .size(13.0)
+                                        .strong()
+                                        .color(p.accent),
+                                    );
+                                    if !body.trim().is_empty() {
+                                        ui.label(
+                                            RichText::new(format!("  â€¢  {body}"))
+                                                .size(11.5)
+                                                .color(p.text),
+                                        );
+                                    }
+                                    ui.with_layout(
+                                        egui::Layout::right_to_left(egui::Align::Center),
+                                        |ui| {
+                                            if ui
+                                                .small_button("âœ• Nanti Saja")
+                                                .on_hover_text("Sembunyikan notifikasi ini")
+                                                .clicked()
+                                            {
+                                                self.update_dismissed = true;
+                                            }
+                                            if ui
+                                                .add(
+                                                    egui::Button::new(
+                                                        RichText::new("â¬‡ Unduh Versi Baru")
+                                                            .size(12.0)
+                                                            .strong()
+                                                            .color(p.accent),
+                                                    )
+                                                    .fill(p.control_bg)
+                                                    .stroke(Stroke::new(1.2, p.accent)),
+                                                )
+                                                .clicked()
+                                            {
+                                                let url = "https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest";
+                                                crate::engine::file_ops::open_url_with_feedback(url, &self.sink);
+
+                                                self.update_dismissed = true;
+                                            }
+                                        },
+                                    );
+                                });
+                            });
+                        ui.add_space(8.0);
+                    }
+                }
+                // â”€â”€ Main content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                match self.current_page {
                 NavPage::Search => {
                     let act = render_search_page(
                         ui,
@@ -546,6 +671,7 @@ impl eframe::App for JsfsNativeApp {
                         &mut self.apc_filter,
                         &mut self.sort_col,
                         &mut self.sort_desc,
+                        &mut self.focus_search_input,
                         &self.sink,
                     );
                     match act {
@@ -748,6 +874,24 @@ impl eframe::App for JsfsNativeApp {
                                 self.app_settings.clone(),
                             );
                         }
+                        DospenPageAction::ExportDospenApprovalDocx(candidates) => {
+                            crate::engine::file_ops::export_dospen_approval_docx_async(
+                                self.engine.clone(),
+                                self.sink.clone(),
+                                candidates,
+                                self.manuscript.clone(),
+                                self.app_settings.clone(),
+                            );
+                        }
+                        DospenPageAction::ExportRevisionMatrix(j_item) => {
+                            crate::engine::file_ops::export_revision_matrix_docx_async(
+                                self.engine.clone(),
+                                self.sink.clone(),
+                                j_item,
+                                self.manuscript.clone(),
+                                self.app_settings.clone(),
+                            );
+                        }
                         DospenPageAction::ExportBundleZip(j_item) => {
                             crate::engine::file_ops::export_submission_bundle_async(
                                 self.engine.clone(),
@@ -875,6 +1019,23 @@ impl eframe::App for JsfsNativeApp {
                                 ));
                             }
                         }
+                        HistoryPageAction::DeleteHistoryEntry(idx) => {
+                            if idx < self.search_history.len() {
+                                let removed = self.search_history.remove(idx);
+                                let _ = crate::ui::state::save_search_history_to(
+                                    &crate::config::search_history_path(),
+                                    &self.search_history,
+                                );
+                                self.set_toast(format!(
+                                    "Riwayat sesi '{}' dihapus.",
+                                    if removed.keyword.is_empty() {
+                                        "(Tanpa kata kunci)"
+                                    } else {
+                                        &removed.keyword
+                                    }
+                                ));
+                            }
+                        }
                         HistoryPageAction::None => {}
                     }
                 }
@@ -887,6 +1048,7 @@ impl eframe::App for JsfsNativeApp {
                         &mut self.filters,
                         &mut self.usd_rate_text,
                         &mut self.fx_updating,
+                        &mut self.app_state,
                         &self.engine,
                         &self.sink,
                     );
@@ -894,7 +1056,8 @@ impl eframe::App for JsfsNativeApp {
                 NavPage::Guide => {
                     render_guide_page(ui, &p, self.app_settings.language, &self.sink);
                 }
-            });
+            } // end match self.current_page
+            }); // end CentralPanel show
 
         let cur_sig = (
             self.app_settings.display_currency,

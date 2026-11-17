@@ -401,9 +401,9 @@ fn render_right_detail_cards(
                 ui,
                 p,
                 if is_en {
-                    "Open OJS Web"
+                    "Open Journal Web"
                 } else {
-                    "Buka Web OJS"
+                    "Buka Web Jurnal"
                 },
             )
             .clicked()
@@ -415,9 +415,9 @@ fn render_right_detail_cards(
                     ui,
                     p,
                     if is_en {
-                        "Copy OJS Link"
+                        "Copy Journal Link"
                     } else {
-                        "Salin Link OJS"
+                        "Salin Link Jurnal"
                     },
                 )
                 .clicked()
@@ -704,16 +704,29 @@ fn render_right_detail_cards(
             (true, false) => format!("e-ISSN {}", j.eissn),
             (false, false) => format!("{} / e-ISSN {}", j.issn, j.eissn),
         };
-        info_kv(
-            ui,
-            p,
-            "ISSN / Validasi ISO 3297",
-            &if j.issn_valid {
-                format!("{issn_disp} (Valid)")
-            } else {
-                issn_disp
-            },
-        );
+        let issn_full = if j.issn_valid {
+            format!("{issn_disp} (Valid)")
+        } else {
+            issn_disp.clone()
+        };
+        // ISSN row dengan tombol Salin
+        ui.horizontal_wrapped(|ui| {
+            ui.label(
+                RichText::new("ISSN / Validasi ISO 3297:")
+                    .size(12.0)
+                    .color(p.muted),
+            );
+            ui.label(RichText::new(&issn_full).size(12.0).color(p.text));
+            if issn_disp != "-"
+                && ui
+                    .small_button("📋")
+                    .on_hover_text("Salin ISSN ke clipboard")
+                    .clicked()
+            {
+                ui.ctx().copy_text(issn_disp.clone());
+                sink.send(EngineEvent::Toast("ISSN disalin!".to_string()));
+            }
+        });
         if !j.extra_indexes.is_empty() {
             info_kv(ui, p, "Indeks Sekunder", &j.extra_indexes.join(", "));
         }

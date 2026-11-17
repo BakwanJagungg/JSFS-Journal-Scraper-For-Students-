@@ -367,6 +367,55 @@ pub fn export_dosbing_report_docx_async(
     );
 }
 
+pub fn export_dospen_approval_docx_async(
+    engine: Arc<EngineState>,
+    sink: EventSink,
+    candidates: Vec<UiJournalItem>,
+    manuscript: Option<crate::engine::manuscript::ManuscriptSummary>,
+    settings: crate::ui::i18n::AppSettings,
+) {
+    if candidates.is_empty() {
+        sink.send(EngineEvent::Toast(
+            "Tandai minimal 1 jurnal dengan bintang ★ untuk membuat Lembar Persetujuan Dospen (.docx)."
+                .to_string(),
+        ));
+        return;
+    }
+    let lang = settings.language;
+    spawn_output_saver(
+        engine,
+        sink,
+        "Lembar Persetujuan Dospen (.docx)",
+        move || {
+            let refs: Vec<&UiJournalItem> = candidates.iter().collect();
+            crate::exporter::docx_writer::save_dospen_approval_docx(
+                &refs,
+                manuscript.as_ref(),
+                Some(&settings),
+                lang,
+            )
+        },
+    );
+}
+
+pub fn export_revision_matrix_docx_async(
+    engine: Arc<EngineState>,
+    sink: EventSink,
+    journal: UiJournalItem,
+    manuscript: Option<crate::engine::manuscript::ManuscriptSummary>,
+    settings: crate::ui::i18n::AppSettings,
+) {
+    let lang = settings.language;
+    spawn_output_saver(engine, sink, "Matriks Revisi Reviewer (.docx)", move || {
+        crate::exporter::docx_writer::save_revision_matrix_docx(
+            &journal,
+            manuscript.as_ref(),
+            Some(&settings),
+            lang,
+        )
+    });
+}
+
 pub fn export_submission_ics_async(
     engine: Arc<EngineState>,
     sink: EventSink,
