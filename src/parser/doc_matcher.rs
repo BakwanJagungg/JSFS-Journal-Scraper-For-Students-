@@ -1015,7 +1015,15 @@ pub fn build_manuscript_meta(filename: &str, bytes: &[u8]) -> Result<ManuscriptM
     let extracted_text = if low.ends_with(".docx") {
         extract_text_from_docx_bytes(bytes)?
     } else if low.ends_with(".pdf") {
-        extract_text_from_pdf_bytes(bytes)?
+        let pdf_text = extract_text_from_pdf_bytes(bytes)?;
+        let trimmed = pdf_text.trim();
+        if trimmed.len() < 30 {
+            return Err(JsfsError::Document(
+                "Berkas PDF tidak memiliki lapisan teks (kemungkinan hasil scan gambar). Silakan unggah berkas .docx asli dari Microsoft Word."
+                    .to_string(),
+            ));
+        }
+        pdf_text
     } else {
         return Err(JsfsError::InvalidInput(
             "Hanya file .docx atau .pdf yang didukung".to_string(),

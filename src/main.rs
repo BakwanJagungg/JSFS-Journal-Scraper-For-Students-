@@ -116,7 +116,7 @@ fn main() -> eframe::Result<()> {
             config::APP_VERSION
         ))
         .with_inner_size([1240.0, 800.0])
-        .with_min_inner_size([920.0, 580.0]);
+        .with_min_inner_size([900.0, 520.0]);
 
     if let Some(icon) = load_app_icon() {
         viewport = viewport.with_icon(Arc::new(icon));

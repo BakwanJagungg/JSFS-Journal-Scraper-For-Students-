@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.13.1] - 2026-11-18
+
+### Added
+- **Validasi PDF Scan Ramah Mahasiswa (`src/engine/manuscript.rs`, `src/parser/doc_matcher.rs`)**:
+  - Deteksi otomatis berkas PDF tanpa lapisan teks (hasil scan foto atau halaman kosong) dengan pesan galat edukatif agar mahasiswa mengunggah berkas Word docx asli.
+  - Penambahan unit test verifikasi penolakan PDF kosong atau scan di modul engine manuscript.
+
+### Changed
+- **Tinggi Jendela Minimum Fleksibel 1366x768 (`src/main.rs`)**:
+  - Penyesuaian batas ukuran minimum jendela menjadi 900x520 piksel agar pas di atas Windows Taskbar pada laptop 14 inci beresolusi 1366x768 dengan Windows Display Scaling 125%.
+- **Panduan Windows SmartScreen pada Dokumentasi (`README.md`)**:
+  - Penambahan petunjuk praktis 2 baris bagi pengguna baru untuk melanjutkan pembukaan aplikasi saat dialog proteksi awal Windows Defender SmartScreen muncul.
+
+---
+
 ## [4.13.0] - 2026-11-17
 
 ### Added
