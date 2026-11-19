@@ -183,6 +183,8 @@ pub struct FetchOutcome {
     pub final_url: String,
     pub cloudflare_blocked: bool,
     pub timed_out: bool,
+    pub etag: Option<String>,
+    pub last_modified: Option<String>,
 }
 
 pub fn is_cloudflare_response(status: u16, server_header: &str, html: &str) -> bool {
@@ -239,6 +241,59 @@ pub fn is_disallowed_stream_headers(
     Ok(())
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct HostLatencyStats {
+    pub total_reqs: u32,
+    pub total_latency_ms: u64,
+    pub timeout_count: u32,
+    pub last_latency_ms: u64,
+    pub is_slow: bool,
+}
+
+static HOST_LATENCY_MAP: Lazy<DashMap<String, HostLatencyStats>> = Lazy::new(DashMap::new);
+
+/// Record latency or timeout for a given host URL during scraping sessions.
+pub fn record_host_latency(raw_url: &str, latency_ms: u64, is_timeout: bool) {
+    let Some(host) = DomainBreaker::host_key(raw_url) else {
+        return;
+    };
+    let mut entry = HOST_LATENCY_MAP.entry(host).or_default();
+    entry.total_reqs += 1;
+    entry.total_latency_ms = entry.total_latency_ms.saturating_add(latency_ms);
+    entry.last_latency_ms = latency_ms;
+    if is_timeout {
+        entry.timeout_count += 1;
+    }
+    // Slow host threshold: single response > 4000ms or >= 2 timeouts or avg > 3500ms
+    let avg = entry.total_latency_ms / (entry.total_reqs as u64).max(1);
+    if latency_ms > 4000 || entry.timeout_count >= 2 || (entry.total_reqs >= 2 && avg > 3500) {
+        entry.is_slow = true;
+    }
+}
+
+/// Check if a host has been identified as slow (> 4,000 ms or repeated timeouts).
+pub fn is_slow_host(raw_url: &str) -> bool {
+    let Some(host) = DomainBreaker::host_key(raw_url) else {
+        return false;
+    };
+    if let Some(entry) = HOST_LATENCY_MAP.get(&host) {
+        entry.is_slow
+    } else {
+        false
+    }
+}
+
+/// Reset host latency tracking (for tests or new search runs).
+pub fn reset_host_latency_tracker() {
+    HOST_LATENCY_MAP.clear();
+}
+
+/// Get latency stats for a host.
+pub fn get_host_latency_stats(raw_url: &str) -> Option<HostLatencyStats> {
+    let host = DomainBreaker::host_key(raw_url)?;
+    HOST_LATENCY_MAP.get(&host).map(|e| e.clone())
+}
+
 /// Stream HTML up to `MAX_HTML_BYTES` (1.5 MB / <= 2 MB header guard) with strict wall-clock timeout,
 /// DomainBreaker protection, and polite per-host rate limiting.
 pub async fn safe_fetch_html(
@@ -246,6 +301,19 @@ pub async fn safe_fetch_html(
     breaker: &DomainBreaker,
     url: &str,
     per_req_timeout: Duration,
+) -> Result<FetchOutcome, String> {
+    safe_fetch_html_conditional(client, breaker, url, per_req_timeout, None, None).await
+}
+
+/// Conditional variant of `safe_fetch_html` sending `If-None-Match` and `If-Modified-Since`
+/// headers for HTTP 304 cache validation.
+pub async fn safe_fetch_html_conditional(
+    client: &reqwest::Client,
+    breaker: &DomainBreaker,
+    url: &str,
+    per_req_timeout: Duration,
+    if_none_match: Option<&str>,
+    if_modified_since: Option<&str>,
 ) -> Result<FetchOutcome, String> {
     if let Some(health) = breaker.is_blocked(url) {
         return Err(match health {
@@ -258,26 +326,56 @@ pub async fn safe_fetch_html(
     let ua = next_user_agent();
 
     let req_fut = async {
-        let resp = client
+        let mut builder = client
             .get(url)
             .header(reqwest::header::USER_AGENT, ua)
             .header(
                 "Accept",
                 "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             )
-            .header("Accept-Language", "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7")
-            .send()
-            .await
-            .map_err(|e| {
-                if e.is_timeout() {
-                    "timeout".to_string()
-                } else {
-                    format!("connect:{e}")
-                }
-            })?;
+            .header("Accept-Language", "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7");
+
+        if let Some(etag) = if_none_match {
+            builder = builder.header(reqwest::header::IF_NONE_MATCH, etag);
+        }
+        if let Some(last_mod) = if_modified_since {
+            builder = builder.header(reqwest::header::IF_MODIFIED_SINCE, last_mod);
+        }
+
+        let resp = builder.send().await.map_err(|e| {
+            if e.is_timeout() {
+                "timeout".to_string()
+            } else {
+                format!("connect:{e}")
+            }
+        })?;
 
         let status = resp.status().as_u16();
         let final_url = resp.url().to_string();
+
+        let resp_etag = resp
+            .headers()
+            .get(reqwest::header::ETAG)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+        let resp_last_mod = resp
+            .headers()
+            .get(reqwest::header::LAST_MODIFIED)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+
+        if status == 304 {
+            return Ok(FetchOutcome {
+                status: 304,
+                html: String::new(),
+                final_url,
+                cloudflare_blocked: false,
+                timed_out: false,
+                etag: resp_etag,
+                last_modified: resp_last_mod,
+            });
+        }
+
         let server_hdr = resp
             .headers()
             .get(reqwest::header::SERVER)
@@ -314,10 +412,29 @@ pub async fn safe_fetch_html(
             final_url,
             cloudflare_blocked: cf,
             timed_out: false,
+            etag: resp_etag,
+            last_modified: resp_last_mod,
         })
     };
 
-    match tokio::time::timeout(per_req_timeout, req_fut).await {
+    let effective_timeout = if is_slow_host(url) {
+        per_req_timeout.min(Duration::from_millis(4500))
+    } else {
+        per_req_timeout
+    };
+
+    let start_t = std::time::Instant::now();
+    let res = tokio::time::timeout(effective_timeout, req_fut).await;
+    let elapsed_ms = start_t.elapsed().as_millis() as u64;
+
+    let is_timeout = match &res {
+        Ok(Err(e)) if e == "timeout" => true,
+        Err(_) => true,
+        _ => false,
+    };
+    record_host_latency(url, elapsed_ms, is_timeout);
+
+    match res {
         Ok(Ok(outcome)) => {
             breaker.record(url, DomainHealth::Healthy);
             Ok(outcome)
@@ -369,5 +486,31 @@ mod tests {
         assert_eq!(next_user_agent(), POLITE_BOT_USER_AGENT);
         set_polite_bot_mode(false);
         assert!(next_user_agent().contains("Mozilla/5.0"));
+    }
+
+    #[test]
+    fn test_slow_host_deprioritization_tracker() {
+        reset_host_latency_tracker();
+        let fast_url = "https://fast-journal.ac.id/index.php/jti";
+        let slow_url = "https://slow-campus.ac.id/journal/index";
+
+        // Fast host: 250ms latency
+        record_host_latency(fast_url, 250, false);
+        assert!(!is_slow_host(fast_url));
+
+        // Slow host: > 4000ms latency
+        record_host_latency(slow_url, 4200, false);
+        assert!(is_slow_host(slow_url));
+
+        let stats = get_host_latency_stats(slow_url).expect("stats present");
+        assert_eq!(stats.last_latency_ms, 4200);
+        assert!(stats.is_slow);
+
+        // Repeated timeouts make host slow
+        let timeout_url = "https://timeout-journal.org/index";
+        record_host_latency(timeout_url, 1500, true);
+        assert!(!is_slow_host(timeout_url));
+        record_host_latency(timeout_url, 1600, true);
+        assert!(is_slow_host(timeout_url));
     }
 }

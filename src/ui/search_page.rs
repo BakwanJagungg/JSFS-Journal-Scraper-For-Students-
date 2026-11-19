@@ -817,6 +817,57 @@ pub fn render_search_page(
         }
         let bm_count = app_state.bookmarked_count(results);
 
+        // Auto-Query Expansion banner when results are few (< 5 journals)
+        if !is_searching && results.len() < 5 && !keyword.trim().is_empty() {
+            let suggestions = crate::parser::doc_matcher::suggest_expanded_queries(keyword);
+            if !suggestions.is_empty() {
+                ui.add_space(4.0);
+                egui::Frame::new()
+                    .fill(p.warn_soft)
+                    .corner_radius(CornerRadius::same(6))
+                    .inner_margin(Margin::symmetric(10, 6))
+                    .show(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(
+                                RichText::new(if matches!(lang, AppLanguage::En) {
+                                    "Few results? Expand search to:"
+                                } else {
+                                    "Hasil sedikit? Perluas pencarian ke:"
+                                })
+                                .size(12.0)
+                                .strong()
+                                .color(p.warn),
+                            );
+                            for (idx, sug) in suggestions.iter().enumerate() {
+                                if idx > 0 {
+                                    ui.label(RichText::new("|").size(12.0).color(p.muted));
+                                }
+                                let btn = egui::Button::new(
+                                    RichText::new(format!("[{sug}]"))
+                                        .size(12.0)
+                                        .strong()
+                                        .color(p.accent),
+                                )
+                                .frame(false);
+                                if ui
+                                    .add(btn)
+                                    .on_hover_text(if matches!(lang, AppLanguage::En) {
+                                        "Click to search with this expanded query"
+                                    } else {
+                                        "Klik untuk langsung mencari kata kunci ini"
+                                    })
+                                    .clicked()
+                                {
+                                    *keyword = sug.clone();
+                                    action = SearchPageAction::StartSearch;
+                                }
+                            }
+                        });
+                    });
+                ui.add_space(6.0);
+            }
+        }
+
         // Table Toolbar
         ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new(txt.results_heading).size(14.5).strong().color(p.text));
@@ -870,7 +921,7 @@ pub fn render_search_page(
             }
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                // Tombol Reset Filter — tampil jika ada filter non-default aktif
+                // Tombol Reset Filter: tampil jika ada filter non-default aktif
                 let has_active_filters = filters.only_open_submission
                     || filters.only_free
                     || filters.min_rp > 0
@@ -1257,14 +1308,14 @@ pub fn render_search_page(
                                         (
                                             "Proteksi Bot",
                                             Some(
-                                                "Situs jurnal memakai perlindungan Cloudflare — klik Detail atau Web untuk membuka di browser",
+                                                "Situs jurnal memakai perlindungan Cloudflare: klik Detail atau Web untuk membuka di browser",
                                             ),
                                         )
                                     } else if item.apc_label.contains("Tidak dicantumkan") {
                                         (
                                             "Cek Web OJS",
                                             Some(
-                                                "Nominal biaya tidak tertulis di halaman depan — periksa panduan penulis di web jurnal",
+                                                "Nominal biaya tidak tertulis di halaman depan: periksa panduan penulis di web jurnal",
                                             ),
                                         )
                                     } else {

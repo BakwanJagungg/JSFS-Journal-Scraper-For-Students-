@@ -73,9 +73,17 @@ static RE_SUBMISSION_FREE_STRIP: Lazy<Regex> = Lazy::new(|| {
     .expect("valid regex")
 });
 
+// Optional hardcopy print fees (eksemplar cetak / print edition) are not online open-access APCs.
+static RE_PRINT_FEE_STRIP: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"(?is)(?:eksemplar\s+cetak|versi\s+cetak|cetak\s+fisik|hardcopy(?:\s+print)?|hard\s+copy|printed\s+(?:version|copy|edition)|print\s+(?:version|edition|copy))[^.!?\n;]{0,160}?(?:(?:rp\.?|idr)\s*[\d.,]+|[\d.,]+\s*idr|\$\s*[\d.,]+|[\d.,]+\s*usd)",
+    )
+    .expect("valid regex")
+});
+
 static RE_PUB_FREE_STRICT: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r"(?is)(?:(?:article\s+publication(?:\s+(?:fees?|charges?))?|article\s+processing\s+charges?|apc|publication\s+(?:fees?|charges?)|publishing\s+(?:fees?|charges?)|biaya\s+(?:publikasi|penerbitan|cetak|pengelolaan|pemrosesan\s+artikel)|kontribusi\s+penulis|page\s+charges?)\s*[:=\-]?\s*(?:(?:rp\.?|idr)\s*0(?:[,.]00)?|0(?:[,.]00)?\s*(?:\(?idr\)?|\(?rp\.?\)?|\(?usd\)?|\$)?|gratis|free|none|tidak\s+(?:dipungut|dikenakan|ada)\s*biaya|bebas\s*biaya(?:\s+publikasi)?|tanpa\s*biaya|free\s*of\s*charge)\b|(?:free\s*of\s*charge|no\s+(?:publication\s+|apc\s+)?fees?|no\s+charge(?:\s+for\s+apc)?|tidak\s+(?:dipungut|dikenakan)\s*biaya|tanpa\s*biaya|bebas\s*biaya(?:\s+publikasi)?)\s*(?:for|to|pada|untuk)?\s*(?:publication|publishing|publish|publikasi|penerbitan|authors?|apc)\b|(?:publication|publishing|biaya\s+publikasi|jurnal\s+ini)\s+(?:is|adalah|bersifat|sebesar)?\s*(?:free|gratis|bebas\s*biaya(?:\s+publikasi)?|tanpa\s*biaya|free\s*of\s*charge)|(?:bebas\s+biaya\s+publikasi|tidak\s+dipungut\s+biaya\s+(?:publikasi|penerbitan)?))",
+        r"(?is)(?:(?:article\s+publication(?:\s+online)?(?:\s+(?:fees?|charges?))?|article\s+processing\s+charges?|apc|publication\s+(?:fees?|charges?)|publishing\s+(?:fees?|charges?)|biaya\s+(?:publikasi(?:\s+online)?|penerbitan(?:\s+online)?|cetak|pengelolaan|pemrosesan\s+artikel)|kontribusi\s+penulis|page\s+charges?)\s*(?:[:=\-]|adalah|sebesar|is)?\s*(?:(?:rp\.?|idr)\s*0(?:[,.]00)?|0(?:[,.]00)?\s*(?:\(?idr\)?|\(?rp\.?\)?|\(?usd\)?|\$)?|gratis|free|none|tidak\s+(?:dipungut|dikenakan|ada)\s*biaya|bebas\s*biaya(?:\s+publikasi)?|tanpa\s*biaya|free\s*of\s*charge)\b|(?:free\s*of\s*charge|no\s+(?:publication\s+|apc\s+)?fees?|no\s+charge(?:\s+for\s+apc)?|tidak\s+(?:dipungut|dikenakan)\s*biaya|tanpa\s*biaya|bebas\s*biaya(?:\s+publikasi)?)\s*(?:for|to|pada|untuk)?\s*(?:publication|publishing|publish|publikasi|penerbitan|authors?|apc)\b|(?:publication|publishing|biaya\s+publikasi(?:\s+online)?|jurnal\s+ini)\s+(?:is|adalah|bersifat|sebesar)?\s*(?:(?:rp\.?|idr)\s*0(?:[,.]00)?|0(?:[,.]00)?|free|gratis|bebas\s*biaya(?:\s+publikasi)?|tanpa\s*biaya|free\s*of\s*charge)|(?:bebas\s+biaya\s+publikasi|tidak\s+dipungut\s+biaya\s+(?:publikasi|penerbitan)?))",
     )
     .expect("valid regex")
 });
@@ -541,7 +549,8 @@ pub fn parse_apc_with_evidence(raw_text: &str) -> (ApcParsed, String) {
     }
 
     let penalty_cleaned = RE_WITHDRAWAL_PENALTY_STRIP.replace_all(raw_text, " ");
-    let historical_cleaned = RE_HISTORICAL_FREE_STRIP.replace_all(&penalty_cleaned, " ");
+    let print_cleaned = RE_PRINT_FEE_STRIP.replace_all(&penalty_cleaned, " ");
+    let historical_cleaned = RE_HISTORICAL_FREE_STRIP.replace_all(&print_cleaned, " ");
     let paid_candidates = collect_paid_candidates(&historical_cleaned);
 
     if let Some(reg) = paid_candidates.iter().find(|c| !c.is_fast_track) {
@@ -553,7 +562,7 @@ pub fn parse_apc_with_evidence(raw_text: &str) -> (ApcParsed, String) {
         return (reg.parsed.clone(), ev);
     }
 
-    let free_scan = sanitize_free_traps(raw_text);
+    let free_scan = sanitize_free_traps(&print_cleaned);
     if let Some(m) = RE_PUB_FREE_STRICT.find(&free_scan) {
         let ev = extract_sentence_evidence(&free_scan, m.start(), m.end());
         return (ApcParsed::Free, ev);

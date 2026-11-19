@@ -3,7 +3,7 @@
 //! - Feature #2: Article Language Detection (`ID`, `EN`, `ID & EN`) & Manuscript Template URL (`.docx`/`.doc`)
 //! - Feature #6: Predatory / Hijacked Journal Risk Detector (`evaluate_journal_risk`)
 
-use crate::models::JournalRecord;
+use crate::models::{ApcConfidence, JournalRecord};
 use crate::scraper::dedup::normalize_issn_key;
 use chrono::NaiveDate;
 use once_cell::sync::Lazy;
@@ -580,6 +580,174 @@ pub fn has_valid_issn_pair(issn: &str, eissn: &str) -> bool {
     found_any
 }
 
+/// Compute token Jaccard similarity (0.0 to 1.0) between two journal titles
+/// to detect hijacked journals or severe title mismatches.
+pub fn jaccard_token_similarity(a: &str, b: &str) -> f32 {
+    let stop = [
+        "and",
+        "dan",
+        "of",
+        "the",
+        "in",
+        "for",
+        "on",
+        "journal",
+        "jurnal",
+        "indonesian",
+        "international",
+    ];
+    let get_tokens = |s: &str| -> std::collections::HashSet<String> {
+        s.split(|c: char| !c.is_alphanumeric())
+            .map(|w| w.trim().to_ascii_lowercase())
+            .filter(|w| w.len() >= 2 && !stop.contains(&w.as_str()))
+            .collect()
+    };
+    let set_a = get_tokens(a);
+    let set_b = get_tokens(b);
+    if set_a.is_empty() && set_b.is_empty() {
+        return 1.0;
+    }
+    if set_a.is_empty() || set_b.is_empty() {
+        return 0.0;
+    }
+    let intersection = set_a.intersection(&set_b).count();
+    let union = set_a.union(&set_b).count();
+    if union == 0 {
+        return 0.0;
+    }
+    (intersection as f32) / (union as f32)
+}
+
+/// Check if one title is an abbreviation / acronym of another (e.g. "BEEI" vs "Bulletin of Electrical Engineering and Informatics").
+pub fn is_acronym_match(a: &str, b: &str) -> bool {
+    let clean_a = a.trim().to_ascii_lowercase();
+    let clean_b = b.trim().to_ascii_lowercase();
+    let (short, long) = if clean_a.len() <= 8 && clean_b.contains(' ') {
+        (clean_a.as_str(), clean_b.as_str())
+    } else if clean_b.len() <= 8 && clean_a.contains(' ') {
+        (clean_b.as_str(), clean_a.as_str())
+    } else {
+        return false;
+    };
+
+    let stopwords = [
+        "of", "and", "the", "in", "for", "dan", "di", "ke", "dari", "&", "-",
+    ];
+    let words: Vec<&str> = long
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
+
+    if words.is_empty() {
+        return false;
+    }
+
+    // 1. Initials (full and non-stopword)
+    let full_acr: String = words.iter().filter_map(|w| w.chars().next()).collect();
+    let non_stop_acr: String = words
+        .iter()
+        .filter(|w| !stopwords.contains(&w.to_ascii_lowercase().as_str()))
+        .filter_map(|w| w.chars().next())
+        .collect();
+
+    if full_acr == short
+        || full_acr.contains(short)
+        || non_stop_acr == short
+        || non_stop_acr.contains(short)
+    {
+        return true;
+    }
+
+    // 2. Subsequence of initials (e.g. BEEI in boeeai)
+    let mut chars = full_acr.chars();
+    if short.chars().all(|sc| chars.any(|fc| fc == sc)) {
+        return true;
+    }
+
+    // 3. High overlap with initials (e.g. JTIEMB vs JTIEB where 5 of 6 initials match)
+    let matched_initials = short.chars().filter(|&sc| full_acr.contains(sc)).count();
+    matched_initials >= 3 && (matched_initials as f64 / short.len() as f64) >= 0.75
+}
+
+/// Evaluate APC confidence level (High, Medium, NeedsCheck) and extract evidence snippet
+/// using a +/-120 char context window and +3/-3 keyword weights.
+pub fn score_apc_confidence(text: &str, candidate_pos: usize) -> (ApcConfidence, String) {
+    let len = text.len();
+    let start = candidate_pos.saturating_sub(120);
+    let end = (candidate_pos + 120).min(len);
+    let mut safe_start = start;
+    while safe_start < candidate_pos && !text.is_char_boundary(safe_start) {
+        safe_start += 1;
+    }
+    let mut safe_end = end;
+    while safe_end > candidate_pos && !text.is_char_boundary(safe_end) {
+        safe_end -= 1;
+    }
+    let window = &text[safe_start..safe_end];
+    let low = window.to_ascii_lowercase();
+
+    let mut score: i32 = 0;
+
+    // Positive keywords (+3)
+    let positives = [
+        "apc",
+        "article processing charge",
+        "publication fee",
+        "publication charge",
+        "author fee",
+        "biaya publikasi",
+        "biaya penerbitan",
+        "biaya pemrosesan",
+        "free of charge",
+        "no publication fee",
+        "tidak dipungut biaya",
+        "bebas biaya",
+        "author contribution",
+    ];
+    for pos in positives {
+        if low.contains(pos) {
+            score += 3;
+        }
+    }
+
+    // Negative keywords (-3)
+    let negatives = [
+        "fast track",
+        "fast-track",
+        "cetak",
+        "hardcopy",
+        "print",
+        "langganan",
+        "subscription",
+        "withdrawal",
+        "revisi",
+        "denda",
+    ];
+    for neg in negatives {
+        if low.contains(neg) {
+            score -= 3;
+        }
+    }
+
+    let confidence = if score >= 3 {
+        ApcConfidence::High
+    } else if score >= 0 {
+        ApcConfidence::Medium
+    } else {
+        ApcConfidence::NeedsCheck
+    };
+
+    let snippet = window.split_whitespace().collect::<Vec<_>>().join(" ");
+    let snippet_clean = if snippet.chars().count() > 140 {
+        let cut: String = snippet.chars().take(137).collect();
+        format!("{cut}...")
+    } else {
+        snippet
+    };
+
+    (confidence, snippet_clean)
+}
+
 /// Extract major secondary indexing badges/links mentioned on an OJS site (`DOAJ`, `Scopus`, `EBSCO`, `Copernicus`, `Google Scholar`).
 pub fn extract_extra_indexes(html_or_text: &str) -> Vec<String> {
     let mut out = Vec::new();
@@ -1142,5 +1310,46 @@ mod tests {
             extract_editor_in_chief("About the Journal and Editorial Team"),
             None
         );
+    }
+
+    #[test]
+    fn test_jaccard_token_similarity_and_acronym() {
+        // High similarity match
+        let t1 = "Bulletin of Electrical Engineering and Informatics";
+        let t2 = "Bulletin of Electrical Engineering and Informatics";
+        assert!((jaccard_token_similarity(t1, t2) - 1.0).abs() < 1e-4);
+
+        // Low similarity mismatch (Hijacked journal indicator)
+        let t3 = "International Journal of Electrical Science";
+        let t4 = "Agronomy and Veterinary Medical Journal";
+        assert!(jaccard_token_similarity(t3, t4) < 0.35);
+
+        // Acronym match
+        assert!(is_acronym_match(
+            "BEEI",
+            "Bulletin of Electrical Engineering and Informatics"
+        ));
+        assert!(is_acronym_match(
+            "JTIEMB",
+            "Jurnal Teknologi Informasi Ekonomi dan Bisnis"
+        ));
+        assert!(!is_acronym_match(
+            "XYZ",
+            "Bulletin of Electrical Engineering and Informatics"
+        ));
+    }
+
+    #[test]
+    fn test_score_apc_confidence() {
+        let text_high = "Author Fee and Article Processing Charge (APC): Publication fee for accepted manuscripts is IDR 1.500.000,- paid upon acceptance.";
+        let pos = text_high.find("1.500.000").unwrap();
+        let (conf_high, snippet) = score_apc_confidence(text_high, pos);
+        assert_eq!(conf_high, ApcConfidence::High);
+        assert!(snippet.contains("1.500.000"));
+
+        let text_low = "Fast track revision and print hardcopy version costs Rp 750.000.";
+        let pos2 = text_low.find("750.000").unwrap();
+        let (conf_low, _) = score_apc_confidence(text_low, pos2);
+        assert_eq!(conf_low, ApcConfidence::NeedsCheck);
     }
 }

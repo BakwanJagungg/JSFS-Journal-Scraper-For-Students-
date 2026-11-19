@@ -246,6 +246,7 @@ fn render_compare_section(
                                 j,
                                 manuscript.map(|m| m.word_count),
                                 manuscript.map(|m| m.imrad_complete),
+                                manuscript.and_then(|m| m.detected_citation_style.as_deref()),
                                 is_en,
                             );
                             ui.allocate_ui([col_width, 28.0].into(), |ui| {

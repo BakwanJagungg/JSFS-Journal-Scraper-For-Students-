@@ -451,7 +451,7 @@ pub fn render_settings_page(
             field_row(
                 ui,
                 "NIM / NIDN",
-                "Opsional — contoh: 21051204001",
+                "Opsional (contoh: 21051204001)",
                 &mut app_settings.author_id,
             );
             field_row(

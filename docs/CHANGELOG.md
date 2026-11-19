@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.14.1] - 2026-11-19
+
+### Added
+- **Optimasi Performa Puncak dan Slow Host Deprioritization (`src/scraper/mod.rs`)**:
+  - Pelacakan latensi respons per domain OJS untuk memprioritaskan server kampus yang responsif dan mendeprioritaskan domain lambat ke antrean sekunder.
+- **Auto Query Expansion Saat Hasil Pencarian Minim (`src/parser/heuristics.rs`, `src/ui/search_page.rs`)**:
+  - Rekomendasi kueri alternatif bilingual, penyesuaian kata dasar, dan perluasan bidang saat hasil pencarian kurang dari 5 jurnal dengan tombol aksi 1 klik.
+- **Deteksi Gaya Sitasi Naskah Dominan APA vs IEEE (`src/parser/doc_matcher.rs`, `src/models.rs`, `src/ui/detail_page.rs`)**:
+  - Pindai otomatis pola sitasi naskah (numerik IEEE vs nama tahun APA) dengan komparasi kesesuaian gaya penulisan pada jurnal target.
+- **Salin 5 Referensi Terbaru Jurnal Target (`src/scraper/international.rs`, `src/ui/detail_page.rs`)**:
+  - Tombol 1 klik untuk menyalin 5 referensi artikel terbaru jurnal sasaran ke clipboard dalam format sitasi standar untuk memperkuat daftar pustaka naskah.
+- **Suite Pengujian Ekstrem 100 Skenario (`tests/stress_test_100x.rs`)**:
+  - Uji otomatis 100 skenario mencakup 60 variasi 15 bidang keilmuan, 25 uji skala besar 10 hingga 1.000 jurnal, dan 15 skenario ketahanan parser OJS.
+
+---
+
+## [4.14.0] - 2026-11-19
+
+### Added
+- **Fallback XML OAI-PMH dan Web Feed Atom RSS (`src/scraper/ojs_deep.rs`)**:
+  - Ekstraksi metadata artikel dan tahun aktif terbit melalui endpoint standar OAI-PMH dan Atom Feed saat HTML OJS kustom tidak menyediakan arsip standar.
+- **Triangulasi Metadata ISSN Lintas Sumber (`src/scraper/international.rs`)**:
+  - Validasi metadata jurnal berstatus Proteksi Bot menggunakan OpenAlex, DOAJ, dan Crossref untuk melengkapi data frekuensi, reputasi, dan status publikasi.
+- **HTTP Conditional Caching ETag dan Last Modified (`src/cache.rs`)**:
+  - Efisiensi bandwidth dan percepatan penelusuran ulang dengan pemanfaatan header HTTP 304 Not Modified.
+- **Bilingual Stemmer ID EN dan Bigram BM25 Matcher (`src/parser/heuristics.rs`, `src/engine/search.rs`)**:
+  - Pencocokan topik naskah dwibahasa (Indonesia dan Inggris) menggunakan analisis imbuhan kata dasar serta frasa 2 kata (*bigram*) untuk akurasi rekomendasi yang lebih tajam.
+- **Skor Konfidensi APC Context Window (`src/parser/apc.rs`)**:
+  - Penilaian tingkat keyakinan biaya publikasi berdasarkan konteks paragraf OJS dan pencegahan jebakan biaya cetak fisik (*print fee decoy*).
+- **Deteksi Ketidaksinkronan Jurnal dan Potensi Hijacked (`src/models.rs`, `src/scraper/ojs_deep.rs`, `src/ui/detail_page.rs`)**:
+  - Peringatan dini etika dan integritas jurnal apabila nama domain atau metadata terdaftar berbeda secara signifikan dari identitas resmi pangkalan data.
+
+---
+
 ## [4.13.1] - 2026-11-18
 
 ### Added
@@ -46,7 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Kartu Aksi Cepat Beranda Kosong (*Quick-Start Onboarding Cards*) (`src/ui/search_page.rs`)**:
-  - Menampilkan 3 kartu panduan pemula saat hasil pencarian masih kosong: **Target Skripsi S1 (SINTA 3–5)**, **Cari Jurnal Gratis (Rp 0)**, dan **Unggah Naskah Word / PDF**.
+  - Menampilkan 3 kartu panduan pemula saat hasil pencarian masih kosong: **Target Skripsi S1 (SINTA 3-5)**, **Cari Jurnal Gratis (Rp 0)**, dan **Unggah Naskah Word / PDF**.
 - **Pemandu Lanjut Otomatis Setelah Unggah Naskah (*Post-Upload Action Bar*) (`src/ui/search_page.rs`)**:
   - Tombol 1-klik **Cari Jurnal Cocok Sekarang** di dalam kartu naskah untuk langsung mengisi kata kunci topik naskah teratas dan menjalankan pencarian instan.
 - **Penanda Jurnal Pernah Dilihat (*Visited Indicator*) (`src/ui/search_page.rs`, `src/ui/state.rs`)**:
@@ -167,7 +201,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Anti-Block Shield & OJS 2->3 Redirect Detector (`src/scraper/mod.rs`, `src/scraper/ojs_deep.rs`, `src/parser/heuristics.rs`)**:
   - Added per-host rate limiting with random jitter, browser User-Agent rotation (*Mode Bot Akademik Sopan*), automatic OJS 2->3 redirect detection, Cloudflare `403`/`503` protection flagging, and `2 MB` streaming abort guards.
 - **Academic Integrity & Extra Indexing (`src/parser/heuristics.rs`, `src/models.rs`)**:
-  - Added pure ISO 3297 ISSN Modulo-11 checksum validation, cloned/suspicious domain checks, `Readiness` scoring (`0–100%`), and extra index detection (DOAJ, Scopus, Copernicus, Google Scholar, Crossref).
+  - Added pure ISO 3297 ISSN Modulo-11 checksum validation, cloned/suspicious domain checks, `Readiness` scoring (`0-100%`), and extra index detection (DOAJ, Scopus, Copernicus, Google Scholar, Crossref).
 - **Smart Cache Hit, Author Profile & 1-Click Submission Bundle (`src/engine/search.rs`, `src/exporter/bundle.rs`, `src/ui/settings_page.rs`)**:
   - Reused fresh incomplete/cached metadata during Phase 2 deep crawl, added persistent **Profil Penulis** (`name`, `affiliation`, `email`, `orcid`, `study_program`), originality statement generator, and 1-click `.zip` submission bundle export.
 
@@ -177,7 +211,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Multi-Topic Manuscript Chips (`src/models.rs`, `src/engine/manuscript.rs`, `src/parser/doc_matcher.rs`, `src/ui/search_page.rs`)**:
-  - Added `recommended_topics: Vec<String>` extracted via `extract_recommended_topics` (and helper `push_topic_chip`) into clickable short 1–2 word topic chips alongside a **Gunakan Semua Topik / Use All Topics** action.
+  - Added `recommended_topics: Vec<String>` extracted via `extract_recommended_topics` (and helper `push_topic_chip`) into clickable short 1-2 word topic chips alongside a **Gunakan Semua Topik / Use All Topics** action.
 - **Submission Status (CFP), Follow-Up Editor & Graduation Target Lead-Time (`src/parser/heuristics.rs`, `src/scraper/ojs_deep.rs`, `src/exporter/templates.rs`, `src/ui/detail_modal.rs`)**:
   - Added `submission_open: Option<bool>` detected via `extract_submission_open` inside `ojs_deep::absorb_page`, surfaced as `Open Submit / CFP` or `Registrasi Tutup` badges and rows in `detail_modal.rs`.
   - Added `generate_followup_email` in `templates.rs` with one-click **Follow-Up (ID)** and **Follow-Up (EN)** copy actions in the Submission Tracker, plus **Saran Target Wisuda** lead-time guidance.
@@ -235,13 +269,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [4.3.0] - 2026-11-15
 
 ### Added
-- **Official International Q1–Q4 Discovery via OpenAlex & DOAJ (`src/scraper/international.rs`, `src/models.rs`, `src/engine/search.rs`)**:
+- **Official International Q1-Q4 Discovery via OpenAlex & DOAJ (`src/scraper/international.rs`, `src/models.rs`, `src/engine/search.rs`)**:
   - Added open REST integrations for **OpenAlex Sources API** (with polite-pool `User-Agent`) and **DOAJ Journals API** with zero Cloudflare blocking.
-  - Added `quartile` (`Q1`–`Q4` mapped from `2yr_mean_citedness`, `h_index`, and DOAJ status), `is_international`, Diamond OA detection (`Gratis (Diamond OA • $0)`), configurable USD-to-IDR conversion (`$150 (~Rp 2,5 jt)`), and color-coded `Q1`–`Q4` badges in the results table, detail modal, and `.xlsx`/`.md`/`.csv` exports.
+  - Added `quartile` (`Q1`-`Q4` mapped from `2yr_mean_citedness`, `h_index`, and DOAJ status), `is_international`, Diamond OA detection (`Gratis (Diamond OA • $0)`), configurable USD-to-IDR conversion (`$150 (~Rp 2,5 jt)`), and color-coded `Q1`-`Q4` badges in the results table, detail modal, and `.xlsx`/`.md`/`.csv` exports.
 - **Settings Page & Bilingual ID/EN UI (`src/ui/i18n.rs`, `src/ui/settings_page.rs`, `src/ui/sidebar.rs`, `src/ui/filters_page.rs`)**:
   - Added `AppLanguage { Id, En }` live UI localization across sidebar navigation, page headings, search toolbar, filters, history/export controls, and notifications.
   - Added **Pengaturan / Settings** sidebar view with instant language & theme toggles, default portal toggles (Garuda, SINTA, OpenAlex, DOAJ), custom USD-to-IDR exchange rate (default `16.500`), and automatic persistence in `.cache/app_settings.json`.
-  - Added `Q1`–`Q4` quartile filter pills and the `Portal Internasional (OpenAlex & DOAJ)` toggle in `Filter Lanjutan`.
+  - Added `Q1`-`Q4` quartile filter pills and the `Portal Internasional (OpenAlex & DOAJ)` toggle in `Filter Lanjutan`.
 
 ### Improved
 - **Low-End Hardware & Portable Distribution**:
@@ -310,7 +344,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Search Toolbar & Results Table Alignment (`src/ui/search_page.rs`, `src/ui/filters_page.rs`, `src/ui/match_engine_page.rs`, `src/ui/state.rs`)**:
   - Unified height (`36.0 px`) and vertical alignment across the hero search row (`Keyword`, `Target`, `Unggah Naskah`, `Mulai Cari Jurnal`, `Filter`).
   - Added consistent `8.0 px` horizontal cell/header padding, `52.0 px` row height, and bottom viewport padding on `egui_extras::TableBuilder` so bottom rows never clip.
-  - Added `4.0 px` vertical field spacing on budget inputs in `filters_page.rs`, updated the default **`Target Skripsi S1`** preset (`target_count: 40`, `Rp 0 – Rp 1.500.000`, `include_na = true`, `only_free = false`) for broader varied results, and synchronized the live mode badge beside `Simpan Pengaturan Match Engine`.
+  - Added `4.0 px` vertical field spacing on budget inputs in `filters_page.rs`, updated the default **`Target Skripsi S1`** preset (`target_count: 40`, `Rp 0 - Rp 1.500.000`, `include_na = true`, `only_free = false`) for broader varied results, and synchronized the live mode badge beside `Simpan Pengaturan Match Engine`.
 
 ### Fixed
 - **Strict Landline Phone Area-Code Validation (`src/parser/contact.rs`)**:
@@ -382,7 +416,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Native Rust + Tauri v2 Architecture**: Full migration to an asynchronous Rust backend (`tokio`, `reqwest`, `scraper`, `rusqlite`, `rust_xlsxwriter`) paired with a lightweight WebView2 desktop shell.
-- **Dual-Source Concurrent Scraper**: Asynchronous discovery across **SINTA (S1–S6)** and **Garuda Kemdikbud** with `Semaphore(32)` concurrency, per-host `DomainBreaker`, and `1.5 MB` HTML stream caps.
+- **Dual-Source Concurrent Scraper**: Asynchronous discovery across **SINTA (S1-S6)** and **Garuda Kemdikbud** with `Semaphore(32)` concurrency, per-host `DomainBreaker`, and `1.5 MB` HTML stream caps.
 - **Filter-Before-Deep & Pre-Deep Deduplication**: Filters target SINTA ranks and deduplicates cross-source ISSN/URL entries before executing the 5-point OJS deep crawler (`5.5s` hard per-journal timeout).
 - **Domain Parsers**:
   - Publication month and schedule extraction (`month.rs`).
@@ -391,7 +425,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Focus & Scope extraction (`focus.rs`).
   - Pure-Rust `.docx` and `.pdf` manuscript parsing with bilingual lexical match scoring (`doc_matcher.rs`).
 - **Local SQLite WAL Cache**: 14-day TTL cache (`cache.rs`) with automatic version-bump purging and clean shutdown checkpointing.
-- **Multi-Provider Smart Matcher (Zero-Setup Default)**: Built-in **Bilingual BM25 + Academic Synonym Matcher (ID–EN)** (`doc_matcher.rs`) works out-of-the-box without external software, alongside optional free **Cloud AI API** (**Groq**, **Google Gemini**, **OpenAI-Compatible** via `ai/cloud.rs`) and local **Ollama** (`ai/ollama.rs`), configurable via the interactive header settings modal and persisted in `.cache/matcher_config.json`.
+- **Multi-Provider Smart Matcher (Zero-Setup Default)**: Built-in **Bilingual BM25 + Academic Synonym Matcher (ID-EN)** (`doc_matcher.rs`) works out-of-the-box without external software, alongside optional free **Cloud AI API** (**Groq**, **Google Gemini**, **OpenAI-Compatible** via `ai/cloud.rs`) and local **Ollama** (`ai/ollama.rs`), configurable via the interactive header settings modal and persisted in `.cache/matcher_config.json`.
 - **Multi-Format Export Engine**: Pure-Rust generators for 3-sheet styled Excel (`.xlsx`), Markdown (`.md`), UTF-8 BOM CSV (`.csv`), and shareable editor drafts (`.txt`).
 - **Event-Driven Frontend & Windows Installers**: Real-time Tauri event streaming (`scrape-progress`, `result-batch`, `autosave-done`, `scrape-complete`), NSIS/MSI setup installers, and automated GitHub Actions Windows release workflow.
 
@@ -404,5 +438,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **2.4.0**: Introduced Filter-Before-Deep pipeline, 8-item AI cap with 45s hard budget, and live ETA telemetry.
 - **2.3.0**: Process-isolated local HTTP + Chromium App-Mode architecture eliminating UI freezes during batch scoring and exports.
 - **2.2.0**: Zero-freeze thread-pool limits, lazy SQLite initialization, and forensic freeze watchdog.
-- **2.1.0 – 2.1.1**: Pre-deep deduplication, delta-IPC payloads, paginated DOM rendering, and concurrent Garuda page fetching.
-- **2.0.0 – 2.0.2**: Desktop WebView2 UI redesign with custom 1–1,000 journal targets and real-time progress telemetry.
+- **2.1.0 - 2.1.1**: Pre-deep deduplication, delta-IPC payloads, paginated DOM rendering, and concurrent Garuda page fetching.
+- **2.0.0 - 2.0.2**: Desktop WebView2 UI redesign with custom 1-1,000 journal targets and real-time progress telemetry.

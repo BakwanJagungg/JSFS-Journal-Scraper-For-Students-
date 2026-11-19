@@ -8,6 +8,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
+/// Pair of HTTP conditional validation headers: (ETag, Last-Modified)
+pub type HttpHeaderPair = (Option<String>, Option<String>);
+
 /// Local submission tracking entry per journal (Feature #3).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SubmissionTrack {
@@ -71,7 +74,9 @@ impl JournalCache {
                 cache_version TEXT NOT NULL,
                 fetched_at INTEGER NOT NULL,
                 is_incomplete INTEGER NOT NULL DEFAULT 0,
-                payload_json TEXT NOT NULL
+                payload_json TEXT NOT NULL,
+                etag TEXT,
+                last_modified TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_cache_ver_time
                 ON journal_cache(cache_version, fetched_at);
@@ -84,6 +89,37 @@ impl JournalCache {
             );
             ",
         )?;
+
+        // Migration guard for preexisting tables lacking etag or last_modified columns
+        let has_etag: bool = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('journal_cache') WHERE name = 'etag'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap_or(0)
+            > 0;
+        if !has_etag {
+            let _ = self
+                .conn
+                .execute_batch("ALTER TABLE journal_cache ADD COLUMN etag TEXT;");
+        }
+        let has_last_mod: bool = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('journal_cache') WHERE name = 'last_modified'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap_or(0)
+            > 0;
+        if !has_last_mod {
+            let _ = self
+                .conn
+                .execute_batch("ALTER TABLE journal_cache ADD COLUMN last_modified TEXT;");
+        }
+
         // Auto-purge stale entries from older cache schema versions
         self.purge_stale_versions(CACHE_VERSION)?;
         Ok(())
@@ -140,6 +176,17 @@ impl JournalCache {
     }
 
     pub fn put(&self, url: &str, record: &JournalRecord) -> Result<(), JsfsError> {
+        self.put_with_headers(url, record, None, None)
+    }
+
+    /// Insert or update cache entry alongside HTTP conditional caching metadata (ETag & Last-Modified).
+    pub fn put_with_headers(
+        &self,
+        url: &str,
+        record: &JournalRecord,
+        etag: Option<&str>,
+        last_modified: Option<&str>,
+    ) -> Result<(), JsfsError> {
         let key = Self::normalize_url(url);
         if key.is_empty() {
             return Ok(());
@@ -147,22 +194,57 @@ impl JournalCache {
         let now = Utc::now().timestamp();
         let json = serde_json::to_string(record).unwrap_or_default();
         self.conn.execute(
-            "INSERT INTO journal_cache (url, cache_version, fetched_at, is_incomplete, payload_json)
-             VALUES (?1, ?2, ?3, ?4, ?5)
+            "INSERT INTO journal_cache (url, cache_version, fetched_at, is_incomplete, payload_json, etag, last_modified)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT(url) DO UPDATE SET
                cache_version = excluded.cache_version,
                fetched_at = excluded.fetched_at,
                is_incomplete = excluded.is_incomplete,
-               payload_json = excluded.payload_json",
+               payload_json = excluded.payload_json,
+               etag = COALESCE(excluded.etag, journal_cache.etag),
+               last_modified = COALESCE(excluded.last_modified, journal_cache.last_modified)",
             params![
                 key,
                 CACHE_VERSION,
                 now,
                 i32::from(record.is_incomplete),
-                json
+                json,
+                etag,
+                last_modified
             ],
         )?;
         Ok(())
+    }
+
+    /// Retrieve stored ETag and Last-Modified headers for conditional re-fetching (304 Not Modified).
+    pub fn get_conditional_headers(&self, url: &str) -> Result<Option<HttpHeaderPair>, JsfsError> {
+        let key = Self::normalize_url(url);
+        if key.is_empty() {
+            return Ok(None);
+        }
+        let row: Option<HttpHeaderPair> = self
+            .conn
+            .query_row(
+                "SELECT etag, last_modified FROM journal_cache WHERE url = ?1",
+                params![key],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        Ok(row)
+    }
+
+    /// Update `fetched_at` timestamp when server returns HTTP 304 Not Modified to keep entry fresh.
+    pub fn touch_entry(&self, url: &str) -> Result<bool, JsfsError> {
+        let key = Self::normalize_url(url);
+        if key.is_empty() {
+            return Ok(false);
+        }
+        let now = Utc::now().timestamp();
+        let updated = self.conn.execute(
+            "UPDATE journal_cache SET fetched_at = ?1 WHERE url = ?2",
+            params![now, key],
+        )?;
+        Ok(updated > 0)
     }
 
     pub fn clear(&self) -> Result<usize, JsfsError> {
@@ -185,7 +267,7 @@ impl JournalCache {
         let _ = self.conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
     }
 
-    /// Search local SQLite cache for journals matching `keyword` (Feature #7 — Instant Offline Search).
+    /// Search local SQLite cache for journals matching `keyword` (Feature #7: Instant Offline Search).
     /// When `keyword` is empty or whitespace, returns up to `limit` most recently cached valid journals.
     pub fn search_cached_journals(
         &self,
@@ -412,5 +494,26 @@ mod tests {
         assert_eq!(loaded.status, "Under Review");
         assert_eq!(loaded.submitted_date, "2026-04-10");
         assert_eq!(db.load_all_submission_tracks().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_conditional_caching_and_touch() {
+        let db = JournalCache::open_in_memory().unwrap();
+        let rec = sample_record("Jurnal Sistem Cerdas", false);
+        let url = "https://cerdas.ac.id/index.php/jsc";
+        db.put_with_headers(
+            url,
+            &rec,
+            Some("\"etag-12345\""),
+            Some("Wed, 21 Oct 2026 07:28:00 GMT"),
+        )
+        .unwrap();
+
+        let headers = db.get_conditional_headers(url).unwrap().unwrap();
+        assert_eq!(headers.0.as_deref(), Some("\"etag-12345\""));
+        assert_eq!(headers.1.as_deref(), Some("Wed, 21 Oct 2026 07:28:00 GMT"));
+
+        assert!(db.touch_entry(url).unwrap());
+        assert!(!db.touch_entry("https://unknown.ac.id").unwrap());
     }
 }

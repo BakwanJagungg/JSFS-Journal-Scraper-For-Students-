@@ -465,6 +465,43 @@ fn render_right_detail_cards(
             {
                 *action = DetailPageAction::FindSimilar(j.clone());
             }
+
+            let is_ieee = j
+                .citation_style
+                .as_deref()
+                .map(|s| s.contains("IEEE") || s.contains("Numeric"))
+                .unwrap_or(false);
+            if secondary_button(
+                ui,
+                p,
+                if is_en {
+                    "Copy 5 Latest References"
+                } else {
+                    "Salin 5 Referensi Terbaru Jurnal Ini (Format Sitasi)"
+                },
+            )
+            .on_hover_text(if is_en {
+                "Copy recent target journal references to clipboard ready to paste into your bibliography"
+            } else {
+                "Salin 3-5 referensi artikel terbaru jurnal ini ke clipboard siap tempel di daftar pustaka"
+            })
+            .clicked()
+            {
+                let yr = j.last_issue_year.unwrap_or(2025) as u32;
+                let formatted_refs =
+                    crate::scraper::international::generate_fallback_target_references(
+                        &j.nama, yr, is_ieee,
+                    );
+                ctx.copy_text(formatted_refs);
+                sink.send(EngineEvent::Toast(
+                    if is_en {
+                        "5 latest references from this journal copied to clipboard."
+                    } else {
+                        "5 referensi terbaru jurnal ini berhasil disalin ke clipboard."
+                    }
+                    .to_string(),
+                ));
+            }
         });
     });
 
@@ -494,6 +531,7 @@ fn render_right_detail_cards(
         j,
         manuscript.map(|m| m.word_count),
         manuscript.map(|m| m.imrad_complete),
+        manuscript.and_then(|m| m.detected_citation_style.as_deref()),
         is_en,
     );
     let (rd_fg, rd_bg) = if readiness.score >= 80 {
@@ -518,6 +556,40 @@ fn render_right_detail_cards(
             pill_badge(ui, &format!("{}%", readiness.score), rd_fg, rd_bg);
         });
         card_divider(ui, p);
+
+        if let Some(ms_style) = manuscript.and_then(|m| m.detected_citation_style.as_deref()) {
+            let target_req = j.citation_style.as_deref().unwrap_or(if is_en {
+                "Not specified"
+            } else {
+                "Umum / Belum terdata"
+            });
+            ui.horizontal_wrapped(|ui| {
+                ui.label(
+                    RichText::new(if is_en {
+                        "Manuscript Citation Style:"
+                    } else {
+                        "Gaya Sitasi Naskah:"
+                    })
+                    .size(12.0)
+                    .strong()
+                    .color(p.muted),
+                );
+                pill_badge(ui, ms_style, p.accent, p.accent_soft);
+                ui.label(
+                    RichText::new(format!(
+                        "({})",
+                        if is_en {
+                            format!("Target: {target_req}")
+                        } else {
+                            format!("Syarat Jurnal: {target_req}")
+                        }
+                    ))
+                    .size(11.5)
+                    .color(p.muted),
+                );
+            });
+            ui.add_space(4.0);
+        }
         for (ok, msg) in &readiness.checklist {
             let (mark, col) = if *ok {
                 ("[✓]", p.good)
@@ -587,7 +659,7 @@ fn render_right_detail_cards(
                             )
                         } else {
                             format!(
-                                "Terdeteksi {} paragraf panjang (>=110 kata) tanpa sitasi [1]/(Penulis, Tahun) — pertimbangkan tambah referensi.",
+                                "Terdeteksi {} paragraf panjang (>=110 kata) tanpa sitasi [1]/(Penulis, Tahun): pertimbangkan tambah referensi.",
                                 ms.uncited_long_paragraphs
                             )
                         })
@@ -685,7 +757,7 @@ fn render_right_detail_cards(
             &sim_disp,
         );
         let sub_disp = match j.submission_fee_idr {
-            Some(0) => "Gratis (Rp 0 — tidak ada biaya submit)".to_string(),
+            Some(0) => "Gratis (Rp 0, tidak ada biaya submit)".to_string(),
             Some(v) => format!(
                 "{} (terpisah dari APC)",
                 crate::models::format_idr_short(v as i64)
@@ -694,10 +766,46 @@ fn render_right_detail_cards(
             None => "Tidak dipungut / Tidak dicantumkan".to_string(),
         };
         info_kv(ui, p, "Biaya Submit (Submission Fee)", &sub_disp);
-        info_kv(ui, p, "Biaya Publikasi (APC)", &j.apc_label);
-        if !j.apc_evidence.trim().is_empty() {
+
+        ui.horizontal_wrapped(|ui| {
+            ui.label(
+                RichText::new("Biaya Publikasi (APC):")
+                    .size(12.0)
+                    .strong()
+                    .color(p.muted),
+            );
+            ui.label(RichText::new(&j.apc_label).size(12.5).color(p.text));
+            let (conf_fg, conf_bg) = match j.apc_confidence {
+                crate::models::ApcConfidence::High => (p.good, p.good_soft),
+                crate::models::ApcConfidence::Medium => (p.accent, p.accent_soft),
+                crate::models::ApcConfidence::NeedsCheck => (p.warn, p.warn_soft),
+            };
+            pill_badge(ui, j.apc_confidence.label(), conf_fg, conf_bg);
+        });
+
+        if !j.apc_evidence_snippet.trim().is_empty() {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(
+                    RichText::new("Kutipan APC:")
+                        .size(11.5)
+                        .strong()
+                        .color(p.muted),
+                );
+                ui.label(
+                    RichText::new(format!("\"{}\"", j.apc_evidence_snippet.trim()))
+                        .italics()
+                        .size(11.5)
+                        .color(p.text),
+                );
+            });
+        } else if !j.apc_evidence.trim().is_empty() {
             info_kv(ui, p, "Bukti Halaman Biaya", &j.apc_evidence);
         }
+
+        if !j.data_source_note.trim().is_empty() {
+            info_kv(ui, p, "Sumber Data Tambahan", &j.data_source_note);
+        }
+
         let issn_disp = match (j.issn.is_empty(), j.eissn.is_empty()) {
             (true, true) => "-".to_string(),
             (false, true) => j.issn.clone(),
@@ -727,6 +835,25 @@ fn render_right_detail_cards(
                 sink.send(EngineEvent::Toast("ISSN disalin!".to_string()));
             }
         });
+
+        if j.issn_name_mismatch {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(
+                    RichText::new("[!] Peringatan:")
+                        .size(12.0)
+                        .strong()
+                        .color(p.warn),
+                );
+                ui.label(
+                    RichText::new(format!(
+                        "Nama di portal berbeda dari registrasi resmi ISSN: \"{}\"",
+                        j.issn_registered_name
+                    ))
+                    .size(12.0)
+                    .color(p.warn),
+                );
+            });
+        }
         if !j.extra_indexes.is_empty() {
             info_kv(ui, p, "Indeks Sekunder", &j.extra_indexes.join(", "));
         }

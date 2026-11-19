@@ -8,13 +8,56 @@ use crate::config::{
 use crate::models::JournalRecord;
 use crate::parser::{apc, contact, focus, heuristics, month};
 use crate::scraper::dedup::normalize_ojs_root_url;
-use crate::scraper::{safe_fetch_html, sanitize_publisher_name, DomainBreaker};
+use crate::scraper::{
+    safe_fetch_html, safe_fetch_html_conditional, sanitize_publisher_name, DomainBreaker,
+};
+use once_cell::sync::Lazy;
+use regex::Regex;
 use scraper::{Html, Selector};
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use url::Url;
+
+static RE_OAI_DATE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)<datestamp>\s*(19\d{2}|20\d{2})").expect("valid regex"));
+static RE_FEED_DATE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)<(?:updated|published|pubDate|dc:date)>[^<]*?\b(19\d{2}|20\d{2})\b")
+        .expect("valid regex")
+});
+
+/// Extract the latest publication/issue year from standard OAI-PMH XML response.
+pub fn extract_year_from_oai_xml(xml: &str) -> Option<u16> {
+    let current_year = month::current_local_year();
+    let mut years = Vec::new();
+    for cap in RE_OAI_DATE.captures_iter(xml) {
+        if let Some(m) = cap.get(1) {
+            if let Ok(y) = m.as_str().parse::<u16>() {
+                if y <= current_year + 1 {
+                    years.push(y);
+                }
+            }
+        }
+    }
+    years.into_iter().max()
+}
+
+/// Extract the latest publication/issue year from standard Atom or RSS feed XML response.
+pub fn extract_year_from_feed_xml(xml: &str) -> Option<u16> {
+    let current_year = month::current_local_year();
+    let mut years = Vec::new();
+    for cap in RE_FEED_DATE.captures_iter(xml) {
+        if let Some(m) = cap.get(1) {
+            if let Ok(y) = m.as_str().parse::<u16>() {
+                if y <= current_year + 1 {
+                    years.push(y);
+                }
+            }
+        }
+    }
+    years.into_iter().max()
+}
 
 /// Normalize an OJS URL to its journal home root by stripping 404-prone sub-paths
 /// such as `/PublicationFees`, `/about/submissions`, `/about/editorialPolicies`, or `/issue/current`.
@@ -300,6 +343,11 @@ fn apply_apc_with_paid_priority(
             rec.publication_fee_idr = Some(amount_idr);
             rec.apc_idr_numeric = numeric;
             if !evidence.is_empty() {
+                let (conf, snip) = heuristics::score_apc_confidence(&evidence, 0);
+                rec.apc_confidence = conf;
+                if !snip.is_empty() {
+                    rec.apc_evidence_snippet = snip;
+                }
                 rec.apc_evidence = evidence;
             }
         }
@@ -318,6 +366,11 @@ fn apply_apc_with_paid_priority(
                 rec.publication_fee_idr = Some(0);
                 rec.apc_idr_numeric = Some(0);
                 if !evidence.is_empty() {
+                    let (conf, snip) = heuristics::score_apc_confidence(&evidence, 0);
+                    rec.apc_confidence = conf;
+                    if !snip.is_empty() {
+                        rec.apc_evidence_snippet = snip;
+                    }
                     rec.apc_evidence = evidence;
                 }
             }
@@ -606,7 +659,27 @@ async fn deep_enrich_record_inner(
         let mut archive_hints = Vec::new();
         let per_req = Duration::from_millis(2600);
 
-        let mut home_res = safe_fetch_html(client, &breaker, &rec.website_url, per_req).await;
+        let mut if_none_match: Option<String> = None;
+        let mut if_modified_since: Option<String> = None;
+        if let Ok(guard) = cache.lock() {
+            if let Some(ref db) = *guard {
+                if let Ok(Some((et, lm))) = db.get_conditional_headers(&rec.website_url) {
+                    if_none_match = et;
+                    if_modified_since = lm;
+                }
+            }
+        }
+
+        let mut home_res = safe_fetch_html_conditional(
+            client,
+            &breaker,
+            &rec.website_url,
+            per_req,
+            if_none_match.as_deref(),
+            if_modified_since.as_deref(),
+        )
+        .await;
+
         // Fallback to normalized OJS root URL if portal pointed to a 404 sub-path (e.g. /PublicationFees)
         if let Ok(ref resp) = home_res {
             if resp.status == 404 && base_root != rec.website_url && base_root.starts_with("http") {
@@ -626,12 +699,77 @@ async fn deep_enrich_record_inner(
                 rec.is_incomplete = true;
             }
             Ok(mut home) => {
+                if home.status == 304 {
+                    if let Ok(guard) = cache.lock() {
+                        if let Some(ref db) = *guard {
+                            let _ = db.touch_entry(&rec.website_url);
+                            if let Ok(Some(cached)) = db.get(&rec.website_url) {
+                                rec = cached;
+                                return;
+                            }
+                        }
+                    }
+                }
                 if home.cloudflare_blocked || home.status == 403 || home.status == 503 {
                     rec.bot_protected = true;
                     rec.apc_status = "Proteksi Bot (Buka Web)".to_string();
                     rec.server_status = "Proteksi Bot / Cloudflare".to_string();
                     rec.activity_status = "Proteksi Bot (Buka Web)".to_string();
                     rec.is_dormant = false;
+
+                    let target_issn = if heuristics::is_valid_issn_checksum(&rec.issn) {
+                        rec.issn.clone()
+                    } else if heuristics::is_valid_issn_checksum(&rec.eissn) {
+                        rec.eissn.clone()
+                    } else {
+                        String::new()
+                    };
+
+                    if !target_issn.is_empty() {
+                        if let Some(tri) = crate::scraper::international::triangulate_issn_metadata(
+                            client,
+                            &target_issn,
+                            crate::config::USD_TO_IDR_RATE,
+                        )
+                        .await
+                        {
+                            if !rec.title.is_empty() && !tri.title.is_empty() {
+                                let sim =
+                                    heuristics::jaccard_token_similarity(&rec.title, &tri.title);
+                                let is_abbrev =
+                                    heuristics::is_acronym_match(&rec.title, &tri.title);
+                                if sim < 0.35 && !is_abbrev {
+                                    rec.issn_name_mismatch = true;
+                                    rec.issn_registered_name = tri.title.clone();
+                                }
+                            }
+                            if rec.title.is_empty() {
+                                rec.title = tri.title.clone();
+                            }
+                            if rec.publisher.is_empty() {
+                                rec.publisher = tri.publisher.clone();
+                            }
+                            if rec.last_issue_year.is_none() {
+                                rec.last_issue_year = tri.last_issue_year;
+                                rec.refresh_activity_status(false, month::current_local_year());
+                            }
+                            if rec.apc_category() == "unknown" && tri.apc_category() != "unknown" {
+                                rec.apc_status = tri.apc_status.clone();
+                                rec.publication_fee = tri.publication_fee.clone();
+                                rec.apc_idr_numeric = tri.apc_idr_numeric;
+                                rec.publication_fee_idr = tri.publication_fee_idr;
+                                rec.apc_evidence = tri.apc_evidence.clone();
+                                rec.apc_confidence = crate::models::ApcConfidence::High;
+                            }
+                            if rec.focus_and_scope.trim().is_empty()
+                                || rec.focus_and_scope == INFO_NOT_FOUND
+                            {
+                                rec.focus_and_scope = tri.focus_and_scope.clone();
+                            }
+                            rec.data_source_note = "Data diverifikasi via ISSN (DOAJ/OpenAlex/Crossref) karena web OJS memakai proteksi bot".to_string();
+                        }
+                    }
+
                     rec.is_incomplete = true;
                     return;
                 }
@@ -863,6 +1001,43 @@ async fn deep_enrich_record_inner(
                         }
                     }
 
+                    // Fallback to XML OAI-PMH & Atom/RSS Feeds if HTML archive didn't yield a year
+                    if rec.last_issue_year.is_none() && !cancel_flag.load(Ordering::Relaxed) {
+                        let oai_url = format!(
+                            "{effective_base}/oai?verb=ListIdentifiers&metadataPrefix=oai_dc"
+                        );
+                        if let Ok(oai_resp) =
+                            safe_fetch_html(client, &breaker, &oai_url, per_req).await
+                        {
+                            if oai_resp.status == 200 && !oai_resp.cloudflare_blocked {
+                                if let Some(y) = extract_year_from_oai_xml(&oai_resp.html) {
+                                    rec.last_issue_year = Some(y);
+                                    broken_archive = false;
+                                }
+                            }
+                        }
+                    }
+                    if rec.last_issue_year.is_none() && !cancel_flag.load(Ordering::Relaxed) {
+                        for feed_path in [
+                            "/gateway/plugin/WebFeedGatewayPlugin/atom",
+                            "/feed/atom",
+                            "/feed",
+                        ] {
+                            let feed_url = format!("{effective_base}{feed_path}");
+                            if let Ok(feed_resp) =
+                                safe_fetch_html(client, &breaker, &feed_url, per_req).await
+                            {
+                                if feed_resp.status == 200 && !feed_resp.cloudflare_blocked {
+                                    if let Some(y) = extract_year_from_feed_xml(&feed_resp.html) {
+                                        rec.last_issue_year = Some(y);
+                                        broken_archive = false;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     rec.publish_month_nums = m_nums;
                     rec.publish_months = m_names;
                     if !sched_str.is_empty() {
@@ -1026,5 +1201,44 @@ mod tests {
             ),
             "https://ejournal.example.ac.id/index.php/jsi"
         );
+    }
+
+    #[test]
+    fn test_extract_year_from_oai_and_feed_xml() {
+        let oai_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+        <OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/">
+          <ListIdentifiers>
+            <header>
+              <identifier>oai:ojs.kampus.ac.id:article/101</identifier>
+              <datestamp>2023-08-15T09:22:10Z</datestamp>
+            </header>
+            <header>
+              <identifier>oai:ojs.kampus.ac.id:article/102</identifier>
+              <datestamp>2025-02-10T12:00:00Z</datestamp>
+            </header>
+          </ListIdentifiers>
+        </OAI-PMH>"#;
+        assert_eq!(extract_year_from_oai_xml(oai_xml), Some(2025));
+
+        let atom_xml = r#"<?xml version="1.0" encoding="utf-8"?>
+        <feed xmlns="http://www.w3.org/2005/Atom">
+          <title>Jurnal Contoh</title>
+          <entry>
+            <title>Artikel Pertama</title>
+            <updated>2024-11-20T10:00:00Z</updated>
+          </entry>
+        </feed>"#;
+        assert_eq!(extract_year_from_feed_xml(atom_xml), Some(2024));
+
+        let rss_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+        <rss version="2.0">
+          <channel>
+            <item>
+              <title>Artikel 2026</title>
+              <pubDate>Mon, 12 Jan 2026 08:00:00 +0000</pubDate>
+            </item>
+          </channel>
+        </rss>"#;
+        assert_eq!(extract_year_from_feed_xml(rss_xml), Some(2026));
     }
 }

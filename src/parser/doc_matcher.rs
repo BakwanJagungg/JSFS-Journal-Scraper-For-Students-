@@ -769,6 +769,203 @@ pub fn extract_text_from_pdf_bytes(bytes: &[u8]) -> Result<String, JsfsError> {
     Ok(text.trim().to_string())
 }
 
+/// Lightweight rule-based Indonesian stemmer stripping prefixes and suffixes.
+pub fn stem_id(word: &str) -> String {
+    let w = word.trim().to_ascii_lowercase();
+    if w.len() < 5 {
+        return w;
+    }
+
+    let mut s = w.clone();
+
+    // 1. Strip particles/possessives suffixes: -lah, -kah, -nya, -ku, -mu
+    for suf in ["lah", "kah", "nya", "ku", "mu"] {
+        if s.len() > suf.len() + 3 && s.ends_with(suf) {
+            s.truncate(s.len() - suf.len());
+            break;
+        }
+    }
+
+    // 2. Strip derivational suffixes: -kan, -an, -i
+    for suf in ["kan", "an", "i"] {
+        if s.len() > suf.len() + 3 && s.ends_with(suf) {
+            s.truncate(s.len() - suf.len());
+            break;
+        }
+    }
+
+    // 3. Strip prefixes
+    if s.len() >= 6 {
+        if let Some(rest) = s.strip_prefix("meny") {
+            return format!("s{rest}");
+        }
+        if let Some(rest) = s.strip_prefix("peny") {
+            return format!("s{rest}");
+        }
+        if let Some(rest) = s.strip_prefix("mem") {
+            if rest.starts_with(['b', 'f']) {
+                return rest.to_string();
+            } else {
+                return format!("p{rest}");
+            }
+        }
+        if let Some(rest) = s.strip_prefix("pem") {
+            if rest.starts_with(['b', 'f']) {
+                return rest.to_string();
+            } else {
+                return format!("p{rest}");
+            }
+        }
+        if let Some(rest) = s.strip_prefix("meng") {
+            if rest.starts_with("embang")
+                || rest.starts_with("irim")
+                || rest.starts_with("urang")
+                || rest.starts_with("ira")
+                || rest.starts_with("elola")
+            {
+                return format!("k{rest}");
+            }
+            if rest.starts_with(['g', 'h', 'a', 'e', 'i', 'o', 'u']) {
+                return rest.to_string();
+            } else {
+                return format!("k{rest}");
+            }
+        }
+        if let Some(rest) = s.strip_prefix("peng") {
+            if rest.starts_with("embang")
+                || rest.starts_with("irim")
+                || rest.starts_with("urang")
+                || rest.starts_with("ira")
+                || rest.starts_with("elola")
+            {
+                return format!("k{rest}");
+            }
+            if rest.starts_with(['g', 'h', 'a', 'e', 'i', 'o', 'u']) {
+                return rest.to_string();
+            } else {
+                return format!("k{rest}");
+            }
+        }
+        if let Some(rest) = s.strip_prefix("men") {
+            if rest.starts_with(['d', 'j', 'c']) {
+                return rest.to_string();
+            } else {
+                return format!("t{rest}");
+            }
+        }
+        if let Some(rest) = s.strip_prefix("pen") {
+            if rest.starts_with(['d', 'j', 'c']) {
+                return rest.to_string();
+            } else {
+                return format!("t{rest}");
+            }
+        }
+    }
+
+    // Generic prefixes (up to 2 passes for stacked prefixes like ber-ke-lanjut)
+    for _ in 0..2 {
+        let mut stripped = false;
+        for pref in ["ber", "ter", "per", "pe", "di", "ke", "se"] {
+            if s.len() > pref.len() + 3 && s.starts_with(pref) {
+                s = s[pref.len()..].to_string();
+                stripped = true;
+                break;
+            }
+        }
+        if !stripped {
+            break;
+        }
+    }
+
+    if s.len() >= 3 {
+        s
+    } else {
+        w
+    }
+}
+
+/// Lightweight rule-based English stemmer stripping common inflectional suffixes.
+pub fn stem_en(word: &str) -> String {
+    let w = word.trim().to_ascii_lowercase();
+    if w.len() < 4 {
+        return w;
+    }
+
+    let mut s = w;
+
+    if s.ends_with("ies") && s.len() >= 5 {
+        s.truncate(s.len() - 3);
+        s.push('y');
+        return s;
+    }
+
+    if s.ends_with("ication") && s.len() >= 7 {
+        s.truncate(s.len() - 7);
+        return s;
+    }
+
+    if s.ends_with("ation") && s.len() >= 6 {
+        s.truncate(s.len() - 5);
+        s.push('e');
+        return s;
+    }
+
+    if s.ends_with("tion") && s.len() >= 6 {
+        s.truncate(s.len() - 4);
+        s.push('t');
+        return s;
+    }
+
+    if s.ends_with("ment") && s.len() >= 6 {
+        s.truncate(s.len() - 4);
+        return s;
+    }
+
+    if s.ends_with("ing") && s.len() >= 5 {
+        s.truncate(s.len() - 3);
+        let bytes = s.as_bytes();
+        let blen = bytes.len();
+        if blen >= 3
+            && bytes[blen - 1] == bytes[blen - 2]
+            && !matches!(bytes[blen - 1], b's' | b'l' | b'z')
+        {
+            s.truncate(blen - 1);
+        }
+        return s;
+    }
+
+    if s.ends_with("ed") && s.len() >= 5 {
+        s.truncate(s.len() - 2);
+        return s;
+    }
+
+    if s.ends_with("es") && s.len() >= 5 {
+        s.truncate(s.len() - 2);
+        return s;
+    }
+
+    if s.ends_with('s') && !s.ends_with("ss") && s.len() >= 4 {
+        s.truncate(s.len() - 1);
+        return s;
+    }
+
+    s
+}
+
+/// Academic stemmer handling both ID and EN academic tokens.
+pub fn stem_academic_word(word: &str) -> String {
+    let low = word.trim().to_ascii_lowercase();
+    let s_id = stem_id(&low);
+    if s_id != low && s_id.len() >= 3 {
+        return s_id;
+    }
+    let s_en = stem_en(&low);
+    if s_en != low && s_en.len() >= 3 {
+        return s_en;
+    }
+    low
+}
+
 /// Tokenize text, drop stopwords, and preserve hyphen-merged forms (e.g. `e-commerce` -> `ecommerce`).
 fn tokenize_clean(text: &str) -> Vec<String> {
     let stop: HashSet<&str> = STOPWORDS.iter().copied().collect();
@@ -1053,6 +1250,7 @@ pub fn build_manuscript_meta(filename: &str, bytes: &[u8]) -> Result<ManuscriptM
         &detected_keywords,
         7,
     );
+    let detected_citation_style = detect_manuscript_citation_style(&extracted_text);
 
     Ok(ManuscriptMeta {
         filename: filename.to_string(),
@@ -1066,6 +1264,7 @@ pub fn build_manuscript_meta(filename: &str, bytes: &[u8]) -> Result<ManuscriptM
         checklist,
         cited_journals,
         recommended_topics,
+        detected_citation_style,
     })
 }
 
@@ -1576,7 +1775,94 @@ pub fn count_uncited_long_paragraphs(text: &str) -> u32 {
     uncited
 }
 
-/// Rank journals in `items` by BM25 similarity to the journal at `target_idx` (Feature #4 — Lookalike Finder).
+/// Detect dominant citation style (IEEE / Numeric vs APA / Author-Year) in manuscript text.
+pub fn detect_manuscript_citation_style(text: &str) -> Option<String> {
+    let bracket_hits = RE_BRACKET_CITE.find_iter(text).count();
+    let author_year_hits = RE_AUTHOR_YEAR_CITE.find_iter(text).count();
+
+    let low = text.to_ascii_lowercase();
+    let ref_section = if let Some(idx) = low
+        .rfind("daftar pustaka")
+        .or_else(|| low.rfind("references"))
+        .or_else(|| low.rfind("referensi"))
+    {
+        &text[idx..]
+    } else {
+        let start = text.len().saturating_sub(text.len() / 3);
+        &text[start..]
+    };
+
+    let ref_bracket_hits = (1..=20)
+        .filter(|n| ref_section.contains(&format!("[{n}]")))
+        .count();
+    let total_ieee = bracket_hits + ref_bracket_hits * 3;
+    let total_apa = author_year_hits;
+
+    if total_ieee >= 2 && total_ieee > total_apa {
+        Some("IEEE (Numeric)".to_string())
+    } else if total_apa >= 2 && total_apa >= total_ieee {
+        Some("APA (Author-Year)".to_string())
+    } else if total_ieee >= 1 {
+        Some("IEEE (Numeric)".to_string())
+    } else if total_apa >= 1 {
+        Some("APA (Author-Year)".to_string())
+    } else {
+        None
+    }
+}
+
+/// Auto-Query Expansion: Extracts core academic keywords and bilingual ID-EN equivalents
+/// when query is overly specific or returns few results (< 5 journals).
+pub fn suggest_expanded_queries(query: &str) -> Vec<String> {
+    let clean = query.trim().to_ascii_lowercase();
+    if clean.is_empty() {
+        return Vec::new();
+    }
+    let tokens = tokenize_clean(&clean);
+    let mut suggestions = Vec::new();
+
+    // 1. Identify core non-stopword tokens
+    let core_terms: Vec<&str> = tokens
+        .iter()
+        .map(|s| s.as_str())
+        .filter(|t| !STOPWORDS.contains(t) && t.len() >= 4)
+        .collect();
+
+    // 2. Multi-word core combinations
+    if core_terms.len() >= 2 {
+        for win in core_terms.windows(2) {
+            let combined = format!("{} {}", win[0], win[1]);
+            if combined != clean && !suggestions.contains(&combined) {
+                suggestions.push(combined);
+            }
+        }
+    }
+
+    // 3. Individual core academic terms
+    for &term in &core_terms {
+        let t_str = term.to_string();
+        if t_str != clean && !suggestions.contains(&t_str) {
+            suggestions.push(t_str);
+        }
+    }
+
+    // 4. Bilingual equivalents from BILINGUAL_SYNONYM_GROUPS
+    for &term in &core_terms {
+        let syns = synonyms_for_token(term);
+        for syn in syns {
+            let s_str = syn.to_string();
+            if s_str != clean && !suggestions.contains(&s_str) {
+                suggestions.push(s_str);
+            }
+        }
+    }
+
+    // Return top 2 to 3 suggestions
+    suggestions.truncate(3);
+    suggestions
+}
+
+/// Rank journals in `items` by BM25 similarity to the journal at `target_idx` (Feature #4: Lookalike Finder).
 /// Returns `(item_index, similarity_score)` sorted descending, with the target journal first (`100.0`).
 pub fn rank_similar_journals(target_idx: usize, items: &[UiJournalItem]) -> Vec<(usize, f64)> {
     let Some(target) = items.get(target_idx) else {
@@ -1603,6 +1889,7 @@ pub fn rank_similar_journals(target_idx: usize, items: &[UiJournalItem]) -> Vec<
         checklist: PreSubmitChecklist::default(),
         cited_journals: HashMap::new(),
         recommended_topics: Vec::new(),
+        detected_citation_style: None,
     };
 
     let mut ranked: Vec<(usize, f64)> = items
@@ -1687,6 +1974,11 @@ fn field_term_hit(
         if syn.len() >= 4 && raw_low.contains(syn) {
             return (1, Some(syn));
         }
+    }
+    // Morphological stem match (Bilingual ID/EN stemmer)
+    let stem = stem_academic_word(term);
+    if stem.len() >= 4 && stem != term && raw_low.contains(&stem) {
+        return (1, None);
     }
     (0, None)
 }
@@ -1864,12 +2156,45 @@ pub fn compute_match_score(
         }
     }
 
+    // Bigram phrase boosting (1.5x - 2.0x boost for multi-word phrase matches from manuscript)
+    let mut bigram_boost_applied = false;
+    if let Some(ms) = manuscript {
+        let t_toks = tokenize_clean(&ms.extracted_title);
+        let a_toks = tokenize_clean(&ms.abstract_snippet);
+        let mut bigrams: Vec<(String, f64)> = Vec::new();
+        for win in t_toks.windows(2) {
+            if win[0] != win[1] {
+                bigrams.push((format!("{} {}", win[0], win[1]), 2.0)); // 2.0x boost for title phrases
+            }
+        }
+        for win in a_toks.windows(2) {
+            if win[0] != win[1] {
+                let bg = format!("{} {}", win[0], win[1]);
+                if !bigrams.iter().any(|(b, _)| b == &bg) {
+                    bigrams.push((bg, 1.5)); // 1.5x boost for abstract phrases
+                }
+            }
+        }
+        for (bg, mult) in bigrams {
+            if title_low.contains(&bg) {
+                phrase_bonus += 6.0 * mult;
+                bigram_boost_applied = true;
+            } else if scope_low.contains(&bg) {
+                phrase_bonus += 3.5 * mult;
+                bigram_boost_applied = true;
+            }
+        }
+    }
+
     let coverage_ratio = (covered_weight / total_query_weight.max(0.01)).clamp(0.0, 1.0);
     let field_intensity = (raw_bm25 / ideal_multi_field_max.max(0.01)).clamp(0.0, 1.0);
     let mut score =
-        20.0 + 36.0 * coverage_ratio + 26.0 * field_intensity.powf(0.82) + phrase_bonus.min(14.0);
+        20.0 + 36.0 * coverage_ratio + 26.0 * field_intensity.powf(0.82) + phrase_bonus.min(18.0);
 
     let mut reasons = Vec::new();
+    if bigram_boost_applied {
+        reasons.push("Frasa kunci naskah terverifikasi dalam lingkup jurnal".to_string());
+    }
     if !title_matched.is_empty() {
         reasons.push(format!(
             "Judul jurnal selaras ({})",
@@ -1897,7 +2222,7 @@ pub fn compute_match_score(
     }
     if !synonym_pairs.is_empty() {
         reasons.push(format!(
-            "Padanan akademik ID–EN ({})",
+            "Padanan akademik ID-EN ({})",
             synonym_pairs
                 .iter()
                 .take(2)
@@ -2020,7 +2345,7 @@ mod tests {
             "expected matched journal ({match_sc}) >> unrelated ({unrel_sc})"
         );
         assert!(
-            match_reasons.iter().any(|r| r.contains("ID–EN")),
+            match_reasons.iter().any(|r| r.contains("ID-EN")),
             "expected ID-EN synonym rationale, got {match_reasons:?}"
         );
     }
@@ -2264,5 +2589,93 @@ Daftar Pustaka\n\
             std::iter::repeat_n("pustaka", 130).collect::<Vec<_>>().join(" ")
         );
         assert_eq!(count_uncited_long_paragraphs(&doc), 1);
+    }
+
+    #[test]
+    fn test_stemmer_id_and_en() {
+        assert_eq!(stem_id("pembelajaran"), "belajar");
+        assert_eq!(stem_id("pengembangan"), "kembang");
+        assert_eq!(stem_id("berkelanjutan"), "lanjut");
+        assert_eq!(stem_id("sistem"), "sistem"); // stem <= 4 stays
+
+        assert_eq!(stem_en("analyzing"), "analyz");
+        assert_eq!(stem_en("classification"), "classif");
+        assert_eq!(stem_en("systems"), "system");
+        assert_eq!(stem_en("running"), "run");
+
+        assert_eq!(stem_academic_word("pengembangan"), "kembang");
+        assert_eq!(stem_academic_word("processing"), "process");
+    }
+
+    #[test]
+    fn test_bigram_phrase_boosting() {
+        let rec = JournalRecord {
+            title: "Jurnal Rekayasa Perangkat Lunak dan Kecerdasan Buatan".to_string(),
+            subject_area: "Informatika".to_string(),
+            focus_and_scope:
+                "Penelitian mencakup machine learning, rekayasa perangkat lunak, dan deep learning."
+                    .to_string(),
+            ..Default::default()
+        };
+
+        // Manuscript with exact bigrams
+        let ms_with_bigrams = ManuscriptMeta {
+            extracted_title: "Implementasi Rekayasa Perangkat Lunak pada Sistem Cerdas".to_string(),
+            abstract_snippet: "Kajian tentang machine learning dan kecerdasan buatan modern."
+                .to_string(),
+            detected_keywords: vec!["rekayasa".to_string(), "perangkat".to_string()],
+            ..Default::default()
+        };
+
+        let (score_boosted, _, reasons) = compute_match_score(&rec, &[], Some(&ms_with_bigrams));
+        assert!(score_boosted >= 70.0);
+        assert!(reasons.iter().any(|r| r.contains("Frasa kunci naskah")));
+    }
+
+    #[test]
+    fn test_suggest_expanded_queries_few_results() {
+        let long_query =
+            "analisis penerapan algoritma machine learning pada sistem deteksi penipuan";
+        let suggestions = suggest_expanded_queries(long_query);
+        assert!(!suggestions.is_empty());
+        assert!(suggestions
+            .iter()
+            .any(|s| s.contains("machine") || s.contains("learning")));
+
+        let specific_query = "pendidikan matematika interaktif";
+        let sugs2 = suggest_expanded_queries(specific_query);
+        assert!(!sugs2.is_empty());
+        assert!(sugs2.iter().any(|s| s.contains("pendidikan")
+            || s.contains("matematika")
+            || s.contains("mathematics")));
+    }
+
+    #[test]
+    fn test_detect_manuscript_citation_style_apa_vs_ieee() {
+        let text_ieee = r#"
+            Pendahuluan
+            Penelitian sebelumnya [1] menunjukkan akurasi tinggi, sebagaimana dibuktikan oleh penelitian terkait [2, 3].
+            
+            Daftar Pustaka
+            [1] B. Santoso, "Sistem Cerdas," Jurnal Komputer, 2024.
+            [2] R. Wijaya, "Pembelajaran Mesin," Jurnal TI, 2025.
+        "#;
+        assert_eq!(
+            detect_manuscript_citation_style(text_ieee).as_deref(),
+            Some("IEEE (Numeric)")
+        );
+
+        let text_apa = r#"
+            Pendahuluan
+            Menurut penelitian terbaru (Santoso, 2024), akurasi dapat ditingkatkan secara signifikan. Hal ini sejalan dengan temuan Wijaya et al. (2025).
+            
+            Daftar Pustaka
+            Santoso, B. (2024). Sistem Cerdas. Jurnal Komputer.
+            Wijaya, R. (2025). Pembelajaran Mesin. Jurnal TI.
+        "#;
+        assert_eq!(
+            detect_manuscript_citation_style(text_apa).as_deref(),
+            Some("APA (Author-Year)")
+        );
     }
 }

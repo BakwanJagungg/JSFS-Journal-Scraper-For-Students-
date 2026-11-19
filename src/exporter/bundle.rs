@@ -30,6 +30,7 @@ pub fn generate_journal_rules_summary(
         journal,
         manuscript.map(|m| m.word_count),
         manuscript.map(|m| m.imrad_complete),
+        manuscript.and_then(|m| m.detected_citation_style.as_deref()),
         is_en,
     );
     let issn_status = if journal.issn_valid {

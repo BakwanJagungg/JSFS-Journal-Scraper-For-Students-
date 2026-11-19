@@ -1,6 +1,25 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Confidence level for APC extraction result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum ApcConfidence {
+    #[default]
+    NeedsCheck,
+    Medium,
+    High,
+}
+
+impl ApcConfidence {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::High => "Keyakinan: Tinggi",
+            Self::Medium => "Keyakinan: Sedang",
+            Self::NeedsCheck => "Perlu Cek",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum DisplayCurrency {
     #[default]
@@ -111,6 +130,22 @@ pub struct JournalRecord {
     pub editor_in_chief: Option<String>,
     #[serde(default)]
     pub max_similarity_pct: Option<u8>,
+
+    // v4.14.0: APC confidence scoring
+    #[serde(default)]
+    pub apc_confidence: ApcConfidence,
+    #[serde(default)]
+    pub apc_evidence_snippet: String,
+
+    // v4.14.0: ISSN name-mismatch / hijacked journal detection
+    #[serde(default)]
+    pub issn_name_mismatch: bool,
+    #[serde(default)]
+    pub issn_registered_name: String,
+
+    // v4.14.0: data-source transparency for ISSN triangulation
+    #[serde(default)]
+    pub data_source_note: String,
 }
 
 /// Compute human-readable journal activity label and dormancy flag against `current_year`.
@@ -321,6 +356,22 @@ pub struct UiJournalItem {
     pub editor_in_chief: Option<String>,
     #[serde(default)]
     pub max_similarity_pct: Option<u8>,
+
+    // v4.14.0: APC confidence scoring
+    #[serde(default)]
+    pub apc_confidence: ApcConfidence,
+    #[serde(default)]
+    pub apc_evidence_snippet: String,
+
+    // v4.14.0: ISSN name-mismatch / hijacked journal detection
+    #[serde(default)]
+    pub issn_name_mismatch: bool,
+    #[serde(default)]
+    pub issn_registered_name: String,
+
+    // v4.14.0: data-source transparency for ISSN triangulation
+    #[serde(default)]
+    pub data_source_note: String,
 }
 
 impl From<&JournalRecord> for UiJournalItem {
@@ -431,6 +482,11 @@ impl From<&JournalRecord> for UiJournalItem {
             extra_indexes: r.extra_indexes.clone(),
             editor_in_chief: r.editor_in_chief.clone(),
             max_similarity_pct: r.max_similarity_pct,
+            apc_confidence: r.apc_confidence,
+            apc_evidence_snippet: r.apc_evidence_snippet.clone(),
+            issn_name_mismatch: r.issn_name_mismatch,
+            issn_registered_name: r.issn_registered_name.clone(),
+            data_source_note: r.data_source_note.clone(),
         }
     }
 }
@@ -505,6 +561,11 @@ impl From<&UiJournalItem> for JournalRecord {
             submission_open: it.submission_open,
             editor_in_chief: it.editor_in_chief.clone(),
             max_similarity_pct: it.max_similarity_pct,
+            apc_confidence: it.apc_confidence,
+            apc_evidence_snippet: it.apc_evidence_snippet.clone(),
+            issn_name_mismatch: it.issn_name_mismatch,
+            issn_registered_name: it.issn_registered_name.clone(),
+            data_source_note: it.data_source_note.clone(),
             ..Default::default()
         }
     }
@@ -834,6 +895,8 @@ pub struct ManuscriptMeta {
     pub cited_journals: HashMap<String, u32>,
     #[serde(default)]
     pub recommended_topics: Vec<String>,
+    #[serde(default)]
+    pub detected_citation_style: Option<String>,
 }
 
 pub type ManuscriptContext = ManuscriptMeta;
@@ -861,12 +924,13 @@ pub fn compute_submission_readiness(
     item: &UiJournalItem,
     ms_word_count: Option<usize>,
     ms_imrad_complete: Option<bool>,
+    ms_citation_style: Option<&str>,
     is_en: bool,
 ) -> ReadinessReport {
     let mut score: f64 = 0.0;
     let mut checklist = Vec::new();
 
-    // 1. Topic similarity (BM25) — max 40 pts
+    // 1. Topic similarity (BM25): max 40 pts
     let topic_pts = (item.match_score.clamp(0.0, 100.0) * 0.40).round();
     score += topic_pts;
     let topic_ok = item.match_score >= 55.0;
@@ -879,7 +943,7 @@ pub fn compute_submission_readiness(
         },
     ));
 
-    // 2. Word limit FitStatus — max 25 pts
+    // 2. Word limit FitStatus: max 25 pts
     match ms_word_count {
         Some(wc) => {
             let wc_u32 = wc.min(u32::MAX as usize) as u32;
@@ -952,7 +1016,7 @@ pub fn compute_submission_readiness(
         }
     }
 
-    // 3. IMRAD structure completeness — max 25 pts
+    // 3. IMRAD structure completeness: max 25 pts
     match ms_imrad_complete {
         Some(true) => {
             score += 25.0;
@@ -990,7 +1054,7 @@ pub fn compute_submission_readiness(
         }
     }
 
-    // 4. Portal activity & submission gate — max 10 pts
+    // 4. Portal activity & submission gate: max 10 pts
     let portal_ok = !item.is_dormant && item.submission_open != Some(false);
     if portal_ok {
         score += 10.0;
@@ -1005,9 +1069,9 @@ pub fn compute_submission_readiness(
             }
         } else if item.is_dormant {
             if is_en {
-                "Journal appears dormant — verify latest issue before submitting".to_string()
+                "Journal appears dormant: verify latest issue before submitting".to_string()
             } else {
-                "Jurnal terindikasi dorman — cek arsip terbaru sebelum submit".to_string()
+                "Jurnal terindikasi dorman: cek arsip terbaru sebelum submit".to_string()
             }
         } else if is_en {
             "Journal portal active / open for submission".to_string()
@@ -1015,6 +1079,82 @@ pub fn compute_submission_readiness(
             "Portal jurnal aktif / terbuka untuk pengajuan".to_string()
         },
     ));
+
+    // 5. ISSN Hijacked / Name mismatch check
+    if item.issn_name_mismatch {
+        score = (score - 15.0).max(0.0);
+        let reg_name = if item.issn_registered_name.is_empty() {
+            "Data resmi ISSN"
+        } else {
+            &item.issn_registered_name
+        };
+        checklist.push((
+            false,
+            if is_en {
+                format!("Potential hijacked journal: title mismatches ISSN record ({reg_name})")
+            } else {
+                format!("Indikasi jurnal bajakan: nama berbeda dari pendaftaran ISSN ({reg_name})")
+            },
+        ));
+    }
+
+    // 6. Citation style match check
+    if let Some(ms_style) = ms_citation_style {
+        if let Some(target_style) = &item.citation_style {
+            let ms_is_ieee = ms_style.to_ascii_lowercase().contains("ieee")
+                || ms_style.to_ascii_lowercase().contains("numeric");
+            let target_is_ieee = target_style.to_ascii_lowercase().contains("ieee")
+                || target_style.to_ascii_lowercase().contains("numeric");
+            let ms_is_apa = ms_style.to_ascii_lowercase().contains("apa")
+                || ms_style.to_ascii_lowercase().contains("harvard")
+                || ms_style.to_ascii_lowercase().contains("author");
+            let target_is_apa = target_style.to_ascii_lowercase().contains("apa")
+                || target_style.to_ascii_lowercase().contains("harvard")
+                || target_style.to_ascii_lowercase().contains("author");
+
+            if (ms_is_ieee && target_is_ieee) || (ms_is_apa && target_is_apa) {
+                checklist.push((
+                    true,
+                    if is_en {
+                        format!("Citation style aligned: {target_style}")
+                    } else {
+                        format!("Gaya sitasi selaras: {target_style}")
+                    },
+                ));
+            } else if (ms_is_ieee && target_is_apa) || (ms_is_apa && target_is_ieee) {
+                checklist.push((
+                    false,
+                    if is_en {
+                        format!(
+                            "Citation mismatch: Manuscript is {ms_style}, journal requires {target_style}"
+                        )
+                    } else {
+                        format!(
+                            "Gaya sitasi berbeda: Naskah {ms_style}, jurnal memerlukan {target_style}"
+                        )
+                    },
+                ));
+            } else {
+                checklist.push((
+                    true,
+                    if is_en {
+                        format!("Manuscript citation: {ms_style} (Journal: {target_style})")
+                    } else {
+                        format!("Gaya sitasi naskah: {ms_style} (Jurnal: {target_style})")
+                    },
+                ));
+            }
+        } else {
+            checklist.push((
+                true,
+                if is_en {
+                    format!("Manuscript citation style: {ms_style}")
+                } else {
+                    format!("Gaya sitasi naskah: {ms_style}")
+                },
+            ));
+        }
+    }
 
     ReadinessReport {
         score: score.clamp(0.0, 100.0).round() as u8,
@@ -1038,12 +1178,39 @@ mod tests {
             apc_idr_numeric: Some(500_000),
             ..Default::default()
         };
-        let rep = compute_submission_readiness(&item, Some(5200), Some(true), false);
+        let rep = compute_submission_readiness(&item, Some(5200), Some(true), None, false);
         assert_eq!(rep.score, 94);
         assert!(rep.checklist.iter().all(|(ok, _)| *ok));
 
-        let rep_short = compute_submission_readiness(&item, Some(2200), Some(false), false);
+        let rep_short = compute_submission_readiness(&item, Some(2200), Some(false), None, false);
         assert!(rep_short.score < 70);
         assert!(rep_short.checklist.iter().any(|(ok, _)| !*ok));
+
+        // Citation style check test
+        let mut item_ieee = item.clone();
+        item_ieee.citation_style = Some("IEEE (Numeric)".to_string());
+        let rep_ieee_mismatch = compute_submission_readiness(
+            &item_ieee,
+            Some(5200),
+            Some(true),
+            Some("APA (Author-Year)"),
+            false,
+        );
+        assert!(rep_ieee_mismatch
+            .checklist
+            .iter()
+            .any(|(ok, txt)| !*ok && txt.contains("Gaya sitasi berbeda")));
+
+        let rep_ieee_match = compute_submission_readiness(
+            &item_ieee,
+            Some(5200),
+            Some(true),
+            Some("IEEE (Numeric)"),
+            false,
+        );
+        assert!(rep_ieee_match
+            .checklist
+            .iter()
+            .any(|(ok, txt)| *ok && txt.contains("Gaya sitasi selaras")));
     }
 }

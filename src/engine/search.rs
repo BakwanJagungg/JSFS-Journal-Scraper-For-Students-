@@ -559,6 +559,18 @@ pub fn start_search(
             }
 
             // PHASE 2: Concurrent OJS Deep Crawl for cache misses (CPU-adaptive semaphore) + Auto-Save
+            // Slow-Host Deprioritization: prioritize responsive hosts first so workers don't get stuck
+            to_crawl.sort_by_key(|rec| {
+                let target_url = if !rec.website_url.is_empty() {
+                    &rec.website_url
+                } else if !rec.garuda_url.is_empty() {
+                    &rec.garuda_url
+                } else {
+                    &rec.sinta_url
+                };
+                crate::scraper::is_slow_host(target_url)
+            });
+
             let sem = Arc::new(Semaphore::new(effective_max_workers()));
             let mut deep_set = JoinSet::new();
             for (idx, rec) in to_crawl.into_iter().enumerate() {
@@ -690,7 +702,7 @@ pub fn start_search(
                     if active_matcher.cloud_api_key.trim().is_empty() {
                         emit_log(
                             &app,
-                            "ℹ️ Mode Cloud AI dipilih namun API Key belum diisi — memakai Built-in Smart Matcher.",
+                            "ℹ️ Mode Cloud AI dipilih namun API Key belum diisi, memakai Built-in Smart Matcher.",
                         );
                     } else {
                         let prov = active_matcher.normalized_provider().to_uppercase();
@@ -843,7 +855,7 @@ pub fn start_search(
         emit_log(
             &app,
             format!(
-                "✅ Selesai dalam {:.1} dtk — {} jurnal valid siap ditinjau.",
+                "✅ Selesai dalam {:.1} dtk: {} jurnal valid siap ditinjau.",
                 duration_sec,
                 ui_results.len()
             ),

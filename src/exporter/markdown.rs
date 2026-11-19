@@ -17,7 +17,7 @@ pub fn write_markdown(
 
     let now = Local::now().format("%d %B %Y %H:%M").to_string();
     let mut lines = vec![
-        format!("# Hasil Pencarian Jurnal Ilmiah — \"{keyword}\""),
+        format!("# Hasil Pencarian Jurnal Ilmiah: \"{keyword}\""),
         String::new(),
         format!("- **Tanggal:** {now}"),
         format!("- **Total Jurnal Valid:** {}", records.len()),

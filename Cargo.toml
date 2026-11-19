@@ -1,7 +1,7 @@
 [package]
 name = "jsfs"
-version = "4.13.1"
-description = "JSFS — Journal Scraper For Students (Pure Rust Native Edition)"
+version = "4.14.1"
+description = "JSFS: Journal Scraper For Students (Pure Rust Native Edition)"
 authors = ["JSFS Contributors"]
 edition = "2021"
 
