@@ -59,7 +59,6 @@ $p="$env:TEMP\JSFS-windows-x64-setup.exe"; Invoke-WebRequest "https://github.com
 - **Validasi Sitasi Naskah Dominan (APA vs IEEE)**: Pemindaian otomatis pola sitasi naskah serta tombol 1 klik untuk menyalin 5 referensi artikel terbaru jurnal sasaran dalam format sitasi standar.
 - **Ketahanan Scraping & Triangulasi Metadata**: Ekstraksi XML OAI-PMH, feed Atom/RSS, triangulasi metadata ISSN melalui OpenAlex/DOAJ/Crossref, HTTP conditional caching 304, dan deteksi jurnal tidak sinkron.
 - **Bilingual Stemmer & Konfidensi APC Context Window**: Analisis imbuhan dwibahasa ID-EN dengan pencocokan bigram BM25 serta isolasi akurat terhadap jebakan biaya cetak fisik.
-- **Suite Pengujian Ekstrem 100 Skenario**: 100 pengujian otomatis mandiri (`cargo test --test stress_test_100x`) mencakup 60 variasi bidang ilmu, uji skala 10 hingga 1.000 jurnal, dan uji ketahanan parser OJS yang lulus 100% dalam waktu 2.82 detik.
 
 > Riwayat perubahan lengkap untuk seluruh versi (v3.0.0 sampai v4.14.1) dapat dilihat di dokumen **[docs/CHANGELOG.md](docs/CHANGELOG.md)**.
 
