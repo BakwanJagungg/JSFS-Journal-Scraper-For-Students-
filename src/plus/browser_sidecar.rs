@@ -2,7 +2,7 @@
 //! Automatically activated when standard HTTP scraping encounters Cloudflare 403/503 or empty JS SPA shells.
 
 use once_cell::sync::Lazy;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Duration;
 use tokio::sync::Semaphore;
 
@@ -39,7 +39,7 @@ pub fn detect_headless_browser() -> Option<PathBuf> {
     {
         for env_key in ["ProgramFiles", "ProgramFiles(x86)", "LocalAppData"] {
             if let Ok(root) = std::env::var(env_key) {
-                let base = Path::new(&root);
+                let base = std::path::Path::new(&root);
                 candidates.push(base.join("Microsoft\\Edge\\Application\\msedge.exe"));
                 candidates.push(base.join("Google\\Chrome\\Application\\chrome.exe"));
                 candidates.push(base.join("Chromium\\Application\\chrome.exe"));
