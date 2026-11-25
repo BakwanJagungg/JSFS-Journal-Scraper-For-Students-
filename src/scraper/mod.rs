@@ -16,7 +16,11 @@ use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use url::Url;
 
-pub const MAX_STREAM_CONTENT_LENGTH_BYTES: u64 = 2 * 1024 * 1024; // 2 MB guard
+#[cfg(feature = "plus")]
+pub const MAX_STREAM_CONTENT_LENGTH_BYTES: u64 = 15 * 1024 * 1024;
+#[cfg(not(feature = "plus"))]
+pub const MAX_STREAM_CONTENT_LENGTH_BYTES: u64 = 5 * 1024 * 1024;
+pub const MAX_PDF_APC_BYTES: usize = 3 * 1024 * 1024; // 2 MB guard
 pub const POLITE_BOT_USER_AGENT: &str =
     "JSFS-Academic-Research-Tool/4.7 (+https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-)";
 
@@ -163,7 +167,7 @@ impl Default for DomainBreaker {
     }
 }
 
-pub fn build_http_client() -> reqwest::Client {
+fn build_http_client_inner(accept_invalid_certs: bool) -> reqwest::Client {
     reqwest::Client::builder()
         .pool_max_idle_per_host(16)
         .connect_timeout(Duration::from_secs(4))
@@ -171,9 +175,37 @@ pub fn build_http_client() -> reqwest::Client {
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36")
         .gzip(true)
         .cookie_store(true)
-        .danger_accept_invalid_certs(true)
+        .danger_accept_invalid_certs(accept_invalid_certs)
         .build()
         .expect("reqwest client")
+}
+
+/// Build the primary HTTP client with strict TLS certificate verification.
+pub fn build_http_client() -> reqwest::Client {
+    build_http_client_inner(false)
+}
+
+static INSECURE_TLS_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| build_http_client_inner(true));
+
+fn is_tls_certificate_error(err: &reqwest::Error) -> bool {
+    let mut cur: Option<&(dyn std::error::Error + 'static)> = Some(err);
+    while let Some(e) = cur {
+        let low = e.to_string().to_ascii_lowercase();
+        if low.contains("certificate")
+            || low.contains("webpki")
+            || low.contains("invalid peer")
+            || low.contains("self signed")
+            || low.contains("self-signed")
+            || low.contains("unknown issuer")
+            || low.contains("expired")
+            || low.contains("tls handshake")
+            || low.contains("ssl")
+        {
+            return true;
+        }
+        cur = e.source();
+    }
+    false
 }
 
 #[derive(Debug)]
@@ -185,6 +217,7 @@ pub struct FetchOutcome {
     pub timed_out: bool,
     pub etag: Option<String>,
     pub last_modified: Option<String>,
+    pub insecure_tls: bool,
 }
 
 pub fn is_cloudflare_response(status: u16, server_header: &str, html: &str) -> bool {
@@ -326,29 +359,15 @@ pub async fn safe_fetch_html_conditional(
     let ua = next_user_agent();
 
     let req_fut = async {
-        let mut builder = client
-            .get(url)
-            .header(reqwest::header::USER_AGENT, ua)
-            .header(
-                "Accept",
-                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            )
-            .header("Accept-Language", "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7");
-
-        if let Some(etag) = if_none_match {
-            builder = builder.header(reqwest::header::IF_NONE_MATCH, etag);
-        }
-        if let Some(last_mod) = if_modified_since {
-            builder = builder.header(reqwest::header::IF_MODIFIED_SINCE, last_mod);
-        }
-
-        let resp = builder.send().await.map_err(|e| {
-            if e.is_timeout() {
-                "timeout".to_string()
-            } else {
-                format!("connect:{e}")
-            }
-        })?;
+        let (resp, insecure_tls) = send_get_with_tls_fallback(
+            client,
+            url,
+            ua,
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            if_none_match,
+            if_modified_since,
+        )
+        .await?;
 
         let status = resp.status().as_u16();
         let final_url = resp.url().to_string();
@@ -373,6 +392,7 @@ pub async fn safe_fetch_html_conditional(
                 timed_out: false,
                 etag: resp_etag,
                 last_modified: resp_last_mod,
+                insecure_tls,
             });
         }
 
@@ -389,20 +409,7 @@ pub async fn safe_fetch_html_conditional(
         is_disallowed_stream_headers(ct_hdr, resp.content_length())?;
 
         let cap_bytes = MAX_HTML_BYTES.min(MAX_STREAM_CONTENT_LENGTH_BYTES as usize);
-        let mut buf = Vec::with_capacity(32 * 1024);
-        let mut stream = resp.bytes_stream();
-        while let Some(chunk_res) = stream.next().await {
-            let chunk = chunk_res.map_err(|e| format!("stream:{e}"))?;
-            let remaining = cap_bytes.saturating_sub(buf.len());
-            if remaining == 0 {
-                break;
-            }
-            if chunk.len() > remaining {
-                buf.extend_from_slice(&chunk[..remaining]);
-                break;
-            }
-            buf.extend_from_slice(&chunk);
-        }
+        let buf = stream_bounded_bytes(resp, cap_bytes).await?;
 
         let html = String::from_utf8_lossy(&buf).into_owned();
         let cf = is_cloudflare_response(status, &server_hdr, &html);
@@ -414,6 +421,7 @@ pub async fn safe_fetch_html_conditional(
             timed_out: false,
             etag: resp_etag,
             last_modified: resp_last_mod,
+            insecure_tls,
         })
     };
 
@@ -454,6 +462,119 @@ pub async fn safe_fetch_html_conditional(
     }
 }
 
+async fn send_get_with_tls_fallback(
+    client: &reqwest::Client,
+    url: &str,
+    ua: &str,
+    accept: &str,
+    if_none_match: Option<&str>,
+    if_modified_since: Option<&str>,
+) -> Result<(reqwest::Response, bool), String> {
+    let build_req = |cli: &reqwest::Client| {
+        let mut builder = cli
+            .get(url)
+            .header(reqwest::header::USER_AGENT, ua)
+            .header("Accept", accept)
+            .header("Accept-Language", "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7");
+        if let Some(etag) = if_none_match {
+            builder = builder.header(reqwest::header::IF_NONE_MATCH, etag);
+        }
+        if let Some(last_mod) = if_modified_since {
+            builder = builder.header(reqwest::header::IF_MODIFIED_SINCE, last_mod);
+        }
+        builder.send()
+    };
+
+    match build_req(client).await {
+        Ok(resp) => Ok((resp, false)),
+        Err(err) if url.starts_with("https://") && is_tls_certificate_error(&err) => {
+            let fallback_resp = build_req(&INSECURE_TLS_CLIENT).await.map_err(|e| {
+                if e.is_timeout() {
+                    "timeout".to_string()
+                } else {
+                    format!("connect:{e}")
+                }
+            })?;
+            Ok((fallback_resp, true))
+        }
+        Err(err) => Err(if err.is_timeout() {
+            "timeout".to_string()
+        } else {
+            format!("connect:{err}")
+        }),
+    }
+}
+
+async fn stream_bounded_bytes(
+    resp: reqwest::Response,
+    cap_bytes: usize,
+) -> Result<Vec<u8>, String> {
+    let mut buf = Vec::with_capacity(32 * 1024);
+    let mut stream = resp.bytes_stream();
+    while let Some(chunk_res) = stream.next().await {
+        let chunk = chunk_res.map_err(|e| format!("stream:{e}"))?;
+        let remaining = cap_bytes.saturating_sub(buf.len());
+        if remaining == 0 {
+            break;
+        }
+        if chunk.len() > remaining {
+            buf.extend_from_slice(&chunk[..remaining]);
+            break;
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    Ok(buf)
+}
+
+/// Safely download an OJS `.pdf` document strictly bounded below `MAX_PDF_APC_BYTES` (3 MB).
+pub async fn safe_fetch_pdf_bytes(
+    client: &reqwest::Client,
+    breaker: &DomainBreaker,
+    url: &str,
+    per_req_timeout: Duration,
+) -> Result<(Vec<u8>, bool), String> {
+    if breaker.is_blocked(url).is_some() {
+        return Err("domain_blocked_cached".to_string());
+    }
+    enforce_host_rate_limit(url).await;
+    let ua = next_user_agent();
+    let req_fut = async {
+        let (resp, insecure_tls) = send_get_with_tls_fallback(
+            client,
+            url,
+            ua,
+            "application/pdf,application/octet-stream;q=0.9,*/*;q=0.5",
+            None,
+            None,
+        )
+        .await?;
+        if !resp.status().is_success() {
+            return Err(format!("http_{}", resp.status().as_u16()));
+        }
+        if let Some(cl) = resp.content_length() {
+            if cl > MAX_PDF_APC_BYTES as u64 {
+                return Err(format!("pdf_too_large:{cl}"));
+            }
+        }
+        if let Some(ct) = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+        {
+            let low = ct.to_ascii_lowercase();
+            if !low.contains("pdf") && !low.contains("octet-stream") {
+                return Err(format!("non_pdf_content:{low}"));
+            }
+        }
+        let bytes = stream_bounded_bytes(resp, MAX_PDF_APC_BYTES).await?;
+        Ok::<(Vec<u8>, bool), String>((bytes, insecure_tls))
+    };
+
+    tokio::time::timeout(per_req_timeout, req_fut)
+        .await
+        .map_err(|_| "timeout".to_string())?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -462,9 +583,13 @@ mod tests {
     fn test_stream_guards_and_bot_challenge_detection() {
         assert!(is_disallowed_stream_headers(Some("application/pdf"), Some(1024)).is_err());
         assert!(is_disallowed_stream_headers(Some("application/octet-stream"), Some(100)).is_err());
+        assert!(is_disallowed_stream_headers(
+            Some("text/html; charset=utf-8"),
+            Some(MAX_STREAM_CONTENT_LENGTH_BYTES + 100_000)
+        )
+        .is_err());
         assert!(
-            is_disallowed_stream_headers(Some("text/html; charset=utf-8"), Some(3_000_000))
-                .is_err()
+            is_disallowed_stream_headers(Some("text/html; charset=utf-8"), Some(3_000_000)).is_ok()
         );
         assert!(
             is_disallowed_stream_headers(Some("text/html; charset=utf-8"), Some(64_000)).is_ok()

@@ -148,6 +148,12 @@ pub struct JournalRecord {
     // v4.14.0: data-source transparency for ISSN triangulation
     #[serde(default)]
     pub data_source_note: String,
+
+    // v5.0.0-plus: OpenAlex citation impact metrics (100% optional, serde-default safe)
+    #[serde(default)]
+    pub cited_by_count: Option<u64>,
+    #[serde(default)]
+    pub works_count: Option<u64>,
 }
 
 /// Compute human-readable journal activity label and dormancy flag against `current_year`.
@@ -402,6 +408,12 @@ pub struct UiJournalItem {
     // v4.14.0: data-source transparency for ISSN triangulation
     #[serde(default)]
     pub data_source_note: String,
+
+    // v5.0.0-plus: OpenAlex citation impact metrics (100% optional, serde-default safe)
+    #[serde(default)]
+    pub cited_by_count: Option<u64>,
+    #[serde(default)]
+    pub works_count: Option<u64>,
 }
 
 impl UiJournalItem {
@@ -543,6 +555,8 @@ impl From<&JournalRecord> for UiJournalItem {
             issn_name_mismatch: r.issn_name_mismatch,
             issn_registered_name: r.issn_registered_name.clone(),
             data_source_note: r.data_source_note.clone(),
+            cited_by_count: r.cited_by_count,
+            works_count: r.works_count,
         }
     }
 }
@@ -623,6 +637,8 @@ impl From<&UiJournalItem> for JournalRecord {
             issn_name_mismatch: it.issn_name_mismatch,
             issn_registered_name: it.issn_registered_name.clone(),
             data_source_note: it.data_source_note.clone(),
+            cited_by_count: it.cited_by_count,
+            works_count: it.works_count,
             ..Default::default()
         }
     }
@@ -1158,18 +1174,34 @@ pub fn compute_submission_readiness(
     // 6. Citation style match check
     if let Some(ms_style) = ms_citation_style {
         if let Some(target_style) = &item.citation_style {
-            let is_ieee = |s: &str| contains_ascii_ci(s, "ieee") || contains_ascii_ci(s, "numeric");
-            let is_apa = |s: &str| {
-                contains_ascii_ci(s, "apa")
+            #[derive(PartialEq, Eq)]
+            enum CitationFamily {
+                Ieee,
+                Vancouver,
+                Apa,
+                Chicago,
+                Other,
+            }
+            let citation_family = |s: &str| -> CitationFamily {
+                if contains_ascii_ci(s, "vancouver") {
+                    CitationFamily::Vancouver
+                } else if contains_ascii_ci(s, "ieee") || contains_ascii_ci(s, "numeric") {
+                    CitationFamily::Ieee
+                } else if contains_ascii_ci(s, "chicago") || contains_ascii_ci(s, "turabian") {
+                    CitationFamily::Chicago
+                } else if contains_ascii_ci(s, "apa")
                     || contains_ascii_ci(s, "harvard")
                     || contains_ascii_ci(s, "author")
+                {
+                    CitationFamily::Apa
+                } else {
+                    CitationFamily::Other
+                }
             };
-            let ms_is_ieee = is_ieee(ms_style);
-            let target_is_ieee = is_ieee(target_style);
-            let ms_is_apa = is_apa(ms_style);
-            let target_is_apa = is_apa(target_style);
+            let ms_fam = citation_family(ms_style);
+            let target_fam = citation_family(target_style);
 
-            if (ms_is_ieee && target_is_ieee) || (ms_is_apa && target_is_apa) {
+            if ms_fam != CitationFamily::Other && ms_fam == target_fam {
                 checklist.push((
                     true,
                     if is_en {
@@ -1178,7 +1210,7 @@ pub fn compute_submission_readiness(
                         format!("Gaya sitasi selaras: {target_style}")
                     },
                 ));
-            } else if (ms_is_ieee && target_is_apa) || (ms_is_apa && target_is_ieee) {
+            } else if ms_fam != CitationFamily::Other && target_fam != CitationFamily::Other {
                 checklist.push((
                     false,
                     if is_en {

@@ -114,11 +114,18 @@ pub fn load_manuscript_async(engine: Arc<EngineState>, sink: EventSink, path: Pa
                     uncited_long_paragraphs: meta.checklist.uncited_long_paragraphs,
                     detected_citation_style: meta.detected_citation_style.clone(),
                 };
+                let ocr_recovered = meta.checklist.summary_badge.contains("[OCR:");
                 {
                     let mut guard = engine.manuscript.write().await;
                     *guard = Some(meta);
                 }
                 sink.send(EngineEvent::ManuscriptLoaded(Ok(summary)));
+                if ocr_recovered {
+                    sink.send(EngineEvent::Toast(
+                        "Teks naskah PDF hasil scan berhasil dipulihkan melalui OCR lokal JSFS+."
+                            .to_string(),
+                    ));
+                }
             }
             Ok(Err(e)) => {
                 sink.send(EngineEvent::ManuscriptLoaded(Err(e.to_string())));

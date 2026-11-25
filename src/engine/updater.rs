@@ -1,31 +1,45 @@
 //! Lightweight GitHub release checker and SHA-256 verified self-updater for JSFS.
 //! Spawns a dedicated background OS thread on startup; completely panic-safe.
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", unix))]
 use crate::config::is_dir_writable;
 use crate::engine::{EngineEvent, EventSink};
 #[cfg(target_os = "windows")]
 use std::io::Read;
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", unix))]
 use std::path::{Path, PathBuf};
 
 const RELEASE_DOWNLOAD_BASE: &str =
     "https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download";
 
-/// Compare two semver strings (major.minor.patch). Returns `true` if `latest_tag`
-/// is strictly newer than `current_version`. Leading `v` is stripped automatically.
+/// Check whether a GitHub release tag belongs to the active edition channel (`v*` vs `plus-v*`).
+pub fn tag_matches_edition_channel(tag: &str, is_plus: bool) -> bool {
+    let t = tag.trim();
+    if is_plus {
+        t.starts_with("plus-v")
+    } else {
+        t.starts_with('v') && !t.starts_with("plus-")
+    }
+}
+
+/// Compare two semver strings (`v4.16.2` or `plus-v5.0.0` vs `5.0.0-plus`).
 pub fn is_newer_version(latest_tag: &str, current_version: &str) -> bool {
-    let latest = latest_tag.trim_start_matches('v');
-    let current = current_version.trim_start_matches('v');
     fn parse(s: &str) -> (u32, u32, u32) {
-        let mut parts = s.splitn(3, '.').map(|p| p.parse::<u32>().unwrap_or(0));
+        let clean = s
+            .trim()
+            .trim_start_matches("plus-")
+            .trim_start_matches('v')
+            .split('-')
+            .next()
+            .unwrap_or("");
+        let mut parts = clean.splitn(3, '.').map(|p| p.parse::<u32>().unwrap_or(0));
         (
             parts.next().unwrap_or(0),
             parts.next().unwrap_or(0),
             parts.next().unwrap_or(0),
         )
     }
-    parse(latest) > parse(current)
+    parse(latest_tag) > parse(current_version)
 }
 
 /// Remove any leftover `jsfs.exe.old` created during a previous Windows self-update.
@@ -255,7 +269,10 @@ async fn perform_self_update(tag: &str, sink: &EventSink) -> Result<(), String> 
     let is_x86 = cfg!(target_arch = "x86");
 
     if writable {
-        let asset_name = if is_x86 {
+        let is_plus = crate::config::IS_PLUS_EDITION;
+        let asset_name = if is_plus {
+            "JSFS-Plus-windows-x64-portable.zip"
+        } else if is_x86 {
             "JSFS-windows-x86-portable.zip"
         } else {
             "jsfs.exe"
@@ -274,7 +291,7 @@ async fn perform_self_update(tag: &str, sink: &EventSink) -> Result<(), String> 
         ));
         verify_sha256_checksum(&asset_bytes, &sums_txt, asset_name)?;
 
-        let new_exe_bytes = if is_x86 {
+        let new_exe_bytes = if is_x86 || is_plus {
             extract_exe_from_zip(&asset_bytes)?
         } else {
             asset_bytes
@@ -299,7 +316,9 @@ async fn perform_self_update(tag: &str, sink: &EventSink) -> Result<(), String> 
             .map_err(|e| format!("Biner berhasil diganti, tetapi gagal restart otomatis: {e}"))?;
         std::process::exit(0);
     } else {
-        let installer_name = if is_x86 {
+        let installer_name = if crate::config::IS_PLUS_EDITION {
+            "JSFS-Plus-windows-x64-setup.exe"
+        } else if is_x86 {
             "JSFS-windows-x86-portable.zip"
         } else {
             "JSFS-windows-x64-setup.exe"
@@ -338,15 +357,58 @@ async fn perform_self_update(tag: &str, sink: &EventSink) -> Result<(), String> 
     }
 }
 
+/// Resolve release archive filename for Unix platforms across Standard and Plus editions.
+pub fn unix_release_asset_for_edition(os: &str, arch: &str, is_plus: bool) -> Option<&'static str> {
+    match (os, arch, is_plus) {
+        ("linux", "x86_64", false) => Some("JSFS-linux-x64.tar.gz"),
+        ("macos", "aarch64", false) => Some("JSFS-macos-arm64-preview.tar.gz"),
+        ("macos", "x86_64", false) => Some("JSFS-macos-x64-preview.tar.gz"),
+        ("linux", "x86_64", true) => Some("JSFS-Plus-linux-x64.tar.gz"),
+        ("macos", "aarch64", true) => Some("JSFS-Plus-macos-arm64-preview.tar.gz"),
+        ("macos", "x86_64", true) => Some("JSFS-Plus-macos-x64-preview.tar.gz"),
+        _ => None,
+    }
+}
+
+/// Resolve the release archive asset filename for Unix platforms (`linux` / `macos`).
+pub fn unix_release_asset_for(os: &str, arch: &str) -> Option<&'static str> {
+    unix_release_asset_for_edition(os, arch, crate::config::IS_PLUS_EDITION)
+}
+
+#[cfg(unix)]
+fn find_unix_binary_in_dir(dir: &Path) -> Option<PathBuf> {
+    let names: &[&str] = if crate::config::IS_PLUS_EDITION {
+        &["jsfs-plus", "jsfs"]
+    } else {
+        &["jsfs"]
+    };
+    for name in names {
+        let direct = dir.join(name);
+        if direct.is_file() {
+            return Some(direct);
+        }
+    }
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_dir() {
+                for name in names {
+                    let nested = p.join(name);
+                    if nested.is_file() {
+                        return Some(nested);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 #[cfg(unix)]
 async fn perform_self_update(tag: &str, sink: &EventSink) -> Result<(), String> {
-    let asset_name = if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
-        Some("JSFS-linux-x64.tar.gz")
-    } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        Some("JSFS-macos-arm64-preview.tar.gz")
-    } else {
-        None
-    };
+    use std::os::unix::fs::PermissionsExt;
+
+    let asset_name = unix_release_asset_for(std::env::consts::OS, std::env::consts::ARCH);
 
     if let Some(name) = asset_name {
         let client = reqwest::Client::builder()
@@ -376,12 +438,81 @@ async fn perform_self_update(tag: &str, sink: &EventSink) -> Result<(), String> 
                         ));
                         verify_sha256_checksum(&bytes, &sums_txt, name)?;
 
-                        let out_path = std::env::temp_dir().join(name);
-                        std::fs::write(&out_path, &bytes)
+                        let work_dir =
+                            std::env::temp_dir().join(format!("jsfs-upd-{}", std::process::id()));
+                        let _ = std::fs::remove_dir_all(&work_dir);
+                        std::fs::create_dir_all(&work_dir)
+                            .map_err(|e| format!("Gagal menyiapkan folder ekstraksi: {e}"))?;
+
+                        let archive_path = work_dir.join(name);
+                        std::fs::write(&archive_path, &bytes)
                             .map_err(|e| format!("Gagal menyimpan arsip pembaruan: {e}"))?;
+
+                        if let Ok(current_exe) = std::env::current_exe() {
+                            if let Some(exe_dir) = current_exe.parent() {
+                                if is_dir_writable(exe_dir) {
+                                    sink.send(EngineEvent::UpdateProgress(
+                                        "Mengekstrak arsip pembaruan...".to_string(),
+                                    ));
+                                    let extract_out = std::process::Command::new("tar")
+                                        .arg("-xzf")
+                                        .arg(&archive_path)
+                                        .arg("-C")
+                                        .arg(&work_dir)
+                                        .output()
+                                        .map_err(|e| {
+                                            format!("Gagal menjalankan tar untuk ekstraksi: {e}")
+                                        })?;
+
+                                    if extract_out.status.success() {
+                                        if let Some(extracted_bin) =
+                                            find_unix_binary_in_dir(&work_dir)
+                                        {
+                                            let staged_bin = exe_dir
+                                                .join(format!(".jsfs-new-{}", std::process::id()));
+                                            std::fs::copy(&extracted_bin, &staged_bin).map_err(
+                                                |e| format!("Gagal menyalin biner pembaruan: {e}"),
+                                            )?;
+                                            let mut perms = std::fs::metadata(&staged_bin)
+                                                .map_err(|e| {
+                                                    format!("Gagal membaca metadata izin file: {e}")
+                                                })?
+                                                .permissions();
+                                            perms.set_mode(0o755);
+                                            std::fs::set_permissions(&staged_bin, perms).map_err(
+                                                |e| format!("Gagal mengatur izin eksekusi: {e}"),
+                                            )?;
+
+                                            sink.send(EngineEvent::UpdateProgress(
+                                                "Memasang biner baru dan memulai ulang JSFS..."
+                                                    .to_string(),
+                                            ));
+                                            if let Err(e) =
+                                                std::fs::rename(&staged_bin, &current_exe)
+                                            {
+                                                let _ = std::fs::remove_file(&staged_bin);
+                                                return Err(format!(
+                                                    "Gagal mengganti biner aktif: {e}"
+                                                ));
+                                            }
+                                            let _ = std::fs::remove_dir_all(&work_dir);
+                                            std::process::Command::new(&current_exe)
+                                                .spawn()
+                                                .map_err(|e| {
+                                                    format!(
+                                                        "Biner diperbarui, namun gagal restart otomatis: {e}"
+                                                    )
+                                                })?;
+                                            std::process::exit(0);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         sink.send(EngineEvent::Toast(format!(
                             "Arsip pembaruan terverifikasi tersimpan di {}",
-                            out_path.display()
+                            archive_path.display()
                         )));
                         sink.send(EngineEvent::UpdateProgress(String::new()));
                         return Ok(());
@@ -438,21 +569,29 @@ fn extract_exe_from_zip(zip_bytes: &[u8]) -> Result<Vec<u8>, String> {
     let cursor = std::io::Cursor::new(zip_bytes);
     let mut archive =
         zip::ZipArchive::new(cursor).map_err(|e| format!("Gagal membuka arsip ZIP: {e}"))?;
+    let expected = if crate::config::IS_PLUS_EDITION {
+        "jsfs-plus.exe"
+    } else {
+        "jsfs.exe"
+    };
     for i in 0..archive.len() {
         let mut file = archive
             .by_index(i)
             .map_err(|e| format!("Gagal membaca entri ZIP: {e}"))?;
-        if file.name().to_ascii_lowercase().ends_with("jsfs.exe") {
+        let low = file.name().to_ascii_lowercase();
+        if low.ends_with(expected) || (crate::config::IS_PLUS_EDITION && low.ends_with(".exe")) {
             let mut buf = Vec::with_capacity(file.size() as usize);
             file.read_to_end(&mut buf)
-                .map_err(|e| format!("Gagal mengekstrak jsfs.exe dari ZIP: {e}"))?;
+                .map_err(|e| format!("Gagal mengekstrak biner dari ZIP: {e}"))?;
             return Ok(buf);
         }
     }
-    Err("Berkas jsfs.exe tidak ditemukan di dalam arsip ZIP.".to_string())
+    Err(format!(
+        "Berkas {expected} tidak ditemukan di dalam arsip ZIP."
+    ))
 }
 
-async fn check_for_update() -> Option<(String, String)> {
+pub async fn check_for_update() -> Option<(String, String)> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .user_agent("JSFS-Update-Checker")
@@ -462,8 +601,9 @@ async fn check_for_update() -> Option<(String, String)> {
     let resp = client
         .get(
             "https://api.github.com/repos/BakwanJagungg/\
-             JSFS-Journal-Scraper-For-Students-/releases/latest",
+             JSFS-Journal-Scraper-For-Students-/releases?per_page=15",
         )
+        .header("Accept", "application/vnd.github+json")
         .send()
         .await
         .ok()?;
@@ -472,23 +612,39 @@ async fn check_for_update() -> Option<(String, String)> {
         return None;
     }
 
-    let json: serde_json::Value = resp.json().await.ok()?;
-    let tag = json["tag_name"].as_str()?.to_string();
-    let body: String = json["body"]
-        .as_str()
-        .unwrap_or("")
-        .chars()
-        .take(220)
-        .collect();
+    let releases: serde_json::Value = resp.json().await.ok()?;
+    let arr = releases.as_array()?;
+    let is_plus = crate::config::IS_PLUS_EDITION;
+    for rel in arr {
+        if rel["draft"].as_bool().unwrap_or(false) {
+            continue;
+        }
+        let Some(tag) = rel["tag_name"].as_str() else {
+            continue;
+        };
+        if !tag_matches_edition_channel(tag, is_plus) {
+            continue;
+        }
+        let body: String = rel["body"]
+            .as_str()
+            .unwrap_or("")
+            .chars()
+            .take(220)
+            .collect();
+        return Some((tag.to_string(), body));
+    }
 
-    Some((tag, body))
+    None
 }
 
 // ─── Unit Tests ───────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
-    use super::{compute_sha256_hex, is_newer_version, parse_sha256sums, verify_sha256_checksum};
+    use super::{
+        compute_sha256_hex, is_newer_version, parse_sha256sums, tag_matches_edition_channel,
+        unix_release_asset_for, unix_release_asset_for_edition, verify_sha256_checksum,
+    };
 
     #[test]
     fn test_is_newer_version() {
@@ -500,6 +656,12 @@ mod tests {
         assert!(!is_newer_version("v4.9.1", "4.10.0"));
         assert!(!is_newer_version("v4.10.0", "v4.10.0"));
         assert!(is_newer_version("v4.10.1", "v4.10.0"));
+        assert!(is_newer_version("plus-v5.0.1", "5.0.0-plus"));
+        assert!(!is_newer_version("plus-v5.0.0", "5.0.0-plus"));
+        assert!(tag_matches_edition_channel("v4.16.2", false));
+        assert!(!tag_matches_edition_channel("plus-v5.0.0", false));
+        assert!(tag_matches_edition_channel("plus-v5.0.0", true));
+        assert!(!tag_matches_edition_channel("v4.16.2", true));
     }
 
     #[test]
@@ -521,7 +683,8 @@ mod tests {
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  JSFS-windows-x64-setup.exe\n\
              {digest}  jsfs.exe\n\
              {digest}  JSFS-linux-x64.tar.gz\n\
-             {digest}  JSFS-macos-arm64-preview.tar.gz\n"
+             {digest}  JSFS-macos-arm64-preview.tar.gz\n\
+             {digest}  JSFS-macos-x64-preview.tar.gz\n"
         );
         assert_eq!(
             parse_sha256sums(&sums_txt, "jsfs.exe"),
@@ -533,6 +696,10 @@ mod tests {
         );
         assert_eq!(
             parse_sha256sums(&sums_txt, "JSFS-macos-arm64-preview.tar.gz"),
+            Some(digest.clone())
+        );
+        assert_eq!(
+            parse_sha256sums(&sums_txt, "JSFS-macos-x64-preview.tar.gz"),
             Some(digest)
         );
         assert!(verify_sha256_checksum(sample, &sums_txt, "jsfs.exe").is_ok());
@@ -540,8 +707,38 @@ mod tests {
         assert!(
             verify_sha256_checksum(sample, &sums_txt, "JSFS-macos-arm64-preview.tar.gz").is_ok()
         );
+        assert!(verify_sha256_checksum(sample, &sums_txt, "JSFS-macos-x64-preview.tar.gz").is_ok());
         assert!(verify_sha256_checksum(b"tampered", &sums_txt, "jsfs.exe").is_err());
         assert!(verify_sha256_checksum(sample, &sums_txt, "missing.exe").is_err());
+    }
+
+    #[test]
+    fn test_unix_release_asset_resolution() {
+        assert_eq!(
+            unix_release_asset_for_edition("linux", "x86_64", false),
+            Some("JSFS-linux-x64.tar.gz")
+        );
+        assert_eq!(
+            unix_release_asset_for_edition("macos", "aarch64", false),
+            Some("JSFS-macos-arm64-preview.tar.gz")
+        );
+        assert_eq!(
+            unix_release_asset_for_edition("macos", "x86_64", false),
+            Some("JSFS-macos-x64-preview.tar.gz")
+        );
+        assert_eq!(
+            unix_release_asset_for_edition("linux", "x86_64", true),
+            Some("JSFS-Plus-linux-x64.tar.gz")
+        );
+        assert_eq!(
+            unix_release_asset_for_edition("macos", "aarch64", true),
+            Some("JSFS-Plus-macos-arm64-preview.tar.gz")
+        );
+        assert_eq!(
+            unix_release_asset_for_edition("macos", "x86_64", true),
+            Some("JSFS-Plus-macos-x64-preview.tar.gz")
+        );
+        assert_eq!(unix_release_asset_for("freebsd", "x86_64"), None);
     }
 
     #[test]

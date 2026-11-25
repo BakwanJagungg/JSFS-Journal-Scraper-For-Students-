@@ -142,6 +142,8 @@ pub fn parse_openalex_response(raw: &str, usd_to_idr: i64) -> Vec<JournalRecord>
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         let is_oa = item.get("is_oa").and_then(|v| v.as_bool()).unwrap_or(false);
+        let cited_by_count = item.get("cited_by_count").and_then(|v| v.as_u64());
+        let works_count = item.get("works_count").and_then(|v| v.as_u64());
 
         let quartile = compute_quartile(citedness, h_index, in_doaj);
 
@@ -207,6 +209,8 @@ pub fn parse_openalex_response(raw: &str, usd_to_idr: i64) -> Vec<JournalRecord>
             cache_version: CACHE_VERSION.to_string(),
             quartile,
             is_international: true,
+            cited_by_count,
+            works_count,
             ..Default::default()
         };
         rec.refresh_activity_status(false, current_year);

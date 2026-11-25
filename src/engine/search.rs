@@ -250,7 +250,8 @@ pub fn start_search(
                 .ok()
                 .and_then(|g| {
                     g.as_ref().and_then(|db| {
-                        db.search_cached_journals(&kw_label, (target * 3).clamp(60, 1500))
+                        let cap = if cfg!(feature = "plus") { 5000 } else { 1500 };
+                        db.search_cached_journals(&kw_label, (target * 3).clamp(60, cap))
                             .ok()
                     })
                 })
@@ -783,6 +784,29 @@ pub fn start_search(
                 rec.match_reasons = rsn;
                 if rec.ai_source.is_empty() {
                     rec.ai_source = "Built-in Smart (BM25+ID/EN)".to_string();
+                }
+            }
+            #[cfg(feature = "plus")]
+            if !survivors.is_empty() {
+                let used_ollama = crate::plus::semantic::rerank_candidates(
+                    &client,
+                    &mut survivors,
+                    &keywords,
+                    ms_ref.as_ref(),
+                )
+                .await;
+                if let Some(emb_m) = used_ollama {
+                    emit_log(
+                        &app,
+                        format!(
+                            "🧠 Semantic Reranker Plus aktif (Pure Rust 256-D + Ollama {emb_m} GPU + Citation Velocity)."
+                        ),
+                    );
+                } else {
+                    emit_log(
+                        &app,
+                        "🧠 Semantic Reranker Plus aktif (Pure Rust 256-D + Citation Velocity).",
+                    );
                 }
             }
         }

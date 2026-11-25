@@ -94,6 +94,7 @@ pub struct JsfsNativeApp {
     update_check_fired: bool,
     update_in_progress: bool,
     update_status_msg: Option<String>,
+    sidebar_collapsed_override: Option<bool>,
 }
 
 impl JsfsNativeApp {
@@ -188,6 +189,7 @@ impl JsfsNativeApp {
             update_check_fired: false,
             update_in_progress: false,
             update_status_msg: None,
+            sidebar_collapsed_override: None,
         }
     }
 
@@ -565,15 +567,20 @@ impl eframe::App for JsfsNativeApp {
             .collect_shortlisted_items(&self.results, &self.recent_inspected)
             .len();
 
+        let viewport_w = ui.ctx().viewport_rect().width();
+        let auto_collapse = viewport_w < 1080.0;
+        let sidebar_collapsed = self.sidebar_collapsed_override.unwrap_or(auto_collapse);
+        let sidebar_w = if sidebar_collapsed { 64.0 } else { 248.0 };
+
         // Left Navigation Sidebar
         Panel::left("jsfs_sidebar")
             .resizable(false)
-            .exact_size(224.0)
+            .exact_size(sidebar_w)
             .frame(
                 Frame::new()
                     .fill(p.sidebar_bg)
                     .stroke(Stroke::new(1.0, p.line))
-                    .inner_margin(Margin::symmetric(10, 8)),
+                    .inner_margin(Margin::symmetric(if sidebar_collapsed { 6 } else { 10 }, 8)),
             )
             .show(ui, |ui| {
                 let side_action = render_sidebar(
@@ -589,6 +596,7 @@ impl eframe::App for JsfsNativeApp {
                         active_filter_count: self.filters.active_filter_count(),
                         theme_mode: self.theme_mode,
                         lang: self.app_settings.language,
+                        collapsed: sidebar_collapsed,
                     },
                 );
                 if let Some(page) = side_action.selected {
@@ -599,6 +607,9 @@ impl eframe::App for JsfsNativeApp {
                     self.app_settings.dark_theme = self.theme_mode == ThemeMode::Dark;
                     let _ = save_app_settings(&self.app_settings);
                     apply_theme(ui.ctx(), &Palette::from_mode(self.theme_mode));
+                }
+                if side_action.toggle_collapse {
+                    self.sidebar_collapsed_override = Some(!sidebar_collapsed);
                 }
             });
 

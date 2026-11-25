@@ -127,17 +127,17 @@ pub fn render_match_engine_page(
         if form.mode == "cloud" {
             ui.add_space(6.0);
             card(ui, p, |ui| {
-                ui.columns(2, |cols| {
-                    cols[0].label(RichText::new("Provider Cloud").size(12.0).color(p.muted));
+                let render_provider = |ui: &mut Ui, form: &mut MatcherFormState| {
+                    ui.label(RichText::new("Provider Cloud").size(12.0).color(p.muted));
                     let prev_prov = form.cloud_provider.clone();
                     egui::ComboBox::from_id_salt("cloud_provider_combo")
-                        .width(cols[0].available_width())
+                        .width(ui.available_width())
                         .selected_text(match form.cloud_provider.as_str() {
                             "gemini" => "Google Gemini",
                             "openai_compatible" => "OpenAI-Compatible",
                             _ => "Groq (Llama 3.1)",
                         })
-                        .show_ui(&mut cols[0], |ui| {
+                        .show_ui(ui, |ui| {
                             ui.selectable_value(&mut form.cloud_provider, "groq".to_string(), "Groq (Llama 3.1)");
                             ui.selectable_value(&mut form.cloud_provider, "gemini".to_string(), "Google Gemini");
                             ui.selectable_value(
@@ -150,13 +150,25 @@ pub fn render_match_engine_page(
                         form.cloud_model =
                             default_model_for_provider(&form.cloud_provider).to_string();
                     }
-
-                    cols[1].label(RichText::new("Nama Model").size(12.0).color(p.muted));
-                    cols[1].add_sized(
-                        [cols[1].available_width(), 28.0],
+                };
+                if ui.available_width() < 640.0 {
+                    render_provider(ui, form);
+                    ui.add_space(6.0);
+                    ui.label(RichText::new("Nama Model").size(12.0).color(p.muted));
+                    ui.add_sized(
+                        [ui.available_width(), 28.0],
                         egui::TextEdit::singleline(&mut form.cloud_model),
                     );
-                });
+                } else {
+                    ui.columns(2, |cols| {
+                        render_provider(&mut cols[0], form);
+                        cols[1].label(RichText::new("Nama Model").size(12.0).color(p.muted));
+                        cols[1].add_sized(
+                            [cols[1].available_width(), 28.0],
+                            egui::TextEdit::singleline(&mut form.cloud_model),
+                        );
+                    });
+                }
 
                 if form.cloud_provider == "openai_compatible" {
                     ui.add_space(8.0);

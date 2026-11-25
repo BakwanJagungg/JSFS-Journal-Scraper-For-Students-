@@ -451,6 +451,104 @@ const BILINGUAL_SYNONYM_GROUPS: &[&[&str]] = &[
         "industri",
         "industrial",
     ],
+    // Research Design, Prototyping & Development
+    &[
+        "perancangan",
+        "rancang",
+        "rancang bangun",
+        "desain",
+        "design",
+        "purwarupa",
+        "prototipe",
+        "prototype",
+        "pengembangan",
+        "development",
+        "implementasi",
+        "implementation",
+        "rekayasa",
+    ],
+    // Governance, Operations & Clinical Management
+    &[
+        "tatalaksana",
+        "tata laksana",
+        "tata kelola",
+        "manajemen",
+        "management",
+        "pengelolaan",
+        "governance",
+        "asuhan",
+        "care",
+        "terapi",
+        "therapy",
+        "rehabilitasi",
+        "rehabilitation",
+        "diagnosa",
+        "diagnosis",
+    ],
+    // Sentiment, NLP & Predictive Modeling
+    &[
+        "sentimen",
+        "sentiment",
+        "opini",
+        "opinion",
+        "ulasan",
+        "review",
+        "klastering",
+        "clustering",
+        "prediksi",
+        "prediction",
+        "peramalan",
+        "forecasting",
+        "deteksi",
+        "detection",
+        "pengenalan",
+        "recognition",
+    ],
+    // Accounting, Audit & Fiscal
+    &[
+        "akuntansi",
+        "accounting",
+        "audit",
+        "auditing",
+        "perpajakan",
+        "taxation",
+        "anggaran",
+        "budget",
+        "budgeting",
+        "laba",
+        "profit",
+        "profitability",
+        "audit internal",
+        "laporan keuangan",
+    ],
+    // Neural, Vision & Automation
+    &[
+        "saraf",
+        "neural",
+        "citra",
+        "image",
+        "visi",
+        "vision",
+        "otomasi",
+        "automation",
+        "sensor",
+        "mikrokontroler",
+        "microcontroller",
+    ],
+    // Training, Assessment & Educational Media
+    &[
+        "edukasi",
+        "pelatihan",
+        "training",
+        "asesmen",
+        "assessment",
+        "evaluasi",
+        "evaluation",
+        "keterampilan",
+        "skill",
+        "skills",
+        "hasil belajar",
+    ],
 ];
 
 /// Cross-lingual multi-word academic phrases (`id_phrase`, `en_phrase`, `cluster`).
@@ -952,9 +1050,46 @@ pub fn stem_en(word: &str) -> String {
     s
 }
 
+fn normalize_irregular_root(low: &str) -> Option<&'static str> {
+    match low {
+        "penelitian" | "meneliti" | "diteliti" | "teliti" => Some("teliti"),
+        "perancangan" | "merancang" | "dirancang" | "rancang" => Some("rancang"),
+        "pembelajaran" | "mempelajari" | "dipelajari" | "belajar" => Some("belajar"),
+        "pengembangan" | "mengembangkan" | "dikembangkan" | "kembang" => Some("kembang"),
+        "penerapan" | "menerapkan" | "diterapkan" | "terap" => Some("terap"),
+        "pengelolaan" | "mengelola" | "dikelola" | "kelola" => Some("kelola"),
+        "penilaian" | "menilai" | "dinilai" | "nilai" => Some("nilai"),
+        "pengukuran" | "mengukur" | "diukur" | "ukur" => Some("ukur"),
+        "perbaikan" | "memperbaiki" | "diperbaiki" => Some("baik"),
+        "keperawatan" | "merawat" | "dirawat" | "perawat" => Some("rawat"),
+        "pelayanan" | "melayani" | "dilayani" | "layanan" => Some("layan"),
+        "penyuluhan" | "menyuluh" => Some("suluh"),
+        "pendapatan" | "berpendapatan" => Some("dapat"),
+        "pertumbuhan" | "bertumbuh" | "tumbuh" => Some("tumbuh"),
+        "analyses" | "analysis" | "analytical" | "analyzed" | "analysing" => Some("analyz"),
+        "studies" | "studied" | "studying" => Some("studi"),
+        "children" => Some("child"),
+        "indices" => Some("index"),
+        "matrices" => Some("matrix"),
+        "criteria" => Some("criterion"),
+        "phenomena" => Some("phenomenon"),
+        "hypotheses" => Some("hypothesis"),
+        "diagnoses" => Some("diagnosis"),
+        "prognoses" => Some("prognosis"),
+        "theses" => Some("thesis"),
+        "taught" => Some("teach"),
+        "built" => Some("build"),
+        "written" => Some("write"),
+        _ => None,
+    }
+}
+
 /// Academic stemmer handling both ID and EN academic tokens.
 pub fn stem_academic_word(word: &str) -> String {
     let low = word.trim().to_ascii_lowercase();
+    if let Some(root) = normalize_irregular_root(&low) {
+        return root.to_string();
+    }
     let s_id = stem_id(&low);
     if s_id != low && s_id.len() >= 3 {
         return s_id;
@@ -1209,18 +1344,40 @@ pub fn build_manuscript_meta(filename: &str, bytes: &[u8]) -> Result<ManuscriptM
                 .to_string(),
         ));
     }
+    let mut ocr_note: Option<String> = None;
     let extracted_text = if low.ends_with(".docx") {
         extract_text_from_docx_bytes(bytes)?
     } else if low.ends_with(".pdf") {
-        let pdf_text = extract_text_from_pdf_bytes(bytes)?;
-        let trimmed = pdf_text.trim();
+        let initial_pdf = extract_text_from_pdf_bytes(bytes).unwrap_or_default();
+        #[cfg(feature = "plus")]
+        let (final_pdf, recovered_msg) = {
+            if initial_pdf.trim().chars().count() < 80 {
+                let ocr = crate::plus::ocr::recover_pdf_text_with_ocr_fallback(bytes, &initial_pdf);
+                let msg = if ocr.recovered_via_ocr {
+                    Some(format!(
+                        "[OCR: {}]",
+                        ocr.engine_label.unwrap_or_else(|| "Lokal".to_string())
+                    ))
+                } else {
+                    None
+                };
+                (ocr.text, msg)
+            } else {
+                (initial_pdf, None)
+            }
+        };
+        #[cfg(not(feature = "plus"))]
+        let (final_pdf, recovered_msg) = (initial_pdf, None::<String>);
+
+        ocr_note = recovered_msg;
+        let trimmed = final_pdf.trim();
         if trimmed.len() < 30 {
             return Err(JsfsError::Document(
                 "Berkas PDF tidak memiliki lapisan teks (kemungkinan hasil scan gambar). Silakan unggah berkas .docx asli dari Microsoft Word."
                     .to_string(),
             ));
         }
-        pdf_text
+        final_pdf
     } else {
         return Err(JsfsError::InvalidInput(
             "Hanya file .docx atau .pdf yang didukung".to_string(),
@@ -1240,7 +1397,10 @@ pub fn build_manuscript_meta(filename: &str, bytes: &[u8]) -> Result<ManuscriptM
             break;
         }
     }
-    let checklist = analyze_manuscript_checklist(&extracted_text);
+    let mut checklist = analyze_manuscript_checklist(&extracted_text);
+    if let Some(tag) = ocr_note {
+        checklist.summary_badge = format!("{tag} {}", checklist.summary_badge);
+    }
     let abstract_snippet = extract_abstract_snippet(&extracted_text);
     let cited_journals = extract_cited_journals(&extracted_text);
     let recommended_topics = extract_recommended_topics(
@@ -1775,15 +1935,35 @@ pub fn count_uncited_long_paragraphs(text: &str) -> u32 {
     uncited
 }
 
-/// Detect dominant citation style (IEEE / Numeric vs APA / Author-Year) in manuscript text.
+static RE_VANCOUVER_INLINE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\(\s*\d{1,3}(?:\s*[-–,]\s*\d{1,3})*\s*\)").expect("valid regex"));
+static RE_VANCOUVER_REF_LINE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"(?m)^\s*(?:\d{1,3}\.|\(\d{1,3}\))\s+[A-Z][A-Za-zÀ-ÖØ-öø-ÿ'’-]+(?:\s+[A-Z]{1,3})?[.,]",
+    )
+    .expect("valid regex")
+});
+static RE_CHICAGO_AUTHOR_DATE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\([A-Z][A-Za-zÀ-ÖØ-öø-ÿ'’-]+(?:\s+et\s+al\.?)?\s+(?:19|20)\d{2}[a-z]?(?:\s*,\s*\d+(?:[-–]\d+)?)?\)")
+        .expect("valid regex")
+});
+static RE_CHICAGO_BIB_LINE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r#"(?m)^[A-Z][A-Za-zÀ-ÖØ-öø-ÿ'’-]+,\s+[A-Z][a-z]{2,}[^.\r\n]{0,40}\.\s+(?:(?:19|20)\d{2}\.\s+|["“])"#)
+        .expect("valid regex")
+});
+
+/// Detect dominant citation style (`IEEE (Numeric)`, `Vancouver (Numeric)`, `APA (Author-Year)`, `Chicago / Turabian`).
 pub fn detect_manuscript_citation_style(text: &str) -> Option<String> {
     let bracket_hits = RE_BRACKET_CITE.find_iter(text).count();
-    let author_year_hits = RE_AUTHOR_YEAR_CITE.find_iter(text).count();
+    let vancouver_inline_hits = RE_VANCOUVER_INLINE.find_iter(text).count();
+    let chicago_author_date_hits = RE_CHICAGO_AUTHOR_DATE.find_iter(text).count();
+    let total_author_year = RE_AUTHOR_YEAR_CITE.find_iter(text).count();
 
     let low = text.to_ascii_lowercase();
     let ref_section = if let Some(idx) = low
         .rfind("daftar pustaka")
         .or_else(|| low.rfind("references"))
+        .or_else(|| low.rfind("bibliography"))
         .or_else(|| low.rfind("referensi"))
     {
         &text[idx..]
@@ -1795,20 +1975,45 @@ pub fn detect_manuscript_citation_style(text: &str) -> Option<String> {
     let ref_bracket_hits = (1..=20)
         .filter(|n| ref_section.contains(&format!("[{n}]")))
         .count();
-    let total_ieee = bracket_hits + ref_bracket_hits * 3;
-    let total_apa = author_year_hits;
+    let vancouver_ref_hits = RE_VANCOUVER_REF_LINE.find_iter(ref_section).count();
+    let chicago_bib_hits = RE_CHICAGO_BIB_LINE.find_iter(ref_section).count();
+    let chicago_note_hits = low.matches("ibid.").count()
+        + low.matches("op. cit.").count()
+        + low.matches("loc. cit.").count()
+        + low.matches("turabian").count() * 2;
 
-    if total_ieee >= 2 && total_ieee > total_apa {
-        Some("IEEE (Numeric)".to_string())
-    } else if total_apa >= 2 && total_apa >= total_ieee {
-        Some("APA (Author-Year)".to_string())
-    } else if total_ieee >= 1 {
-        Some("IEEE (Numeric)".to_string())
-    } else if total_apa >= 1 {
-        Some("APA (Author-Year)".to_string())
+    let score_ieee = bracket_hits + ref_bracket_hits * 3;
+    let score_vancouver = if score_ieee == 0 {
+        vancouver_inline_hits + vancouver_ref_hits * 3
     } else {
-        None
-    }
+        0
+    };
+    let score_chicago = chicago_note_hits * 2 + chicago_author_date_hits + chicago_bib_hits * 3;
+    let score_apa = total_author_year.saturating_sub(chicago_author_date_hits);
+
+    let candidates = [
+        ("IEEE (Numeric)", score_ieee),
+        ("Vancouver (Numeric)", score_vancouver),
+        ("Chicago / Turabian", score_chicago),
+        ("APA (Author-Year)", score_apa),
+    ];
+
+    candidates
+        .into_iter()
+        .filter(|(_, s)| *s >= 1)
+        .max_by(|(la, a), (lb, b)| {
+            a.cmp(b).then_with(|| {
+                // On tie: prioritize specific styles cleanly
+                let rank = |lbl: &str| match lbl {
+                    "IEEE (Numeric)" => 4,
+                    "Vancouver (Numeric)" => 3,
+                    "Chicago / Turabian" => 2,
+                    _ => 1,
+                };
+                rank(la).cmp(&rank(lb))
+            })
+        })
+        .map(|(label, _)| label.to_string())
 }
 
 /// Auto-Query Expansion: Extracts core academic keywords and bilingual ID-EN equivalents
@@ -2676,6 +2881,62 @@ Daftar Pustaka\n\
         assert_eq!(
             detect_manuscript_citation_style(text_apa).as_deref(),
             Some("APA (Author-Year)")
+        );
+
+        let text_vancouver = r#"
+            Pendahuluan
+            Terapi klinis modern menunjukkan efektivitas tinggi pada pasien rawat inap (1). Studi multisenter memperkuat temuan ini (2, 3).
+
+            References
+            1. Santoso B, Wijaya R. Clinical protocol outcomes. J Med. 2024;12(3):45-52.
+            2. Pratama A. Nursing care pathways. Health J. 2025;8(1):10-18.
+        "#;
+        assert_eq!(
+            detect_manuscript_citation_style(text_vancouver).as_deref(),
+            Some("Vancouver (Numeric)")
+        );
+
+        let text_chicago = r#"
+            Pendahuluan
+            Kajian historis tata kelola publik menyoroti reformasi birokrasi (Santoso 2024, 42). Pandangan ini juga ditegaskan oleh catatan arsip sebelumnya (ibid., 44).
+
+            Bibliography
+            Santoso, Budi. 2024. "Reformasi Birokrasi Daerah." Jurnal Kebijakan 10, no. 2: 40-55.
+            Wijaya, Rina. 2025. "Sejarah Hukum Adat." Jurnal Hukum 15, no. 1: 12-28.
+        "#;
+        assert_eq!(
+            detect_manuscript_citation_style(text_chicago).as_deref(),
+            Some("Chicago / Turabian")
+        );
+    }
+
+    #[test]
+    fn test_v4162_thesaurus_and_irregular_roots() {
+        assert_eq!(stem_academic_word("penelitian"), "teliti");
+        assert_eq!(stem_academic_word("perancangan"), "rancang");
+        assert_eq!(stem_academic_word("analyses"), "analyz");
+        assert_eq!(stem_academic_word("matrices"), "matrix");
+
+        let tata_syns = synonyms_for_token("tatalaksana");
+        assert!(
+            tata_syns.contains(&"management") && tata_syns.contains(&"manajemen"),
+            "tatalaksana should map to management/manajemen: {tata_syns:?}"
+        );
+        let nursing_syns = synonyms_for_token("keperawatan");
+        assert!(
+            nursing_syns.contains(&"nursing"),
+            "keperawatan should map to nursing: {nursing_syns:?}"
+        );
+        let sent_syns = synonyms_for_token("sentimen");
+        assert!(
+            sent_syns.contains(&"sentiment") && sent_syns.contains(&"opini"),
+            "sentimen should map to sentiment/opini: {sent_syns:?}"
+        );
+
+        let expanded = suggest_expanded_queries("tatalaksana keperawatan sentimen");
+        assert!(
+            !expanded.is_empty(),
+            "suggest_expanded_queries should yield bilingual expansions"
         );
     }
 }

@@ -435,7 +435,7 @@ pub fn render_dospen_page(
     ScrollArea::vertical().id_salt("dospen_page_scroll").show(ui, |ui| {
         // Section A: Paket Konsultasi Dosen Pembimbing (Dosbing Brief)
         card(ui, p, |ui| {
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label(
                     RichText::new(if is_en {
                         "A. Supervisor Consultation Package (Dosbing Brief)"
@@ -883,11 +883,12 @@ pub fn render_dospen_page(
                                 }
                             });
                             ui.add_space(4.0);
-                            ui.horizontal(|ui| {
+                            ui.horizontal_wrapped(|ui| {
                                 ui.label(RichText::new("Catatan Dospen:").size(12.0).color(p.muted));
+                                let note_w = ui.available_width().max(220.0);
                                 if ui
                                     .add_sized(
-                                        [ui.available_width(), 26.0],
+                                        [note_w, 26.0],
                                         egui::TextEdit::singleline(&mut entry.notes)
                                             .hint_text("Arahan revisi dosbing, komentar reviewer, link submit OJS..."),
                                     )

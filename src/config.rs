@@ -2,20 +2,56 @@ use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-pub const APP_VERSION: &str = "4.16.0";
+#[cfg(feature = "plus")]
+pub const APP_EDITION: &str = "JSFS+ Workstation";
+#[cfg(not(feature = "plus"))]
+pub const APP_EDITION: &str = "JSFS Standard";
+
+#[cfg(feature = "plus")]
+pub const IS_PLUS_EDITION: bool = true;
+#[cfg(not(feature = "plus"))]
+pub const IS_PLUS_EDITION: bool = false;
+
+#[cfg(feature = "plus")]
+pub const APP_VERSION: &str = "5.0.0-plus";
+#[cfg(not(feature = "plus"))]
+pub const APP_VERSION: &str = "4.16.2";
+
 pub const CACHE_VERSION: &str = "4.3.0";
 pub const CACHE_TTL_DAYS: i64 = 14;
+
+#[cfg(feature = "plus")]
+pub const MAX_WORKERS: usize = 64;
+#[cfg(not(feature = "plus"))]
 pub const MAX_WORKERS: usize = 32;
+
+#[cfg(feature = "plus")]
+pub const LOW_END_MAX_WORKERS: usize = 24;
+#[cfg(not(feature = "plus"))]
 pub const LOW_END_MAX_WORKERS: usize = 14;
+
 pub const LOW_END_CPU_THRESHOLD: usize = 4;
-pub const SQLITE_CACHE_SIZE_KIB: i64 = 4000;
+
+#[cfg(feature = "plus")]
+pub const SQLITE_CACHE_SIZE_KIB: i64 = 131_072; // ~128 MB workstation SQLite page cache
+#[cfg(not(feature = "plus"))]
+pub const SQLITE_CACHE_SIZE_KIB: i64 = 16_000;
+
 pub const OJS_HARD_TIMEOUT_MS: u64 = 5500;
 pub const OLLAMA_PHASE_BUDGET_SECS: u64 = 45;
 pub const OLLAMA_MAX_ITEMS: usize = 8;
 pub const OLLAMA_PER_ITEM_TIMEOUT_SECS: u64 = 5;
 pub const CLOUD_PER_ITEM_TIMEOUT_SECS: u64 = 8;
 pub const AUTOSAVE_INTERVAL_ITEMS: usize = 50;
-pub const MAX_HTML_BYTES: usize = 1_572_864; // 1.5 MB
+
+#[cfg(feature = "plus")]
+pub const MAX_HTML_BYTES: usize = 12 * 1024 * 1024; // 12 MB
+#[cfg(not(feature = "plus"))]
+pub const MAX_HTML_BYTES: usize = 4 * 1024 * 1024; // 4 MB
+
+#[cfg(feature = "plus")]
+pub const MAX_TARGET_COUNT: usize = 5000;
+#[cfg(not(feature = "plus"))]
 pub const MAX_TARGET_COUNT: usize = 1000;
 pub const DEFAULT_AI_MODEL: &str = "qwen2.5:1.5b";
 pub const OLLAMA_BASE_URL: &str = "http://127.0.0.1:11434";
@@ -34,8 +70,8 @@ pub const TIMEOUT_APC_LABEL: &str = "Cek Web / Timeout";
 pub const APC_UNKNOWN: &str = "Tidak dicantumkan (Cek Web)";
 
 pub const USD_TO_IDR_RATE: i64 = 16_500;
-pub const APC_SANITY_MIN_IDR: i64 = 50_000;
-pub const APC_SANITY_MAX_IDR: i64 = 15_000_000;
+pub const APC_SANITY_MIN_IDR: i64 = 25_000;
+pub const APC_SANITY_MAX_IDR: i64 = 25_000_000;
 
 static RESOLVED_BASE_DIR: OnceCell<PathBuf> = OnceCell::new();
 static RESOLVED_OUTPUT_DIR: OnceCell<PathBuf> = OnceCell::new();
@@ -47,12 +83,19 @@ pub fn logical_cpus() -> usize {
         .unwrap_or(1)
 }
 
-/// Deep-crawl concurrency scaled to the machine: 14 on <= 4 logical CPUs, otherwise 32.
+/// Deep-crawl concurrency scaled to the machine and edition.
 pub fn workers_for_cpus(cpus: usize) -> usize {
-    if cpus <= LOW_END_CPU_THRESHOLD {
-        LOW_END_MAX_WORKERS
-    } else {
-        MAX_WORKERS
+    #[cfg(feature = "plus")]
+    {
+        (cpus.saturating_mul(4)).clamp(LOW_END_MAX_WORKERS, MAX_WORKERS)
+    }
+    #[cfg(not(feature = "plus"))]
+    {
+        if cpus <= LOW_END_CPU_THRESHOLD {
+            LOW_END_MAX_WORKERS
+        } else {
+            MAX_WORKERS
+        }
     }
 }
 
@@ -643,6 +686,12 @@ mod tests {
     fn test_low_end_worker_scaling() {
         assert_eq!(workers_for_cpus(1), LOW_END_MAX_WORKERS);
         assert_eq!(workers_for_cpus(4), LOW_END_MAX_WORKERS);
+        #[cfg(feature = "plus")]
+        {
+            assert_eq!(workers_for_cpus(8), 32);
+            assert_eq!(workers_for_cpus(16), MAX_WORKERS);
+        }
+        #[cfg(not(feature = "plus"))]
         assert_eq!(workers_for_cpus(8), MAX_WORKERS);
         assert!(effective_max_workers() >= LOW_END_MAX_WORKERS);
     }

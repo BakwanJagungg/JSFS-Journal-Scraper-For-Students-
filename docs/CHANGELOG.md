@@ -5,7 +5,25 @@ All notable changes to **JSFS (Journal Scraper For Students)** will be documente
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
----
+## [4.16.2] - 2026-11-26
+
+### Added & Improved
+- **Kapasitas Crawler 4 MB, TLS Adaptif & Ekstraksi Biaya PDF (`src/config.rs`, `src/scraper/mod.rs`, `src/scraper/ojs_deep.rs`, `src/parser/apc.rs`)**:
+  - Perluasan batas baca HTML ke `4 MB` (`MAX_HTML_BYTES`) serta batas stream ke `5 MB` (`MAX_STREAM_CONTENT_LENGTH_BYTES`), cache SQLite WAL `16 MB` (`SQLITE_CACHE_SIZE_KIB = 16000`), dan paralelisasi sub-halaman kunci OJS (`join_all`).
+  - Verifikasi sertifikat TLS ketat secara default dengan fallback otomatis satu kali pada sertifikat SSL kampus bermasalah beserta catatan transparansi di detail jurnal.
+  - Rentang sanitasi APC diperluas (`Rp 25.000` hingga `Rp 25.000.000`) dengan ambang kepercayaan konteks minimal `Medium` di rentang ekstrem, serta ekstraksi teks biaya dari tautan dokumen `.pdf` OJS (< 3 MB).
+- **Kamus Sinonim Akademik, Dedup Fuzzy & Deteksi Sitasi Lintas Gaya (`src/parser/doc_matcher.rs`, `src/scraper/dedup.rs`, `src/models.rs`)**:
+  - Penambahan klaster istilah akademik dwibahasa ID-EN (*perancangan/design*, *tatalaksana/manajemen*, *sentimen/opini*, *keperawatan/nursing*, *akuntansi/accounting*, dll.) dan aturan normalisasi kata dasar tak beraturan.
+  - Penggabungan *fuzzy cross-source* menggunakan kemiripan token judul (`>= 85%`) disertai transfer metadata lengkap antar-portal.
+  - Deteksi gaya sitasi naskah diperluas mencakup **Vancouver (Numeric)** dan **Chicago / Turabian** selain **IEEE** dan **APA**.
+- **Self-Updater Unix Penuh & Build macOS Intel (`src/engine/updater.rs`, `.github/workflows/release.yml`)**:
+  - Dukungan penuh penggantian biner otomatis (`tar -xzf`, `chmod 0o755`, atomic `rename`, restart otomatis) di Linux & macOS dengan fallback browser aman, serta target rilis **macOS Intel (`x86_64`)** berdampingan dengan Apple Silicon.
+
+## [4.16.1] - 2026-11-25
+
+### Fixed
+- **Responsivitas Adaptif Layar & Zero-Clipping UI (`src/main.rs`, `src/ui/`)**:
+  - Penyesuaian ukuran jendela minimum ke `[820.0, 500.0]` dan batas area kerja monitor aktif (`DPI scaling` 125%/150% pada laptop 1366x768) dengan tata letak adaptif agar kontrol, header, dan sidebar tampil utuh tanpa terpotong.
 
 ## [4.16.0] - 2026-11-25
 

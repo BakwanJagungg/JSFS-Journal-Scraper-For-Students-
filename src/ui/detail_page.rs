@@ -347,11 +347,14 @@ fn render_right_detail_cards(
 
     // Header Card
     card(ui, p, |ui| {
-        ui.label(RichText::new(&j.nama).size(17.5).strong().color(p.text));
-        ui.label(
-            RichText::new(format!("{} • {}", j.penerbit, j.sumber))
-                .size(12.0)
-                .color(p.muted),
+        ui.add(egui::Label::new(RichText::new(&j.nama).size(17.5).strong().color(p.text)).wrap());
+        ui.add(
+            egui::Label::new(
+                RichText::new(format!("{} • {}", j.penerbit, j.sumber))
+                    .size(12.0)
+                    .color(p.muted),
+            )
+            .wrap(),
         );
         ui.add_space(6.0);
         ui.horizontal_wrapped(|ui| {
@@ -787,11 +790,14 @@ fn render_right_detail_cards(
                         .strong()
                         .color(p.muted),
                 );
-                ui.label(
-                    RichText::new(format!("\"{}\"", j.apc_evidence_snippet.trim()))
-                        .italics()
-                        .size(11.5)
-                        .color(p.text),
+                ui.add(
+                    egui::Label::new(
+                        RichText::new(format!("\"{}\"", j.apc_evidence_snippet.trim()))
+                            .italics()
+                            .size(11.5)
+                            .color(p.text),
+                    )
+                    .wrap(),
                 );
             });
         } else if !j.apc_evidence.trim().is_empty() {
@@ -800,6 +806,15 @@ fn render_right_detail_cards(
 
         if !j.data_source_note.trim().is_empty() {
             info_kv(ui, p, "Sumber Data Tambahan", &j.data_source_note);
+        }
+        if let (Some(cited), Some(works)) = (j.cited_by_count, j.works_count.filter(|&w| w > 0)) {
+            let vel = (cited as f64) / (works as f64);
+            info_kv(
+                ui,
+                p,
+                "Citation Velocity (OpenAlex)",
+                &format!("{vel:.1} sitasi/artikel ({cited} sitasi dari {works} karya)"),
+            );
         }
 
         let issn_disp = match (j.issn.is_empty(), j.eissn.is_empty()) {
@@ -948,12 +963,15 @@ fn render_right_detail_cards(
         } else {
             j.focus_scope.trim()
         };
-        ui.label(RichText::new(focus_txt).size(12.0).color(p.text));
+        ui.add(egui::Label::new(RichText::new(focus_txt).size(12.0).color(p.text)).wrap());
         if !j.match_reasons.is_empty() {
-            ui.label(
-                RichText::new(format!("Alasan Kecocokan: {}", j.match_reasons.join(" • ")))
-                    .size(11.5)
-                    .color(p.muted),
+            ui.add(
+                egui::Label::new(
+                    RichText::new(format!("Alasan Kecocokan: {}", j.match_reasons.join(" • ")))
+                        .size(11.5)
+                        .color(p.muted),
+                )
+                .wrap(),
             );
         }
 
@@ -1186,9 +1204,79 @@ pub fn render_detail_page(
 
     let mut action = DetailPageAction::None;
     let total_w = ui.available_width();
-    let left_w = 290.0_f32.min((total_w * 0.34).max(240.0));
     let avail_h = ui.available_height();
 
+    let render_right_or_empty = |ui: &mut Ui,
+                                 selected_copy_idx: &mut usize,
+                                 app_state: &mut AppState,
+                                 action: &mut DetailPageAction| {
+        if let Some(j) = inspected {
+            render_right_detail_cards(
+                ui,
+                p,
+                j,
+                keyword,
+                manuscript,
+                selected_copy_idx,
+                app_settings,
+                app_state,
+                sink,
+                action,
+            );
+        } else {
+            card(ui, p, |ui| {
+                ui.add_space(16.0);
+                ui.label(
+                    RichText::new(if is_en {
+                        "No Journal Selected Yet"
+                    } else {
+                        "Belum Ada Jurnal Dipilih"
+                    })
+                    .size(15.5)
+                    .strong()
+                    .color(p.text),
+                );
+                ui.add_space(4.0);
+                ui.add(
+                    egui::Label::new(
+                        RichText::new(if is_en {
+                            "Click \"Detail\" on any journal row in Journal Search, or paste an OJS link on the left panel."
+                        } else {
+                            "Klik tombol \"Detail\" pada salah satu jurnal di menu Pencarian Jurnal, atau tempel langsung URL OJS di panel sebelah kiri."
+                        })
+                        .size(12.5)
+                        .color(p.muted),
+                    )
+                    .wrap(),
+                );
+                ui.add_space(16.0);
+            });
+        }
+    };
+
+    if total_w < 720.0 {
+        ScrollArea::vertical()
+            .id_salt("detail_stacked_scroll")
+            .show(ui, |ui| {
+                render_right_or_empty(ui, selected_copy_idx, app_state, &mut action);
+                ui.add_space(12.0);
+                render_left_panel(
+                    ui,
+                    p,
+                    is_en,
+                    quick_url_input,
+                    quick_url_loading,
+                    inspected,
+                    recent_inspected,
+                    manuscript,
+                    saved_manuscripts,
+                    &mut action,
+                );
+            });
+        return action;
+    }
+
+    let left_w = 290.0_f32.min((total_w * 0.34).max(240.0));
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 12.0;
 
@@ -1224,47 +1312,11 @@ pub fn render_detail_page(
             Layout::top_down(Align::Min),
             |ui| {
                 ui.set_max_width(right_w);
-                ScrollArea::vertical().id_salt("detail_workspace_scroll").show(ui, |ui| {
-                    if let Some(j) = inspected {
-                        render_right_detail_cards(
-                            ui,
-                            p,
-                            j,
-                            keyword,
-                            manuscript,
-                            selected_copy_idx,
-                            app_settings,
-                            app_state,
-                            sink,
-                            &mut action,
-                        );
-                    } else {
-                        card(ui, p, |ui| {
-                            ui.add_space(16.0);
-                            ui.label(
-                                RichText::new(if is_en {
-                                    "No Journal Selected Yet"
-                                } else {
-                                    "Belum Ada Jurnal Dipilih"
-                                })
-                                .size(15.5)
-                                .strong()
-                                .color(p.text),
-                            );
-                            ui.add_space(4.0);
-                            ui.label(
-                                RichText::new(if is_en {
-                                    "Click \"Detail\" on any journal row in Journal Search, or paste an OJS link on the left panel."
-                                } else {
-                                    "Klik tombol \"Detail\" pada salah satu jurnal di menu Pencarian Jurnal, atau tempel langsung URL OJS di panel sebelah kiri."
-                                })
-                                .size(12.5)
-                                .color(p.muted),
-                            );
-                            ui.add_space(16.0);
-                        });
-                    }
-                });
+                ScrollArea::vertical()
+                    .id_salt("detail_workspace_scroll")
+                    .show(ui, |ui| {
+                        render_right_or_empty(ui, selected_copy_idx, app_state, &mut action);
+                    });
             },
         );
     });

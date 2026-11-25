@@ -102,7 +102,22 @@ fn render_kpi_strip(
     max_w: f32,
     items: [(&str, usize, egui::Color32); 4],
 ) {
-    let inner_w = (max_w - 28.0).max(400.0);
+    let inner_w = (max_w - 28.0).max(240.0);
+    let draw_kpi = |ui: &mut Ui, label: &str, value: usize, color: egui::Color32| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 5.0;
+            ui.add(
+                egui::Label::new(RichText::new(format!("{label}:")).size(11.5).color(p.muted))
+                    .truncate(),
+            );
+            ui.label(
+                RichText::new(value.to_string())
+                    .size(15.5)
+                    .strong()
+                    .color(color),
+            );
+        });
+    };
     Frame::new()
         .fill(p.card_bg)
         .stroke(Stroke::new(1.0, p.line))
@@ -110,27 +125,23 @@ fn render_kpi_strip(
         .inner_margin(Margin::symmetric(12, 6))
         .show(ui, |ui| {
             ui.set_max_width(inner_w);
-            ui.allocate_ui(Vec2::new(inner_w, 30.0), |ui| {
-                ui.columns(4, |cols| {
+            if inner_w < 620.0 {
+                ui.columns(2, |cols| {
                     for (idx, (label, value, color)) in items.into_iter().enumerate() {
-                        cols[idx].horizontal_centered(|ui| {
-                            ui.spacing_mut().item_spacing.x = 5.0;
-                            ui.add(
-                                egui::Label::new(
-                                    RichText::new(format!("{label}:")).size(11.5).color(p.muted),
-                                )
-                                .truncate(),
-                            );
-                            ui.label(
-                                RichText::new(value.to_string())
-                                    .size(15.5)
-                                    .strong()
-                                    .color(color),
-                            );
-                        });
+                        draw_kpi(&mut cols[idx % 2], label, value, color);
                     }
                 });
-            });
+            } else {
+                ui.allocate_ui(Vec2::new(inner_w, 30.0), |ui| {
+                    ui.columns(4, |cols| {
+                        for (idx, (label, value, color)) in items.into_iter().enumerate() {
+                            cols[idx].horizontal_centered(|ui| {
+                                draw_kpi(ui, label, value, color);
+                            });
+                        }
+                    });
+                });
+            }
         });
 }
 
@@ -168,70 +179,135 @@ pub fn render_search_page(
 
     // Card 1: Clean 2-Row Anti-Overflow Search Header + On-Demand Manuscript Chip Selector
     card(ui, p, |ui| {
-        ui.set_max_width((page_w - 24.0).max(480.0));
+        ui.set_max_width((page_w - 24.0).max(240.0));
         let mut enter_pressed = false;
+        let narrow_bar = ui.available_width() < 760.0;
 
-        // Baris 1: Input kata kunci (fleksibel) + Target + Unggah Naskah + Mulai Cari + Filter
-        ui.allocate_ui(Vec2::new(ui.available_width(), 36.0), |ui| {
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 6.0;
+        let render_action_controls = |ui: &mut Ui,
+                                      action: &mut SearchPageAction,
+                                      target_text: &mut String,
+                                      filters: &mut FilterSettings| {
+            ui.label(RichText::new(txt.target_label).size(12.5).color(p.muted));
+            let tgt_resp = ui.add_sized(
+                [48.0, 34.0],
+                egui::TextEdit::singleline(target_text)
+                    .align(Align2::CENTER_CENTER)
+                    .margin(Margin::symmetric(4, 6))
+                    .hint_text("40"),
+            );
+            if tgt_resp.changed() {
+                if let Ok(n) = target_text.trim().parse::<usize>() {
+                    filters.clamp_target(n);
+                    filters.active_preset = QuickPreset::Custom;
+                }
+            }
+            if secondary_button_h(ui, p, txt.upload_ms, 34.0).clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("Dokumen Naskah", &["docx", "pdf"])
+                    .pick_file()
+                {
+                    *action = SearchPageAction::PickManuscript(path);
+                }
+            }
+            if is_searching {
+                if danger_button_h(ui, p, txt.stop_search, 34.0).clicked() {
+                    *action = SearchPageAction::StopSearch;
+                }
+            } else if accent_button_h(ui, p, txt.start_search, 34.0).clicked() {
+                if let Ok(n) = target_text.trim().parse::<usize>() {
+                    filters.clamp_target(n);
+                }
+                *action = SearchPageAction::StartSearch;
+            }
+            if secondary_button_h(ui, p, txt.filter_btn, 34.0).clicked() {
+                *action = SearchPageAction::NavigateFilters;
+            }
+        };
 
-                if secondary_button_h(ui, p, txt.filter_btn, 36.0).clicked() {
-                    action = SearchPageAction::NavigateFilters;
-                }
-
-                if is_searching {
-                    if danger_button_h(ui, p, txt.stop_search, 36.0).clicked() {
-                        action = SearchPageAction::StopSearch;
-                    }
-                } else if accent_button_h(ui, p, txt.start_search, 36.0).clicked() {
-                    if let Ok(n) = target_text.trim().parse::<usize>() {
-                        filters.clamp_target(n);
-                    }
-                    action = SearchPageAction::StartSearch;
-                }
-
-                if secondary_button_h(ui, p, txt.upload_ms, 36.0).clicked() {
-                    if let Some(path) = rfd::FileDialog::new()
-                        .add_filter("Dokumen Naskah", &["docx", "pdf"])
-                        .pick_file()
-                    {
-                        action = SearchPageAction::PickManuscript(path);
-                    }
-                }
-
-                let tgt_resp = ui.add_sized(
-                    [48.0, 36.0],
-                    egui::TextEdit::singleline(target_text)
-                        .align(Align2::CENTER_CENTER)
-                        .margin(Margin::symmetric(4, 7))
-                        .hint_text("40"),
-                );
-                if tgt_resp.changed() {
-                    if let Ok(n) = target_text.trim().parse::<usize>() {
-                        filters.clamp_target(n);
-                        filters.active_preset = QuickPreset::Custom;
-                    }
-                }
-                ui.label(RichText::new(txt.target_label).size(12.5).color(p.muted));
-
-                let input_w = ui.available_width().max(120.0);
-                let resp = ui.add_sized(
-                    [input_w, 36.0],
-                    egui::TextEdit::singleline(keyword)
-                        .align(Align2::LEFT_CENTER)
-                        .margin(Margin::symmetric(10, 7))
-                        .hint_text(txt.keyword_hint),
-                );
-                if *focus_search_input {
-                    resp.request_focus();
-                    *focus_search_input = false;
-                }
-                if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    enter_pressed = true;
-                }
+        if narrow_bar {
+            let input_w = ui.available_width().max(180.0);
+            let resp = ui.add_sized(
+                [input_w, 34.0],
+                egui::TextEdit::singleline(keyword)
+                    .align(Align2::LEFT_CENTER)
+                    .margin(Margin::symmetric(10, 6))
+                    .hint_text(txt.keyword_hint),
+            );
+            if *focus_search_input {
+                resp.request_focus();
+                *focus_search_input = false;
+            }
+            if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                enter_pressed = true;
+            }
+            ui.add_space(6.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = Vec2::new(6.0, 6.0);
+                render_action_controls(ui, &mut action, target_text, filters);
             });
-        });
+        } else {
+            // Baris 1: Input kata kunci (fleksibel) + Target + Unggah Naskah + Mulai Cari + Filter
+            ui.allocate_ui(Vec2::new(ui.available_width(), 36.0), |ui| {
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+
+                    if secondary_button_h(ui, p, txt.filter_btn, 36.0).clicked() {
+                        action = SearchPageAction::NavigateFilters;
+                    }
+
+                    if is_searching {
+                        if danger_button_h(ui, p, txt.stop_search, 36.0).clicked() {
+                            action = SearchPageAction::StopSearch;
+                        }
+                    } else if accent_button_h(ui, p, txt.start_search, 36.0).clicked() {
+                        if let Ok(n) = target_text.trim().parse::<usize>() {
+                            filters.clamp_target(n);
+                        }
+                        action = SearchPageAction::StartSearch;
+                    }
+
+                    if secondary_button_h(ui, p, txt.upload_ms, 36.0).clicked() {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("Dokumen Naskah", &["docx", "pdf"])
+                            .pick_file()
+                        {
+                            action = SearchPageAction::PickManuscript(path);
+                        }
+                    }
+
+                    let tgt_resp = ui.add_sized(
+                        [48.0, 36.0],
+                        egui::TextEdit::singleline(target_text)
+                            .align(Align2::CENTER_CENTER)
+                            .margin(Margin::symmetric(4, 7))
+                            .hint_text("40"),
+                    );
+                    if tgt_resp.changed() {
+                        if let Ok(n) = target_text.trim().parse::<usize>() {
+                            filters.clamp_target(n);
+                            filters.active_preset = QuickPreset::Custom;
+                        }
+                    }
+                    ui.label(RichText::new(txt.target_label).size(12.5).color(p.muted));
+
+                    let input_w = ui.available_width().max(120.0);
+                    let resp = ui.add_sized(
+                        [input_w, 36.0],
+                        egui::TextEdit::singleline(keyword)
+                            .align(Align2::LEFT_CENTER)
+                            .margin(Margin::symmetric(10, 7))
+                            .hint_text(txt.keyword_hint),
+                    );
+                    if *focus_search_input {
+                        resp.request_focus();
+                        *focus_search_input = false;
+                    }
+                    if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        enter_pressed = true;
+                    }
+                });
+            });
+        }
         if enter_pressed && !is_searching {
             if let Ok(n) = target_text.trim().parse::<usize>() {
                 filters.clamp_target(n);
@@ -627,179 +703,119 @@ pub fn render_search_page(
                     .color(p.muted),
                 );
                 ui.add_space(16.0);
-                ui.columns(3, |cols| {
-                    // Card 1: Target Skripsi S1 (SINTA 3-5)
-                    let card1_resp = Frame::new()
+                let draw_quick_card = |ui: &mut Ui,
+                                       badge: &str,
+                                       fg: egui::Color32,
+                                       bg: egui::Color32,
+                                       title: &str,
+                                       desc: &str,
+                                       cta: &str| {
+                    Frame::new()
                         .fill(p.control_bg)
                         .stroke(Stroke::new(1.0, p.line))
                         .corner_radius(CornerRadius::same(10))
                         .inner_margin(Margin::same(12))
-                        .show(&mut cols[0], |ui| {
+                        .show(ui, |ui| {
                             ui.set_min_width(ui.available_width());
-                            pill_badge(
-                                ui,
-                                if is_en { "🎓 Recommended S1" } else { "🎓 Target Skripsi S1" },
-                                p.accent,
-                                p.accent_soft,
-                            );
+                            pill_badge(ui, badge, fg, bg);
                             ui.add_space(6.0);
-                            ui.label(
-                                RichText::new(if is_en {
-                                    "S1 Thesis Target (SINTA 3–5)"
-                                } else {
-                                    "Target Skripsi S1 (SINTA 3–5)"
-                                })
-                                .size(13.0)
-                                .strong()
-                                .color(p.text),
-                            );
-                            ui.label(
-                                RichText::new(if is_en {
-                                    "Applies S1 preset (SINTA 3–5, fast turnaround) and starts search instantly."
-                                } else {
-                                    "Terapkan preset SINTA 3–5 dengan review bersahabat & langsung mulai cari."
-                                })
-                                .size(11.5)
-                                .color(p.muted),
-                            );
+                            ui.add(egui::Label::new(RichText::new(title).size(13.0).strong().color(p.text)).wrap());
+                            ui.add(egui::Label::new(RichText::new(desc).size(11.5).color(p.muted)).wrap());
                             ui.add_space(8.0);
-                            ui.label(
-                                RichText::new(if is_en { "→ Start 1-Click Search" } else { "→ Mulai Cari 1-Klik" })
-                                    .size(11.5)
-                                    .strong()
-                                    .color(p.accent),
-                            );
+                            ui.label(RichText::new(cta).size(11.5).strong().color(fg));
                         })
                         .response
-                        .interact(Sense::click());
+                        .interact(Sense::click())
+                };
 
-                    if card1_resp.clicked() && !is_searching {
-                        filters.apply_preset(QuickPreset::SkripsiS1);
-                        *target_text = filters.target_count.to_string();
-                        if keyword.trim().is_empty() {
-                            *keyword = "Sistem Informasi".to_string();
-                        }
-                        action = SearchPageAction::StartSearch;
-                        sink.send(crate::engine::EngineEvent::Toast(if is_en {
-                            "Applied S1 Thesis Preset & searching...".to_string()
-                        } else {
-                            "Preset Skripsi S1 aktif & memulai pencarian...".to_string()
-                        }));
+                let c1 = (
+                    if is_en { "🎓 Recommended S1" } else { "🎓 Target Skripsi S1" },
+                    p.accent,
+                    p.accent_soft,
+                    if is_en { "S1 Thesis Target (SINTA 3-5)" } else { "Target Skripsi S1 (SINTA 3-5)" },
+                    if is_en {
+                        "Applies S1 preset (SINTA 3-5, fast turnaround) and starts search instantly."
+                    } else {
+                        "Terapkan preset SINTA 3-5 dengan review bersahabat & langsung mulai cari."
+                    },
+                    if is_en { "→ Start 1-Click Search" } else { "→ Mulai Cari 1-Klik" },
+                );
+                let c2 = (
+                    if is_en { "💎 Free (Rp 0 APC)" } else { "💎 Bebas Biaya (Rp 0)" },
+                    p.good,
+                    p.good_soft,
+                    if is_en { "Free Journals (Rp 0 APC)" } else { "Cari Jurnal Gratis (Rp 0)" },
+                    if is_en {
+                        "Filter zero-fee Diamond Open Access journals without any APC fees."
+                    } else {
+                        "Saring jurnal Diamond Open Access tanpa biaya APC sepeserpun untuk mahasiswa."
+                    },
+                    if is_en { "→ Search Free Journals" } else { "→ Cari Jurnal Bebas Biaya" },
+                );
+                let c3 = (
+                    if is_en { "📄 Auto-Match Doc" } else { "📄 Cocokkan Naskah" },
+                    p.warn,
+                    p.warn_soft,
+                    if is_en { "Upload Manuscript (Word/PDF)" } else { "Unggah Naskah Word / PDF" },
+                    if is_en {
+                        "Extracts title, keywords, and word count 100% locally in RAM (Zero Upload)."
+                    } else {
+                        "Pencocokan judul, abstrak, dan ekstraksi kata kunci 100% lokal di RAM."
+                    },
+                    if is_en { "→ Browse File (.docx/.pdf)" } else { "→ Pilih Berkas (.docx/.pdf)" },
+                );
+
+                let (clicked1, clicked2, clicked3) = if ui.available_width() < 760.0 {
+                    let r1 = draw_quick_card(ui, c1.0, c1.1, c1.2, c1.3, c1.4, c1.5);
+                    ui.add_space(8.0);
+                    let r2 = draw_quick_card(ui, c2.0, c2.1, c2.2, c2.3, c2.4, c2.5);
+                    ui.add_space(8.0);
+                    let r3 = draw_quick_card(ui, c3.0, c3.1, c3.2, c3.3, c3.4, c3.5);
+                    (r1.clicked(), r2.clicked(), r3.clicked())
+                } else {
+                    let mut clicks = (false, false, false);
+                    ui.columns(3, |cols| {
+                        clicks.0 = draw_quick_card(&mut cols[0], c1.0, c1.1, c1.2, c1.3, c1.4, c1.5).clicked();
+                        clicks.1 = draw_quick_card(&mut cols[1], c2.0, c2.1, c2.2, c2.3, c2.4, c2.5).clicked();
+                        clicks.2 = draw_quick_card(&mut cols[2], c3.0, c3.1, c3.2, c3.3, c3.4, c3.5).clicked();
+                    });
+                    clicks
+                };
+
+                if clicked1 && !is_searching {
+                    filters.apply_preset(QuickPreset::SkripsiS1);
+                    *target_text = filters.target_count.to_string();
+                    if keyword.trim().is_empty() {
+                        *keyword = "Sistem Informasi".to_string();
                     }
-
-                    // Card 2: Cari Jurnal Gratis (Rp 0)
-                    let card2_resp = Frame::new()
-                        .fill(p.control_bg)
-                        .stroke(Stroke::new(1.0, p.line))
-                        .corner_radius(CornerRadius::same(10))
-                        .inner_margin(Margin::same(12))
-                        .show(&mut cols[1], |ui| {
-                            ui.set_min_width(ui.available_width());
-                            pill_badge(
-                                ui,
-                                if is_en { "💎 Free (Rp 0 APC)" } else { "💎 Bebas Biaya (Rp 0)" },
-                                p.good,
-                                p.good_soft,
-                            );
-                            ui.add_space(6.0);
-                            ui.label(
-                                RichText::new(if is_en {
-                                    "Free Journals (Rp 0 APC)"
-                                } else {
-                                    "Cari Jurnal Gratis (Rp 0)"
-                                })
-                                .size(13.0)
-                                .strong()
-                                .color(p.text),
-                            );
-                            ui.label(
-                                RichText::new(if is_en {
-                                    "Filter zero-fee Diamond Open Access journals without any APC fees."
-                                } else {
-                                    "Saring jurnal Diamond Open Access tanpa biaya APC sepeserpun untuk mahasiswa."
-                                })
-                                .size(11.5)
-                                .color(p.muted),
-                            );
-                            ui.add_space(8.0);
-                            ui.label(
-                                RichText::new(if is_en { "→ Search Free Journals" } else { "→ Cari Jurnal Bebas Biaya" })
-                                    .size(11.5)
-                                    .strong()
-                                    .color(p.good),
-                            );
-                        })
-                        .response
-                        .interact(Sense::click());
-
-                    if card2_resp.clicked() && !is_searching {
-                        filters.apply_preset(QuickPreset::JurnalGratis);
-                        *target_text = filters.target_count.to_string();
-                        if keyword.trim().is_empty() {
-                            *keyword = "Informatika".to_string();
-                        }
-                        action = SearchPageAction::StartSearch;
-                        sink.send(crate::engine::EngineEvent::Toast(if is_en {
-                            "Applied Free Journals Filter & searching...".to_string()
-                        } else {
-                            "Filter Jurnal Gratis Rp 0 aktif & memulai pencarian...".to_string()
-                        }));
+                    action = SearchPageAction::StartSearch;
+                    sink.send(crate::engine::EngineEvent::Toast(if is_en {
+                        "Applied S1 Thesis Preset & searching...".to_string()
+                    } else {
+                        "Preset Skripsi S1 aktif & memulai pencarian...".to_string()
+                    }));
+                }
+                if clicked2 && !is_searching {
+                    filters.apply_preset(QuickPreset::JurnalGratis);
+                    *target_text = filters.target_count.to_string();
+                    if keyword.trim().is_empty() {
+                        *keyword = "Informatika".to_string();
                     }
-
-                    // Card 3: Unggah Naskah Word / PDF
-                    let card3_resp = Frame::new()
-                        .fill(p.control_bg)
-                        .stroke(Stroke::new(1.0, p.line))
-                        .corner_radius(CornerRadius::same(10))
-                        .inner_margin(Margin::same(12))
-                        .show(&mut cols[2], |ui| {
-                            ui.set_min_width(ui.available_width());
-                            pill_badge(
-                                ui,
-                                if is_en { "📄 Auto-Match Doc" } else { "📄 Cocokkan Naskah" },
-                                p.warn,
-                                p.warn_soft,
-                            );
-                            ui.add_space(6.0);
-                            ui.label(
-                                RichText::new(if is_en {
-                                    "Upload Manuscript (Word/PDF)"
-                                } else {
-                                    "Unggah Naskah Word / PDF"
-                                })
-                                .size(13.0)
-                                .strong()
-                                .color(p.text),
-                            );
-                            ui.label(
-                                RichText::new(if is_en {
-                                    "Extracts title, keywords, and word count 100% locally in RAM (Zero Upload)."
-                                } else {
-                                    "Pencocokan judul, abstrak, dan ekstraksi kata kunci 100% lokal di RAM."
-                                })
-                                .size(11.5)
-                                .color(p.muted),
-                            );
-                            ui.add_space(8.0);
-                            ui.label(
-                                RichText::new(if is_en { "→ Browse File (.docx/.pdf)" } else { "→ Pilih Berkas (.docx/.pdf)" })
-                                    .size(11.5)
-                                    .strong()
-                                    .color(p.warn),
-                            );
-                        })
-                        .response
-                        .interact(Sense::click());
-
-                    if card3_resp.clicked() {
-                        if let Some(path) = rfd::FileDialog::new()
-                            .add_filter("Dokumen Naskah", &["docx", "pdf"])
-                            .pick_file()
-                        {
-                            action = SearchPageAction::PickManuscript(path);
-                        }
+                    action = SearchPageAction::StartSearch;
+                    sink.send(crate::engine::EngineEvent::Toast(if is_en {
+                        "Applied Free Journals Filter & searching...".to_string()
+                    } else {
+                        "Filter Jurnal Gratis Rp 0 aktif & memulai pencarian...".to_string()
+                    }));
+                }
+                if clicked3 {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("Dokumen Naskah", &["docx", "pdf"])
+                        .pick_file()
+                    {
+                        action = SearchPageAction::PickManuscript(path);
                     }
-                });
+                }
                 ui.add_space(20.0);
             });
         } else {
@@ -869,8 +885,9 @@ pub fn render_search_page(
             }
         }
 
-        // Table Toolbar
+        // Table Toolbar (clean left-to-right wrapping prevents overlap at any width)
         ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = Vec2::new(6.0, 6.0);
             ui.label(RichText::new(txt.results_heading).size(14.5).strong().color(p.text));
             pill_badge(
                 ui,
@@ -921,116 +938,115 @@ pub fn render_search_page(
                 action = SearchPageAction::OpenCompare;
             }
 
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                // Tombol Reset Filter: tampil jika ada filter non-default aktif
-                let has_active_filters = filters.only_open_submission
-                    || filters.only_free
-                    || filters.min_rp > 0
-                    || filters.max_rp < 1_500_000
-                    || filters.months.iter().any(|&m| !m)
-                    || filters.max_turnaround_weeks > 0
-                    || filters.target_deadline_month > 0;
-                if has_active_filters {
-                    let reset_btn = egui::Button::new(
-                        RichText::new("↺ Reset").size(11.5).color(p.warn),
-                    )
-                    .fill(p.warn_soft)
-                    .stroke(Stroke::new(1.0, p.warn))
-                    .corner_radius(CornerRadius::same(7));
-                    if ui
-                        .add(reset_btn)
-                        .on_hover_text("Kembalikan semua filter ke pengaturan default")
-                        .clicked()
-                    {
-                        let saved_target = filters.target_count;
-                        let saved_usd = filters.usd_to_idr;
-                        let saved_currency = filters.display_currency;
-                        let saved_portals = (
-                            filters.garuda,
-                            filters.sinta_src,
-                            filters.openalex,
-                            filters.doaj,
-                        );
-                        *filters = FilterSettings::default();
-                        filters.target_count = saved_target;
-                        filters.usd_to_idr = saved_usd;
-                        filters.display_currency = saved_currency;
-                        filters.garuda = saved_portals.0;
-                        filters.sinta_src = saved_portals.1;
-                        filters.openalex = saved_portals.2;
-                        filters.doaj = saved_portals.3;
-                        sink.send(EngineEvent::Toast(
-                            "Filter dikembalikan ke default.".to_string(),
-                        ));
-                    }
-                }
-                let density_btn_lbl = if app_state.compact_table {
-                    if is_en { "Compact" } else { "Padat" }
+            ui.add_sized(
+                [138.0, 26.0],
+                egui::TextEdit::singleline(table_filter)
+                    .hint_text(txt.filter_table_hint),
+            );
+
+            egui::ComboBox::from_id_salt("apc_filter_combo")
+                .selected_text(apc_filter.label())
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(apc_filter, ApcFilter::All, ApcFilter::All.label());
+                    ui.selectable_value(apc_filter, ApcFilter::Free, ApcFilter::Free.label());
+                    ui.selectable_value(apc_filter, ApcFilter::Paid, ApcFilter::Paid.label());
+                    ui.selectable_value(apc_filter, ApcFilter::Unknown, ApcFilter::Unknown.label());
+                });
+
+            egui::ComboBox::from_id_salt("sort_col_combo")
+                .selected_text(match *sort_col {
+                    SortColumn::MatchScore => "Urut: Match",
+                    SortColumn::Cost => "Urut: Biaya",
+                    SortColumn::Sinta => "Urut: SINTA / Q",
+                    SortColumn::Activity => "Urut: Keaktifan",
+                    SortColumn::Title => "Urut: Nama",
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(sort_col, SortColumn::MatchScore, "Match Score");
+                    ui.selectable_value(sort_col, SortColumn::Cost, "Biaya (APC)");
+                    ui.selectable_value(sort_col, SortColumn::Sinta, "Peringkat SINTA / Q1-Q4");
+                    ui.selectable_value(sort_col, SortColumn::Activity, "Tahun Edisi Terakhir");
+                    ui.selectable_value(sort_col, SortColumn::Title, "Nama Jurnal (A-Z)");
+                });
+
+            let dir_lbl = if *sort_desc { "Turun" } else { "Naik" };
+            if secondary_button(ui, p, dir_lbl).clicked() {
+                *sort_desc = !*sort_desc;
+            }
+
+            if ui
+                .add_enabled_ui(!filtered.is_empty(), |ui| secondary_button(ui, p, txt.copy_wa_btn))
+                .inner
+                .on_hover_text("Salin daftar jurnal tampil ke clipboard (format WhatsApp)")
+                .clicked()
+            {
+                action = SearchPageAction::CopyWa(filtered.clone());
+            }
+
+            if secondary_button(ui, p, "Excel")
+                .on_hover_text("Buka file Excel hasil pencarian terakhir")
+                .clicked()
+            {
+                action = SearchPageAction::OpenExcel;
+            }
+
+            let density_btn_lbl = if app_state.compact_table {
+                if is_en { "Compact" } else { "Padat" }
+            } else {
+                if is_en { "Spacious" } else { "Lega" }
+            };
+            if secondary_button(ui, p, density_btn_lbl)
+                .on_hover_text(if is_en {
+                    "Toggle row density: Compact (42px) vs Spacious (58px)"
                 } else {
-                    if is_en { "Spacious" } else { "Lega" }
-                };
-                if secondary_button(ui, p, density_btn_lbl)
-                    .on_hover_text(if is_en {
-                        "Toggle row density: Compact (42px) vs Spacious (58px)"
-                    } else {
-                        "Ganti kerapatan baris: Padat (42px) vs Lega (58px)"
-                    })
-                    .clicked()
-                {
-                    app_state.compact_table = !app_state.compact_table;
-                }
+                    "Ganti kerapatan baris: Padat (42px) vs Lega (58px)"
+                })
+                .clicked()
+            {
+                app_state.compact_table = !app_state.compact_table;
+            }
 
-                if secondary_button(ui, p, "Excel")
-                    .on_hover_text("Buka file Excel hasil pencarian terakhir")
-                    .clicked()
-                {
-                    action = SearchPageAction::OpenExcel;
-                }
+            let has_active_filters = filters.only_open_submission
+                || filters.only_free
+                || filters.min_rp > 0
+                || filters.max_rp < 1_500_000
+                || filters.months.iter().any(|&m| !m)
+                || filters.max_turnaround_weeks > 0
+                || filters.target_deadline_month > 0;
+            if has_active_filters {
+                let reset_btn = egui::Button::new(
+                    RichText::new("↺ Reset").size(11.5).color(p.warn),
+                )
+                .fill(p.warn_soft)
+                .stroke(Stroke::new(1.0, p.warn))
+                .corner_radius(CornerRadius::same(7));
                 if ui
-                    .add_enabled_ui(!filtered.is_empty(), |ui| secondary_button(ui, p, txt.copy_wa_btn))
-                    .inner
-                    .on_hover_text("Salin daftar jurnal tampil ke clipboard (format WhatsApp)")
+                    .add(reset_btn)
+                    .on_hover_text("Kembalikan semua filter ke pengaturan default")
                     .clicked()
                 {
-                    action = SearchPageAction::CopyWa(filtered.clone());
+                    let saved_target = filters.target_count;
+                    let saved_usd = filters.usd_to_idr;
+                    let saved_currency = filters.display_currency;
+                    let saved_portals = (
+                        filters.garuda,
+                        filters.sinta_src,
+                        filters.openalex,
+                        filters.doaj,
+                    );
+                    *filters = FilterSettings::default();
+                    filters.target_count = saved_target;
+                    filters.usd_to_idr = saved_usd;
+                    filters.display_currency = saved_currency;
+                    filters.garuda = saved_portals.0;
+                    filters.sinta_src = saved_portals.1;
+                    filters.openalex = saved_portals.2;
+                    filters.doaj = saved_portals.3;
+                    sink.send(EngineEvent::Toast(
+                        "Filter dikembalikan ke default.".to_string(),
+                    ));
                 }
-
-                let dir_lbl = if *sort_desc { "Turun" } else { "Naik" };
-                if secondary_button(ui, p, dir_lbl).clicked() {
-                    *sort_desc = !*sort_desc;
-                }
-
-                egui::ComboBox::from_id_salt("sort_col_combo")
-                    .selected_text(match *sort_col {
-                        SortColumn::MatchScore => "Urut: Match",
-                        SortColumn::Cost => "Urut: Biaya",
-                        SortColumn::Sinta => "Urut: SINTA / Q",
-                        SortColumn::Activity => "Urut: Keaktifan",
-                        SortColumn::Title => "Urut: Nama",
-                    })
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(sort_col, SortColumn::MatchScore, "Match Score");
-                        ui.selectable_value(sort_col, SortColumn::Cost, "Biaya (APC)");
-                        ui.selectable_value(sort_col, SortColumn::Sinta, "Peringkat SINTA / Q1–Q4");
-                        ui.selectable_value(sort_col, SortColumn::Activity, "Tahun Edisi Terakhir");
-                        ui.selectable_value(sort_col, SortColumn::Title, "Nama Jurnal (A-Z)");
-                    });
-
-                egui::ComboBox::from_id_salt("apc_filter_combo")
-                    .selected_text(apc_filter.label())
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(apc_filter, ApcFilter::All, ApcFilter::All.label());
-                        ui.selectable_value(apc_filter, ApcFilter::Free, ApcFilter::Free.label());
-                        ui.selectable_value(apc_filter, ApcFilter::Paid, ApcFilter::Paid.label());
-                        ui.selectable_value(apc_filter, ApcFilter::Unknown, ApcFilter::Unknown.label());
-                    });
-
-                ui.add_sized(
-                    [138.0, 26.0],
-                    egui::TextEdit::singleline(table_filter)
-                        .hint_text(txt.filter_table_hint),
-                );
-            });
+            }
         });
 
         ui.add_space(8.0);

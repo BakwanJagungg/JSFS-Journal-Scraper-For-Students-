@@ -1,7 +1,7 @@
 ; JSFS Windows x64 Installer Script (Inno Setup 6)
 #define MyAppName "JSFS - Journal Scraper For Students"
 #ifndef MyAppVersion
-  #define MyAppVersion "4.16.0"
+  #define MyAppVersion "4.16.2"
 #endif
 #define MyAppPublisher "BakwanJagungg"
 #define MyAppURL "https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-"

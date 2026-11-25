@@ -90,8 +90,20 @@ pub fn render_filters_page(
             card_divider(ui, p);
 
             ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new("Target Jurnal (1–1000):").size(12.5).color(p.text));
-                for preset_t in [10_usize, 25, 50, 100, 250, 500, 1000] {
+                ui.label(
+                    RichText::new(format!(
+                        "Target Jurnal (1 sampai {}):",
+                        crate::config::MAX_TARGET_COUNT
+                    ))
+                    .size(12.5)
+                    .color(p.text),
+                );
+                let presets: &[usize] = if cfg!(feature = "plus") {
+                    &[10, 25, 50, 100, 500, 1000, 2500, 5000]
+                } else {
+                    &[10, 25, 50, 100, 250, 500, 1000]
+                };
+                for &preset_t in presets {
                     if selectable_chip(
                         ui,
                         p,
@@ -178,18 +190,30 @@ pub fn render_filters_page(
                     .color(p.muted),
             );
             ui.add_space(4.0);
-            ui.columns(6, |cols| {
-                for (m_idx, m_name) in MONTH_NAMES.iter().enumerate() {
-                    let col = &mut cols[m_idx % 6];
-                    if m_idx >= 6 {
-                        col.add_space(6.0);
+            if ui.available_width() < 700.0 {
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
+                    for (m_idx, m_name) in MONTH_NAMES.iter().enumerate() {
+                        if selectable_chip(ui, p, filters.months[m_idx], m_name) {
+                            filters.months[m_idx] = !filters.months[m_idx];
+                            filters.active_preset = QuickPreset::Custom;
+                        }
                     }
-                    if selectable_chip(col, p, filters.months[m_idx], m_name) {
-                        filters.months[m_idx] = !filters.months[m_idx];
-                        filters.active_preset = QuickPreset::Custom;
+                });
+            } else {
+                ui.columns(6, |cols| {
+                    for (m_idx, m_name) in MONTH_NAMES.iter().enumerate() {
+                        let col = &mut cols[m_idx % 6];
+                        if m_idx >= 6 {
+                            col.add_space(6.0);
+                        }
+                        if selectable_chip(col, p, filters.months[m_idx], m_name) {
+                            filters.months[m_idx] = !filters.months[m_idx];
+                            filters.active_preset = QuickPreset::Custom;
+                        }
                     }
-                }
-            });
+                });
+            }
 
             card_divider(ui, p);
             toggle_row(
@@ -269,37 +293,64 @@ pub fn render_filters_page(
             );
             ui.add_space(4.0);
 
-            ui.columns(2, |cols| {
-                cols[0].label(RichText::new("Minimum Biaya (Rp)").size(12.0).color(p.muted));
-                cols[0].add_space(4.0);
-                if cols[0]
-                    .add_sized(
-                        [cols[0].available_width(), 32.0],
-                        egui::TextEdit::singleline(&mut filters.min_rp_text)
-                            .align(Align2::LEFT_CENTER)
-                            .margin(Margin::symmetric(8, 5)),
-                    )
-                    .changed()
-                {
+            if ui.available_width() < 620.0 {
+                let mut budget_changed = false;
+                for (label, text) in [
+                    ("Minimum Biaya (Rp)", &mut filters.min_rp_text),
+                    ("Maksimum Biaya (Rp)", &mut filters.max_rp_text),
+                ] {
+                    ui.label(RichText::new(label).size(12.0).color(p.muted));
+                    ui.add_space(4.0);
+                    if ui
+                        .add_sized(
+                            [ui.available_width(), 32.0],
+                            egui::TextEdit::singleline(text)
+                                .align(Align2::LEFT_CENTER)
+                                .margin(Margin::symmetric(8, 5)),
+                        )
+                        .changed()
+                    {
+                        budget_changed = true;
+                    }
+                    ui.add_space(6.0);
+                }
+                if budget_changed {
                     filters.sync_budget_from_text();
                     filters.active_preset = QuickPreset::Custom;
                 }
+            } else {
+                ui.columns(2, |cols| {
+                    cols[0].label(RichText::new("Minimum Biaya (Rp)").size(12.0).color(p.muted));
+                    cols[0].add_space(4.0);
+                    if cols[0]
+                        .add_sized(
+                            [cols[0].available_width(), 32.0],
+                            egui::TextEdit::singleline(&mut filters.min_rp_text)
+                                .align(Align2::LEFT_CENTER)
+                                .margin(Margin::symmetric(8, 5)),
+                        )
+                        .changed()
+                    {
+                        filters.sync_budget_from_text();
+                        filters.active_preset = QuickPreset::Custom;
+                    }
 
-                cols[1].label(RichText::new("Maksimum Biaya (Rp)").size(12.0).color(p.muted));
-                cols[1].add_space(4.0);
-                if cols[1]
-                    .add_sized(
-                        [cols[1].available_width(), 32.0],
-                        egui::TextEdit::singleline(&mut filters.max_rp_text)
-                            .align(Align2::LEFT_CENTER)
-                            .margin(Margin::symmetric(8, 5)),
-                    )
-                    .changed()
-                {
-                    filters.sync_budget_from_text();
-                    filters.active_preset = QuickPreset::Custom;
-                }
-            });
+                    cols[1].label(RichText::new("Maksimum Biaya (Rp)").size(12.0).color(p.muted));
+                    cols[1].add_space(4.0);
+                    if cols[1]
+                        .add_sized(
+                            [cols[1].available_width(), 32.0],
+                            egui::TextEdit::singleline(&mut filters.max_rp_text)
+                                .align(Align2::LEFT_CENTER)
+                                .margin(Margin::symmetric(8, 5)),
+                        )
+                        .changed()
+                    {
+                        filters.sync_budget_from_text();
+                        filters.active_preset = QuickPreset::Custom;
+                    }
+                });
+            }
 
             card_divider(ui, p);
             if toggle_row(

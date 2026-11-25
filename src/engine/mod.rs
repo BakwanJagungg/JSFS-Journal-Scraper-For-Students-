@@ -108,7 +108,11 @@ impl EngineState {
         let http_client = scraper::build_http_client();
         let db = cache::JournalCache::open_default().ok();
         let matcher_cfg = config::load_matcher_config();
-        let tokio_workers = config::logical_cpus().clamp(2, 4);
+        let tokio_workers = if cfg!(feature = "plus") {
+            config::logical_cpus().clamp(4, 16)
+        } else {
+            config::logical_cpus().clamp(2, 4)
+        };
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(tokio_workers)
             .enable_all()

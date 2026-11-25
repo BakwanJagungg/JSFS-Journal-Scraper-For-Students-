@@ -11,7 +11,6 @@ use crate::ui::theme::{
 };
 use egui::{Align2, Color32, CornerRadius, Frame, Margin, RichText, ScrollArea, Sense, Stroke, Ui};
 use std::sync::Arc;
-use std::time::Duration;
 
 fn option_pill(ui: &mut Ui, p: &Palette, active: bool, label: &str) -> bool {
     let (fg, fill, border) = if active {
@@ -105,9 +104,9 @@ pub fn render_settings_page(
 
             card_divider(ui, p);
 
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.vertical(|ui| {
-                    ui.set_max_width((ui.available_width() - 260.0).max(160.0));
+                    ui.set_max_width((ui.available_width() - 240.0).max(180.0));
                     ui.label(
                         RichText::new(txt.settings_theme_label)
                             .size(13.0)
@@ -119,20 +118,20 @@ pub fn render_settings_page(
                             .color(p.muted),
                     );
                 });
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if option_pill(ui, p, *theme_mode == ThemeMode::Light, "JSFS Daylight")
-                        && *theme_mode != ThemeMode::Light
-                    {
-                        *theme_mode = ThemeMode::Light;
-                        app_settings.dark_theme = false;
-                        apply_theme(ui.ctx(), &Palette::from_mode(*theme_mode));
-                        let _ = save_app_settings(app_settings);
-                    }
+                ui.horizontal(|ui| {
                     if option_pill(ui, p, *theme_mode == ThemeMode::Dark, "JSFS Dark")
                         && *theme_mode != ThemeMode::Dark
                     {
                         *theme_mode = ThemeMode::Dark;
                         app_settings.dark_theme = true;
+                        apply_theme(ui.ctx(), &Palette::from_mode(*theme_mode));
+                        let _ = save_app_settings(app_settings);
+                    }
+                    if option_pill(ui, p, *theme_mode == ThemeMode::Light, "JSFS Daylight")
+                        && *theme_mode != ThemeMode::Light
+                    {
+                        *theme_mode = ThemeMode::Light;
+                        app_settings.dark_theme = false;
                         apply_theme(ui.ctx(), &Palette::from_mode(*theme_mode));
                         let _ = save_app_settings(app_settings);
                     }
@@ -525,41 +524,22 @@ pub fn render_settings_page(
                 )
                 .clicked()
                 {
-                    let client = engine.http_client.clone();
                     let sink_c = sink.clone();
                     engine.runtime.spawn(async move {
-                        let url = "https://api.github.com/repos/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest";
-                        let resp = client
-                            .get(url)
-                            .header("Accept", "application/vnd.github+json")
-                            .timeout(Duration::from_secs(3))
-                            .send()
-                            .await;
-                        match resp {
-                            Ok(r) if r.status().is_success() => {
-                                if let Ok(val) = r.json::<serde_json::Value>().await {
-                                    let latest_tag = val
-                                        .get("tag_name")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("")
-                                        .trim_start_matches('v')
-                                        .to_string();
-                                    if !latest_tag.is_empty() && latest_tag != APP_VERSION {
-                                        sink_c.send(EngineEvent::Toast(format!(
-                                            "Versi baru v{latest_tag} tersedia di GitHub Releases (saat ini v{APP_VERSION})."
-                                        )));
-                                    } else {
-                                        sink_c.send(EngineEvent::Toast(format!(
-                                            "✅ Anda sudah menggunakan versi terbaru (v{APP_VERSION})."
-                                        )));
-                                    }
-                                }
-                            }
-                            _ => {
+                        if let Some((tag, _body)) = crate::engine::updater::check_for_update().await {
+                            if crate::engine::updater::is_newer_version(&tag, APP_VERSION) {
                                 sink_c.send(EngineEvent::Toast(format!(
-                                    "Versi aktif: v{APP_VERSION} (gagal menghubungi GitHub API dalam 3 dtk)."
+                                    "Versi baru {tag} tersedia di GitHub Releases (saat ini v{APP_VERSION})."
+                                )));
+                            } else {
+                                sink_c.send(EngineEvent::Toast(format!(
+                                    "✅ Anda sudah menggunakan versi terbaru ({tag}, aktif v{APP_VERSION})."
                                 )));
                             }
+                        } else {
+                            sink_c.send(EngineEvent::Toast(format!(
+                                "Versi aktif: v{APP_VERSION} (belum ada rilis lebih baru atau gagal menghubungi GitHub API)."
+                            )));
                         }
                     });
                 }
@@ -572,6 +552,50 @@ pub fn render_settings_page(
                 }
             });
         });
+
+        #[cfg(feature = "plus")]
+        {
+            ui.add_space(12.0);
+            card(ui, p, |ui| {
+                let caps = crate::plus::detect_capabilities();
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new("Status Mesin JSFS+ Workstation")
+                            .size(13.5)
+                            .strong()
+                            .color(p.text),
+                    );
+                    pill_badge(ui, "Plus Aktif", p.good, p.good_soft);
+                });
+                card_divider(ui, p);
+                ui.label(
+                    RichText::new(format!(
+                        "Skala Kerja: Maks {} Jurnal/sesi | {} Worker Paralel | ~128 MB SQLite Cache",
+                        caps.max_target_count, caps.max_workers
+                    ))
+                    .size(12.0)
+                    .color(p.text),
+                );
+                let headless_txt = match &caps.headless_browser_path {
+                    Some(path) => format!("Headless Sidecar: Siap ({})", path.display()),
+                    None => "Headless Sidecar: Siaga (Edge/Chrome belum ditemukan di sistem)"
+                        .to_string(),
+                };
+                ui.label(RichText::new(headless_txt).size(12.0).color(p.muted));
+                let ocr_txt = match &caps.ocr_engine_label {
+                    Some(lbl) => format!("Jembatan OCR PDF Scan: Aktif ({lbl})"),
+                    None => "Jembatan OCR PDF Scan: Tidak tersedia (pasang Tesseract OCR)".to_string(),
+                };
+                ui.label(RichText::new(ocr_txt).size(12.0).color(p.muted));
+                ui.label(
+                    RichText::new(
+                        "Semantic Engine: Aktif (Pure Rust 256-D + Ollama Embeddings Opsional + Citation Velocity)",
+                    )
+                    .size(12.0)
+                    .color(p.muted),
+                );
+            });
+        }
 
         ui.add_space(12.0);
 

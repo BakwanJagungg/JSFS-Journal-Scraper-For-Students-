@@ -1,13 +1,23 @@
 [package]
 name = "jsfs"
-version = "4.16.0"
-description = "JSFS: Journal Scraper For Students (Pure Rust Native Edition)"
+version = "5.0.0"
+description = "JSFS+: Journal Scraper For Students Workstation Edition"
 authors = ["JSFS Contributors"]
 edition = "2021"
+default-run = "jsfs-plus"
+
+[features]
+default = ["plus"]
+plus = []
 
 [[bin]]
 name = "jsfs"
 path = "src/main.rs"
+
+[[bin]]
+name = "jsfs-plus"
+path = "src/bin/jsfs_plus.rs"
+required-features = ["plus"]
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"

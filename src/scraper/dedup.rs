@@ -162,7 +162,38 @@ fn merge_into(dst: &mut JournalRecord, src: JournalRecord) {
     }
     if dst.turnaround_weeks.is_none() && src.turnaround_weeks.is_some() {
         dst.turnaround_weeks = src.turnaround_weeks;
+        dst.turnaround_days = src.turnaround_days;
         dst.turnaround_label = src.turnaround_label;
+    } else if dst.turnaround_days.is_none() && src.turnaround_days.is_some() {
+        dst.turnaround_days = src.turnaround_days;
+        if dst.turnaround_label.trim().is_empty() && !src.turnaround_label.trim().is_empty() {
+            dst.turnaround_label = src.turnaround_label;
+        }
+    }
+    if dst.publish_month_nums.is_empty() && !src.publish_month_nums.is_empty() {
+        dst.publish_month_nums = src.publish_month_nums;
+        dst.publish_months = src.publish_months;
+        if dst.publish_schedule.is_empty() {
+            dst.publish_schedule = src.publish_schedule;
+        }
+        if dst.next_issue_estimate.is_empty() {
+            dst.next_issue_estimate = src.next_issue_estimate;
+        }
+    }
+    if dst.citation_style.is_none() && src.citation_style.is_some() {
+        dst.citation_style = src.citation_style;
+    }
+    if dst.word_limit.is_none() && src.word_limit.is_some() {
+        dst.word_limit = src.word_limit;
+    }
+    if is_empty_field(&dst.email) && !is_empty_field(&src.email) {
+        dst.email = src.email;
+    }
+    if is_empty_field(&dst.phone) && !is_empty_field(&src.phone) {
+        dst.phone = src.phone;
+    }
+    if dst.data_source_note.trim().is_empty() && !src.data_source_note.trim().is_empty() {
+        dst.data_source_note = src.data_source_note;
     }
     if dst.article_languages.is_empty() && !src.article_languages.is_empty() {
         dst.article_languages = src.article_languages;
@@ -181,6 +212,12 @@ fn merge_into(dst: &mut JournalRecord, src: JournalRecord) {
     }
     if dst.submission_open.is_none() && src.submission_open.is_some() {
         dst.submission_open = src.submission_open;
+    }
+    if dst.cited_by_count.is_none() && src.cited_by_count.is_some() {
+        dst.cited_by_count = src.cited_by_count;
+    }
+    if dst.works_count.is_none() && src.works_count.is_some() {
+        dst.works_count = src.works_count;
     }
 }
 
@@ -221,6 +258,36 @@ pub fn deduplicate_and_merge(entries: Vec<JournalRecord>) -> Vec<JournalRecord> 
                 (!t_key.is_empty())
                     .then(|| title_map.get(&t_key).copied())
                     .flatten()
+            })
+            .or_else(|| {
+                // Fuzzy cross-source merge (title token Jaccard similarity >= 85%)
+                // when portal entries lack matching ISSN/URL metadata.
+                let token_count = t_key.split_whitespace().count();
+                if token_count < 2 || rec.title.trim().is_empty() {
+                    return None;
+                }
+                let mut best: Option<(usize, f32)> = None;
+                for (i, existing) in merged.iter().enumerate() {
+                    let ex_p = normalize_issn_key(&existing.issn);
+                    let ex_e = normalize_issn_key(&existing.eissn);
+                    let both_have_p_or_e = (!p_key.is_empty() || !e_key.is_empty())
+                        && (!ex_p.is_empty() || !ex_e.is_empty());
+                    if both_have_p_or_e {
+                        let any_overlap = (!p_key.is_empty() && (p_key == ex_p || p_key == ex_e))
+                            || (!e_key.is_empty() && (e_key == ex_p || e_key == ex_e));
+                        if !any_overlap {
+                            continue;
+                        }
+                    }
+                    let sim = crate::parser::heuristics::jaccard_token_similarity(
+                        &existing.title,
+                        &rec.title,
+                    );
+                    if sim >= 0.85 && best.is_none_or(|(_, b_sim)| sim > b_sim) {
+                        best = Some((i, sim));
+                    }
+                }
+                best.map(|(i, _)| i)
             });
 
         if let Some(idx) = existing_idx {
@@ -308,5 +375,44 @@ mod tests {
         assert_eq!(paid_merged.len(), 1);
         assert_eq!(paid_merged[0].apc_category(), "paid");
         assert_eq!(paid_merged[0].apc_idr_numeric, Some(2_220_000));
+    }
+
+    #[test]
+    fn test_fuzzy_cross_source_dedup_merge_and_turnaround_transfer() {
+        let sinta = JournalRecord {
+            title: "Jurnal Sistem Informasi Bisnis Indonesia".to_string(),
+            sinta_score: "Sinta 2".to_string(),
+            source_portal: "SINTA".to_string(),
+            apc_status: "Belum diketahui".to_string(),
+            ..Default::default()
+        };
+        let doaj_missing_issn = JournalRecord {
+            title: "Jurnal Sistem Informasi dan Bisnis Indonesia".to_string(),
+            source_portal: "DOAJ".to_string(),
+            apc_status: "Gratis (Rp 0)".to_string(),
+            apc_idr_numeric: Some(0),
+            turnaround_weeks: Some(10),
+            turnaround_days: Some(70),
+            turnaround_label: "Sekitar 2,3 Bulan (70 Hari)".to_string(),
+            citation_style: Some("APA".to_string()),
+            ..Default::default()
+        };
+        let distinct_journal = JournalRecord {
+            title: "Jurnal Keperawatan Klinis Nusantara".to_string(),
+            source_portal: "DOAJ".to_string(),
+            ..Default::default()
+        };
+
+        let merged = deduplicate_and_merge(vec![sinta, doaj_missing_issn, distinct_journal]);
+        assert_eq!(
+            merged.len(),
+            2,
+            "SINTA and DOAJ fuzzy title match (>=85%) should merge into 1 while keeping distinct journal"
+        );
+        assert_eq!(merged[0].sinta_score, "Sinta 2");
+        assert!(merged[0].extra_indexes.iter().any(|x| x == "DOAJ"));
+        assert_eq!(merged[0].turnaround_days, Some(70));
+        assert_eq!(merged[0].turnaround_weeks, Some(10));
+        assert_eq!(merged[0].citation_style.as_deref(), Some("APA"));
     }
 }

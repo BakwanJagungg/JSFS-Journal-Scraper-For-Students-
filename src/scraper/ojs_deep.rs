@@ -9,7 +9,8 @@ use crate::models::JournalRecord;
 use crate::parser::{apc, contact, focus, heuristics, month};
 use crate::scraper::dedup::normalize_ojs_root_url;
 use crate::scraper::{
-    safe_fetch_html, safe_fetch_html_conditional, sanitize_publisher_name, DomainBreaker,
+    safe_fetch_html, safe_fetch_html_conditional, safe_fetch_pdf_bytes, sanitize_publisher_name,
+    DomainBreaker,
 };
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -305,6 +306,58 @@ fn discover_ojs_links(
     }
 
     (fee_links, contact_links, scope_links, archive_links)
+}
+
+/// Discover same-domain/linked `.pdf` documents likely containing author fees or APC decrees.
+fn discover_ojs_pdf_fee_links(html: &str, clean_base: &str) -> Vec<String> {
+    let doc = Html::parse_document(html);
+    let Ok(base_url) = Url::parse(&format!("{clean_base}/")) else {
+        return Vec::new();
+    };
+    let Ok(sel) = Selector::parse("a[href]") else {
+        return Vec::new();
+    };
+    let mut pdfs = Vec::new();
+    for a in doc.select(&sel) {
+        let Some(href) = a.value().attr("href") else {
+            continue;
+        };
+        let h_trim = href.trim();
+        let h_low = h_trim.to_ascii_lowercase();
+        let path_part = h_low.split(['?', '#']).next().unwrap_or("");
+        if !path_part.ends_with(".pdf") && !h_low.contains("/article/download/") {
+            continue;
+        }
+        let txt = a.text().collect::<Vec<_>>().join(" ").to_ascii_lowercase();
+        if ![
+            "fee",
+            "apc",
+            "biaya",
+            "tarif",
+            "charge",
+            "payment",
+            "author",
+            "ketentuan",
+            "sk ",
+            "sk-",
+            "sk_",
+        ]
+        .iter()
+        .any(|k| txt.contains(k) || h_low.contains(k))
+        {
+            continue;
+        }
+        if let Ok(joined) = base_url.join(h_trim) {
+            let full = joined.to_string();
+            if full.starts_with("http") && !pdfs.contains(&full) {
+                pdfs.push(full);
+                if pdfs.len() >= 2 {
+                    break;
+                }
+            }
+        }
+    }
+    pdfs
 }
 
 fn has_complete_core_data(rec: &JournalRecord) -> bool {
@@ -655,6 +708,8 @@ async fn deep_enrich_record_inner(
 
     let base_root = normalize_journal_home_url(&rec.website_url);
     let mut broken_archive = false;
+    let used_insecure_tls = Arc::new(AtomicBool::new(false));
+    let used_insecure_tls_inner = Arc::clone(&used_insecure_tls);
     let crawl_fut = async {
         let mut agg_text = String::new();
         let mut archive_hints = Vec::new();
@@ -700,6 +755,9 @@ async fn deep_enrich_record_inner(
                 rec.is_incomplete = true;
             }
             Ok(mut home) => {
+                if home.insecure_tls {
+                    used_insecure_tls_inner.store(true, Ordering::Relaxed);
+                }
                 if home.status == 304 {
                     if let Ok(guard) = cache.lock() {
                         if let Some(ref db) = *guard {
@@ -708,6 +766,43 @@ async fn deep_enrich_record_inner(
                                 rec = cached;
                                 return;
                             }
+                        }
+                    }
+                }
+                if home.cloudflare_blocked || home.status == 403 || home.status == 503 {
+                    #[cfg(feature = "plus")]
+                    {
+                        if let Ok(rendered_dom) =
+                            crate::plus::browser_sidecar::fetch_dom_headless(&rec.website_url, 12)
+                                .await
+                        {
+                            home.html = rendered_dom;
+                            home.status = 200;
+                            home.cloudflare_blocked = false;
+                            rec.bot_protected = false;
+                            let note = "Rendered via JSFS+ Headless";
+                            if rec.data_source_note.trim().is_empty() {
+                                rec.data_source_note = note.to_string();
+                            } else if !rec.data_source_note.contains(note) {
+                                rec.data_source_note = format!("{} | {note}", rec.data_source_note);
+                            }
+                        }
+                    }
+                }
+                #[cfg(feature = "plus")]
+                if home.status == 200
+                    && !home.cloudflare_blocked
+                    && crate::plus::browser_sidecar::is_empty_js_spa_shell(&home.html)
+                {
+                    if let Ok(rendered_dom) =
+                        crate::plus::browser_sidecar::fetch_dom_headless(&rec.website_url, 12).await
+                    {
+                        home.html = rendered_dom;
+                        let note = "Rendered via JSFS+ Headless (SPA)";
+                        if rec.data_source_note.trim().is_empty() {
+                            rec.data_source_note = note.to_string();
+                        } else if !rec.data_source_note.contains("Headless") {
+                            rec.data_source_note = format!("{} | {note}", rec.data_source_note);
                         }
                     }
                 }
@@ -793,6 +888,9 @@ async fn deep_enrich_record_inner(
                     if let Ok(redir_out) =
                         safe_fetch_html(client, &breaker, &redir_url, per_req).await
                     {
+                        if redir_out.insecure_tls {
+                            used_insecure_tls_inner.store(true, Ordering::Relaxed);
+                        }
                         if redir_out.cloudflare_blocked
                             || redir_out.status == 403
                             || redir_out.status == 503
@@ -855,31 +953,49 @@ async fn deep_enrich_record_inner(
                     let mut visited = HashSet::new();
                     visited.insert(rec.website_url.clone());
 
-                    let mut visits = 0usize;
+                    let mut pdf_fee_links = discover_ojs_pdf_fee_links(&home.html, &effective_base);
                     let max_visits = if probe_editorial { 6 } else { 4 };
-                    for sub in candidates {
-                        let done_core = has_complete_core_data(&rec)
-                            && (!probe_editorial || rec.editor_in_chief.is_some());
-                        if visits >= max_visits || done_core || cancel_flag.load(Ordering::Relaxed)
-                        {
-                            break;
-                        }
-                        if !visited.insert(sub.clone()) {
-                            continue;
-                        }
-                        visits += 1;
-                        if let Ok(sub_out) = safe_fetch_html(client, &breaker, &sub, per_req).await
-                        {
-                            if sub_out.status == 200 && !sub_out.cloudflare_blocked {
-                                absorb_page(
-                                    &mut rec,
-                                    &sub,
-                                    &sub_out.html,
-                                    false,
-                                    &mut agg_text,
-                                    &mut archive_hints,
-                                    &mut broken_archive,
-                                );
+                    let batch: Vec<String> = candidates
+                        .into_iter()
+                        .filter(|sub| visited.insert(sub.clone()))
+                        .take(max_visits)
+                        .collect();
+                    if !batch.is_empty() && !cancel_flag.load(Ordering::Relaxed) {
+                        let sub_results = futures_util::future::join_all(
+                            batch
+                                .iter()
+                                .map(|sub| safe_fetch_html(client, &breaker, sub, per_req)),
+                        )
+                        .await;
+                        for (sub, res) in batch.into_iter().zip(sub_results) {
+                            if let Ok(sub_out) = res {
+                                if sub_out.insecure_tls {
+                                    used_insecure_tls_inner.store(true, Ordering::Relaxed);
+                                }
+                                if sub_out.status == 200 && !sub_out.cloudflare_blocked {
+                                    if pdf_fee_links.len() < 2 {
+                                        for p_url in discover_ojs_pdf_fee_links(
+                                            &sub_out.html,
+                                            &effective_base,
+                                        ) {
+                                            if !pdf_fee_links.contains(&p_url) {
+                                                pdf_fee_links.push(p_url);
+                                                if pdf_fee_links.len() >= 2 {
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    absorb_page(
+                                        &mut rec,
+                                        &sub,
+                                        &sub_out.html,
+                                        false,
+                                        &mut agg_text,
+                                        &mut archive_hints,
+                                        &mut broken_archive,
+                                    );
+                                }
                             }
                         }
                     }
@@ -898,6 +1014,9 @@ async fn deep_enrich_record_inner(
                             if let Ok(ed_out) =
                                 safe_fetch_html(client, &breaker, &ed_url, per_req).await
                             {
+                                if ed_out.insecure_tls {
+                                    used_insecure_tls_inner.store(true, Ordering::Relaxed);
+                                }
                                 if ed_out.status == 200 && !ed_out.cloudflare_blocked {
                                     absorb_page(
                                         &mut rec,
@@ -920,6 +1039,70 @@ async fn deep_enrich_record_inner(
                     if rec.apc_category() != "paid" && !agg_text.trim().is_empty() {
                         let (parsed_agg, ev_agg) = apc::parse_apc_with_evidence(&agg_text);
                         apply_apc_with_paid_priority(&mut rec, parsed_agg, ev_agg);
+                    }
+
+                    // Extract APC from linked OJS Author Fees / SK PDF documents (< 3 MB) when HTML lacks paid APC
+                    if rec.apc_category() != "paid"
+                        && !pdf_fee_links.is_empty()
+                        && !cancel_flag.load(Ordering::Relaxed)
+                    {
+                        let pdf_results = futures_util::future::join_all(
+                            pdf_fee_links
+                                .iter()
+                                .take(2)
+                                .map(|u| safe_fetch_pdf_bytes(client, &breaker, u, per_req)),
+                        )
+                        .await;
+                        for (bytes, tls_fb) in pdf_results.into_iter().flatten() {
+                            if tls_fb {
+                                used_insecure_tls_inner.store(true, Ordering::Relaxed);
+                            }
+                            let extracted = tokio::task::spawn_blocking(move || {
+                                std::panic::catch_unwind(|| {
+                                    let raw_txt =
+                                        crate::parser::doc_matcher::extract_text_from_pdf_bytes(
+                                            &bytes,
+                                        )
+                                        .unwrap_or_default();
+                                    #[cfg(feature = "plus")]
+                                    {
+                                        let ocr =
+                                            crate::plus::ocr::recover_pdf_text_with_ocr_fallback(
+                                                &bytes, &raw_txt,
+                                            );
+                                        Ok::<(String, bool), crate::error::JsfsError>((
+                                            ocr.text,
+                                            ocr.recovered_via_ocr,
+                                        ))
+                                    }
+                                    #[cfg(not(feature = "plus"))]
+                                    Ok::<(String, bool), crate::error::JsfsError>((raw_txt, false))
+                                })
+                            })
+                            .await;
+                            if let Ok(Ok(Ok((pdf_txt, via_ocr)))) = extracted {
+                                if via_ocr && !rec.data_source_note.contains("OCR") {
+                                    let ocr_note = "Biaya PDF dipulihkan via OCR";
+                                    if rec.data_source_note.trim().is_empty() {
+                                        rec.data_source_note = ocr_note.to_string();
+                                    } else {
+                                        rec.data_source_note =
+                                            format!("{} | {ocr_note}", rec.data_source_note);
+                                    }
+                                }
+                                let snippet_pdf: String = pdf_txt.chars().take(45_000).collect();
+                                if !snippet_pdf.trim().is_empty() {
+                                    let (parsed_pdf, ev_pdf) =
+                                        apc::parse_apc_with_evidence(&snippet_pdf);
+                                    apply_apc_with_paid_priority(&mut rec, parsed_pdf, ev_pdf);
+                                    agg_text.push('\n');
+                                    agg_text.push_str(&snippet_pdf);
+                                    if rec.apc_category() == "paid" {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
                     }
                     if rec.turnaround_weeks.is_none() && !agg_text.trim().is_empty() {
                         if let Some((w, days, lbl)) =
@@ -961,6 +1144,9 @@ async fn deep_enrich_record_inner(
                             if let Ok(arc_out) =
                                 safe_fetch_html(client, &breaker, &arc_url, per_req).await
                             {
+                                if arc_out.insecure_tls {
+                                    used_insecure_tls_inner.store(true, Ordering::Relaxed);
+                                }
                                 if arc_out.status == 200 {
                                     if arc_out
                                         .html
@@ -1095,6 +1281,17 @@ async fn deep_enrich_record_inner(
     }
     if rec.risk_warning.is_none() {
         rec.risk_warning = heuristics::evaluate_journal_risk(&rec, "", None, None);
+    }
+    if used_insecure_tls.load(Ordering::Relaxed) {
+        let tls_note = "Sertifikat SSL/TLS kampus bermasalah (diambil via fallback aman)";
+        if rec.data_source_note.trim().is_empty() {
+            rec.data_source_note = tls_note.to_string();
+        } else if !rec.data_source_note.contains("Sertifikat SSL/TLS") {
+            rec.data_source_note = format!("{} | {tls_note}", rec.data_source_note);
+        }
+        if rec.server_status.trim().is_empty() {
+            rec.server_status = "SSL Bermasalah (Fallback TLS)".to_string();
+        }
     }
     rec.issn_valid = heuristics::has_valid_issn_pair(&rec.issn, &rec.eissn);
     rec.refresh_activity_status(broken_archive, month::current_local_year());

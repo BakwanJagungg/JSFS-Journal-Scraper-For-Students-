@@ -431,9 +431,24 @@ fn collect_paid_candidates(scan_text: &str) -> Vec<PaidCandidate> {
     }
     let mut filtered = Vec::with_capacity(candidates.len());
     for (idx, c) in candidates.into_iter().enumerate() {
-        if keep[idx] {
-            filtered.push(c);
+        if !keep[idx] {
+            continue;
         }
+        let amount_idr = match &c.parsed {
+            ApcParsed::Paid { amount_idr, .. } => *amount_idr,
+            _ => 0,
+        };
+        if !(APC_SANITY_MIN_IDR..=APC_SANITY_MAX_IDR).contains(&amount_idr) {
+            continue;
+        }
+        // Extreme budget bands (< Rp 50 rb or > Rp 15 jt) require Medium+ context confidence.
+        if !(50_000..=15_000_000).contains(&amount_idr) {
+            let (conf, _) = crate::parser::heuristics::score_apc_confidence(scan_text, c.start);
+            if conf == crate::models::ApcConfidence::NeedsCheck {
+                continue;
+            }
+        }
+        filtered.push(c);
     }
     filtered
 }
@@ -938,5 +953,34 @@ mod tests {
         // Withdrawal penalty alone must never become APC even if > 50_000 IDR
         let penalty_only = "Article Withdrawal: Authors who withdraw their manuscript will be punished by paying US$100.";
         assert_eq!(parse_apc_from_context(penalty_only), ApcParsed::Unknown);
+    }
+
+    #[test]
+    fn test_v4162_extended_apc_sanity_bands_and_pdf_text() {
+        // Low-cost regional journal (Rp 35.000) with explicit APC context -> accepted
+        let low_apc = "Biaya publikasi (Article Processing Charge) sebesar Rp 35.000 per naskah.";
+        match parse_apc_from_context(low_apc) {
+            ApcParsed::Paid { amount_idr, .. } => assert_eq!(amount_idr, 35_000),
+            other => panic!("expected Paid 35_000, got {other:?}"),
+        }
+
+        // Specialized journal (Rp 20.000.000) with explicit APC context -> accepted
+        let high_apc = "Article Processing Charge (APC): Rp 20.000.000,- upon acceptance.";
+        match parse_apc_from_context(high_apc) {
+            ApcParsed::Paid { amount_idr, .. } => assert_eq!(amount_idr, 20_000_000),
+            other => panic!("expected Paid 20_000_000, got {other:?}"),
+        }
+
+        // Hardcopy/reprint negative keyword forces NeedsCheck -> rejected in < 50_000 band
+        let hardcopy_low =
+            "Biaya cetak hardcopy tambahan untuk penulis sebesar Rp 35.000 per eksemplar.";
+        assert_eq!(parse_apc_from_context(hardcopy_low), ApcParsed::Unknown);
+
+        // Simulated extracted text from OJS fee PDF document
+        let pdf_extracted = "SURAT KEPUTUSAN PENGELOLA JURNAL\nBiaya penerbitan artikel (Publication Fee): Rp 750.000 dibayarkan setelah LoA terbit.";
+        match parse_apc_from_context(pdf_extracted) {
+            ApcParsed::Paid { amount_idr, .. } => assert_eq!(amount_idr, 750_000),
+            other => panic!("expected Paid 750_000 from PDF text, got {other:?}"),
+        }
     }
 }
