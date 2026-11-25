@@ -53,6 +53,10 @@ pub enum EngineEvent {
     Toast(String),
     /// A newer version is available on GitHub: (tag_name, release_body_snippet)
     UpdateAvailable(String, String),
+    /// Progress message during in-app self-update.
+    UpdateProgress(String),
+    /// Error message if in-app self-update failed.
+    UpdateFailed(String),
 }
 
 /// Thread-safe event broadcaster that wakes the `egui` render loop immediately upon delivery.
@@ -104,7 +108,9 @@ impl EngineState {
         let http_client = scraper::build_http_client();
         let db = cache::JournalCache::open_default().ok();
         let matcher_cfg = config::load_matcher_config();
+        let tokio_workers = config::logical_cpus().clamp(2, 4);
         let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(tokio_workers)
             .enable_all()
             .build()
             .expect("Failed to initialize Tokio multi-thread runtime");

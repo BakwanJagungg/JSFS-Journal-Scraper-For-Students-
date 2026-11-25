@@ -99,6 +99,25 @@ impl AppState {
         }
     }
 
+    /// Merge imported shortlist candidates (e.g. from `.jsfs-list`) and persist them.
+    pub fn merge_imported_shortlist(&mut self, items: Vec<UiJournalItem>) -> usize {
+        let mut added = 0;
+        for item in items {
+            let key = Self::bookmark_key(&item);
+            self.bookmarked_ids.insert(key.clone());
+            if !self
+                .saved_shortlist_items
+                .iter()
+                .any(|it| Self::bookmark_key(it) == key)
+            {
+                self.saved_shortlist_items.push(item);
+                added += 1;
+            }
+        }
+        let _ = crate::config::save_saved_shortlist(&self.saved_shortlist_items);
+        added
+    }
+
     pub fn bookmarked_count(&self, results: &[UiJournalItem]) -> usize {
         results.iter().filter(|it| self.is_bookmarked(it)).count()
     }
@@ -756,27 +775,14 @@ pub struct SearchHistoryEntry {
 }
 
 pub fn load_search_history_from(path: &Path) -> Vec<SearchHistoryEntry> {
-    if let Ok(raw) = std::fs::read_to_string(path) {
-        if let Ok(mut items) = serde_json::from_str::<Vec<SearchHistoryEntry>>(&raw) {
-            items.truncate(MAX_SEARCH_HISTORY);
-            return items;
-        }
-    }
-    Vec::new()
+    let mut items: Vec<SearchHistoryEntry> = crate::config::load_json_or_default(path);
+    items.truncate(MAX_SEARCH_HISTORY);
+    items
 }
 
 pub fn save_search_history_to(path: &Path, entries: &[SearchHistoryEntry]) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let slice = if entries.len() > MAX_SEARCH_HISTORY {
-        &entries[..MAX_SEARCH_HISTORY]
-    } else {
-        entries
-    };
-    let json = serde_json::to_string_pretty(slice)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    std::fs::write(path, json)
+    let slice = &entries[..entries.len().min(MAX_SEARCH_HISTORY)];
+    crate::config::save_json_pretty(path, slice)
 }
 
 pub fn load_search_history() -> Vec<SearchHistoryEntry> {
@@ -826,27 +832,14 @@ pub struct SavedSearchProfile {
 pub const MAX_SAVED_PROFILES: usize = 12;
 
 pub fn load_saved_profiles_from(path: &Path) -> Vec<SavedSearchProfile> {
-    if let Ok(raw) = std::fs::read_to_string(path) {
-        if let Ok(mut items) = serde_json::from_str::<Vec<SavedSearchProfile>>(&raw) {
-            items.truncate(MAX_SAVED_PROFILES);
-            return items;
-        }
-    }
-    Vec::new()
+    let mut items: Vec<SavedSearchProfile> = crate::config::load_json_or_default(path);
+    items.truncate(MAX_SAVED_PROFILES);
+    items
 }
 
 pub fn save_saved_profiles_to(path: &Path, profiles: &[SavedSearchProfile]) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let slice = if profiles.len() > MAX_SAVED_PROFILES {
-        &profiles[..MAX_SAVED_PROFILES]
-    } else {
-        profiles
-    };
-    let json = serde_json::to_string_pretty(slice)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    std::fs::write(path, json)
+    let slice = &profiles[..profiles.len().min(MAX_SAVED_PROFILES)];
+    crate::config::save_json_pretty(path, slice)
 }
 
 pub fn load_saved_profiles() -> Vec<SavedSearchProfile> {

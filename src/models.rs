@@ -111,6 +111,8 @@ pub struct JournalRecord {
     #[serde(default)]
     pub turnaround_weeks: Option<u16>,
     #[serde(default)]
+    pub turnaround_days: Option<u16>,
+    #[serde(default)]
     pub turnaround_label: String,
     #[serde(default)]
     pub article_languages: String,
@@ -168,6 +170,24 @@ pub fn compute_activity_status(
     }
 }
 
+#[inline]
+fn contains_ascii_ci(haystack: &str, needle: &str) -> bool {
+    let n = needle.as_bytes();
+    !n.is_empty()
+        && haystack
+            .as_bytes()
+            .windows(n.len())
+            .any(|w| w.eq_ignore_ascii_case(n))
+}
+
+#[inline]
+fn starts_with_ascii_ci(haystack: &str, prefix: &str) -> bool {
+    haystack
+        .as_bytes()
+        .get(..prefix.len())
+        .is_some_and(|head| head.eq_ignore_ascii_case(prefix.as_bytes()))
+}
+
 impl JournalRecord {
     /// Update `activity_status` and `is_dormant` from `self.last_issue_year`.
     pub fn refresh_activity_status(&mut self, broken_archive: bool, current_year: u16) {
@@ -183,15 +203,15 @@ impl JournalRecord {
     }
     /// Classify APC into `"free"`, `"paid"`, or `"unknown"` consistently for UI/filter/sort.
     pub fn apc_category(&self) -> &'static str {
-        let s = self.apc_status.to_lowercase();
+        let s = self.apc_status.as_str();
         if self.apc_idr_numeric == Some(0)
             || self.publication_fee_idr == Some(0)
-            || s.contains("gratis")
-            || s.starts_with("free")
-            || s.contains("rp 0")
-            || s.contains("diamond oa")
+            || contains_ascii_ci(s, "gratis")
+            || starts_with_ascii_ci(s, "free")
+            || contains_ascii_ci(s, "rp 0")
+            || contains_ascii_ci(s, "diamond oa")
             || s.contains("$0")
-            || s.contains("bebas biaya")
+            || contains_ascii_ci(s, "bebas biaya")
         {
             return "free";
         }
@@ -239,15 +259,23 @@ impl JournalRecord {
         self.publication_fee = formatted;
     }
 
-    /// Extract SINTA numeric rank 1..=6 if available.
+    /// Extract SINTA numeric rank 1..=6 if available without heap allocations.
     pub fn sinta_rank_num(&self) -> Option<u8> {
-        let up = self.sinta_score.to_uppercase();
-        for ch in ['1', '2', '3', '4', '5', '6'] {
-            if up.contains(&format!("S{ch}"))
-                || up.contains(&format!("SINTA {ch}"))
-                || up.trim() == ch.to_string()
+        const RANKS: [(u8, &str, &str, &str); 6] = [
+            (1, "S1", "SINTA 1", "1"),
+            (2, "S2", "SINTA 2", "2"),
+            (3, "S3", "SINTA 3", "3"),
+            (4, "S4", "SINTA 4", "4"),
+            (5, "S5", "SINTA 5", "5"),
+            (6, "S6", "SINTA 6", "6"),
+        ];
+        let trimmed = self.sinta_score.trim();
+        for (num, short, long, bare) in RANKS {
+            if contains_ascii_ci(trimmed, short)
+                || contains_ascii_ci(trimmed, long)
+                || trimmed == bare
             {
-                return ch.to_digit(10).map(|d| d as u8);
+                return Some(num);
             }
         }
         None
@@ -336,6 +364,8 @@ pub struct UiJournalItem {
     pub quartile: Option<String>,
     pub is_international: bool,
     pub turnaround_weeks: Option<u16>,
+    #[serde(default)]
+    pub turnaround_days: Option<u16>,
     pub turnaround_label: String,
     pub article_languages: String,
     pub template_url: Option<String>,
@@ -372,6 +402,31 @@ pub struct UiJournalItem {
     // v4.14.0: data-source transparency for ISSN triangulation
     #[serde(default)]
     pub data_source_note: String,
+}
+
+impl UiJournalItem {
+    /// Unified accreditation pill text across Advisor UI and HTML curation export.
+    pub fn accreditation_badge_text(&self, garuda_fallback: &str) -> String {
+        if let Some(q) = self
+            .quartile
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            format!("Intl {}", q.to_ascii_uppercase())
+        } else if !self.sinta.trim().is_empty() && self.sinta != "-" {
+            let s = self.sinta.trim();
+            if starts_with_ascii_ci(s, "SINTA") {
+                s.to_string()
+            } else {
+                format!("SINTA {s}")
+            }
+        } else if self.is_international {
+            "Intl OA".to_string()
+        } else {
+            garuda_fallback.to_string()
+        }
+    }
 }
 
 impl From<&JournalRecord> for UiJournalItem {
@@ -468,6 +523,7 @@ impl From<&JournalRecord> for UiJournalItem {
             quartile: r.quartile.clone(),
             is_international: r.is_international,
             turnaround_weeks: r.turnaround_weeks,
+            turnaround_days: r.turnaround_days,
             turnaround_label: r.turnaround_label.clone(),
             article_languages: r.article_languages.clone(),
             template_url: r.template_url.clone(),
@@ -551,6 +607,7 @@ impl From<&UiJournalItem> for JournalRecord {
             quartile: it.quartile.clone(),
             is_international: it.is_international,
             turnaround_weeks: it.turnaround_weeks,
+            turnaround_days: it.turnaround_days,
             turnaround_label: it.turnaround_label.clone(),
             article_languages: it.article_languages.clone(),
             template_url: it.template_url.clone(),
@@ -1101,16 +1158,16 @@ pub fn compute_submission_readiness(
     // 6. Citation style match check
     if let Some(ms_style) = ms_citation_style {
         if let Some(target_style) = &item.citation_style {
-            let ms_is_ieee = ms_style.to_ascii_lowercase().contains("ieee")
-                || ms_style.to_ascii_lowercase().contains("numeric");
-            let target_is_ieee = target_style.to_ascii_lowercase().contains("ieee")
-                || target_style.to_ascii_lowercase().contains("numeric");
-            let ms_is_apa = ms_style.to_ascii_lowercase().contains("apa")
-                || ms_style.to_ascii_lowercase().contains("harvard")
-                || ms_style.to_ascii_lowercase().contains("author");
-            let target_is_apa = target_style.to_ascii_lowercase().contains("apa")
-                || target_style.to_ascii_lowercase().contains("harvard")
-                || target_style.to_ascii_lowercase().contains("author");
+            let is_ieee = |s: &str| contains_ascii_ci(s, "ieee") || contains_ascii_ci(s, "numeric");
+            let is_apa = |s: &str| {
+                contains_ascii_ci(s, "apa")
+                    || contains_ascii_ci(s, "harvard")
+                    || contains_ascii_ci(s, "author")
+            };
+            let ms_is_ieee = is_ieee(ms_style);
+            let target_is_ieee = is_ieee(target_style);
+            let ms_is_apa = is_apa(ms_style);
+            let target_is_apa = is_apa(target_style);
 
             if (ms_is_ieee && target_is_ieee) || (ms_is_apa && target_is_apa) {
                 checklist.push((

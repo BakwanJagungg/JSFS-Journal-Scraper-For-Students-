@@ -206,7 +206,7 @@ fn is_submission_only_context(text: &str, start: usize, end: usize) -> bool {
         return true;
     }
 
-    let after_end = ceil_char_boundary(text, (end + 28).min(text.len()));
+    let after_end = text.ceil_char_boundary((end + 28).min(text.len()));
     let after_raw = &text[end..after_end];
     let after_clause_end = after_raw.find(['.', ';', '\n']).unwrap_or(after_raw.len());
     let after = after_raw[..after_clause_end].to_ascii_lowercase();
@@ -460,7 +460,7 @@ fn is_withdrawal_penalty_context(text: &str, start: usize, end: usize) -> bool {
         return true;
     }
 
-    let after_end = ceil_char_boundary(text, (end + 32).min(text.len()));
+    let after_end = text.ceil_char_boundary((end + 32).min(text.len()));
     let after = text[end..after_end].to_ascii_lowercase();
     after.contains("withdrawal fee")
         || after.contains("for withdrawal")
@@ -477,16 +477,8 @@ pub fn sanitize_free_traps(raw_text: &str) -> String {
     RE_SUBMISSION_FREE_STRIP.replace_all(&s2, " ").into_owned()
 }
 
-fn floor_char_boundary(s: &str, mut idx: usize) -> usize {
-    idx = idx.min(s.len());
-    while idx > 0 && !s.is_char_boundary(idx) {
-        idx -= 1;
-    }
-    idx
-}
-
 fn extract_sentence_evidence(text: &str, focus_start: usize, focus_end: usize) -> String {
-    let min_left = floor_char_boundary(text, focus_start.saturating_sub(95));
+    let min_left = text.floor_char_boundary(focus_start.saturating_sub(95));
     let mut left = min_left;
     for (rel, ch) in text[min_left..focus_start].char_indices().rev() {
         let abs = min_left + rel;
@@ -506,7 +498,7 @@ fn extract_sentence_evidence(text: &str, focus_start: usize, focus_end: usize) -
         }
     }
 
-    let max_right = ceil_char_boundary(text, (focus_end + 85).min(text.len()));
+    let max_right = text.ceil_char_boundary((focus_end + 85).min(text.len()));
     let mut right = max_right;
     for (rel, ch) in text[focus_end..max_right].char_indices() {
         let abs = focus_end + rel;
@@ -657,14 +649,6 @@ pub fn extract_apc_contextual_html_with_evidence(html: &str) -> (ApcParsed, Opti
 pub fn extract_apc_contextual_html(html: &str) -> (ApcParsed, Option<u64>) {
     let (parsed, sub_fee, _) = extract_apc_contextual_html_with_evidence(html);
     (parsed, sub_fee)
-}
-
-fn ceil_char_boundary(s: &str, mut idx: usize) -> usize {
-    idx = idx.min(s.len());
-    while idx < s.len() && !s.is_char_boundary(idx) {
-        idx += 1;
-    }
-    idx
 }
 
 pub fn apc_display_or_unknown(parsed: &ApcParsed) -> String {

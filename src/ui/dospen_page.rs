@@ -13,8 +13,8 @@ use crate::ui::detail_page::{format_word_limit_label, SUBMISSION_STATUS_OPTIONS}
 use crate::ui::i18n::{AppLanguage, AppSettings};
 use crate::ui::state::AppState;
 use crate::ui::theme::{
-    accent_button, card, card_divider, page_header, pill_badge, quartile_pill_colors,
-    secondary_button, secondary_button_h, Palette,
+    accent_button, apc_badge_colors, card, card_divider, match_badge_colors, page_header,
+    pill_badge, quartile_pill_colors, secondary_button, secondary_button_h, Palette,
 };
 use egui::{CornerRadius, Frame, Grid, Margin, RichText, ScrollArea, Stroke, Ui};
 
@@ -26,28 +26,6 @@ pub enum DospenPageAction {
     ExportRevisionMatrix(UiJournalItem),
     ExportBundleZip(UiJournalItem),
     SaveTrack(SubmissionTrack),
-}
-
-fn format_accreditation_text(j: &UiJournalItem) -> String {
-    if let Some(q) = j
-        .quartile
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        format!("Intl {}", q.to_ascii_uppercase())
-    } else if !j.sinta.trim().is_empty() && j.sinta != "-" {
-        let s = j.sinta.trim();
-        if s.to_ascii_uppercase().starts_with("SINTA") {
-            s.to_string()
-        } else {
-            format!("SINTA {s}")
-        }
-    } else if j.is_international {
-        "Intl OA".to_string()
-    } else {
-        "Garuda Non-SINTA".to_string()
-    }
 }
 
 fn render_compare_section(
@@ -107,7 +85,12 @@ fn render_compare_section(
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(&j.nama).size(14.0).strong().color(p.text));
-                        pill_badge(ui, &format_accreditation_text(j), p.accent, p.accent_soft);
+                        pill_badge(
+                            ui,
+                            &j.accreditation_badge_text("Garuda Non-SINTA"),
+                            p.accent,
+                            p.accent_soft,
+                        );
                     });
                     ui.label(
                         RichText::new(format!("{} • {}", j.penerbit, j.sumber))
@@ -127,13 +110,7 @@ fn render_compare_section(
                                 .size(12.0)
                                 .color(p.text),
                         );
-                        let match_fg = if j.match_score >= 70.0 {
-                            p.good
-                        } else if j.match_score >= 45.0 {
-                            p.warn
-                        } else {
-                            p.muted
-                        };
+                        let (match_fg, _) = match_badge_colors(p, j.match_score);
                         ui.label(
                             RichText::new(format!("Skor Kecocokan: {:.0}%", j.match_score))
                                 .size(12.0)
@@ -214,7 +191,7 @@ fn render_compare_section(
                         );
                         for j in &compared {
                             ui.allocate_ui([col_width, 24.0].into(), |ui| {
-                                let lbl = format_accreditation_text(j);
+                                let lbl = j.accreditation_badge_text("Garuda Non-SINTA");
                                 if let Some(q) = j
                                     .quartile
                                     .as_deref()
@@ -284,11 +261,7 @@ fn render_compare_section(
                         for j in &compared {
                             ui.allocate_ui([col_width, 32.0].into(), |ui| {
                                 ui.vertical(|ui| {
-                                    let (fg, bg) = match j.apc_category.as_str() {
-                                        "free" => (p.good, p.good_soft),
-                                        "paid" => (p.warn, p.warn_soft),
-                                        _ => (p.muted, p.control_bg),
-                                    };
+                                    let (fg, bg) = apc_badge_colors(p, &j.apc_category);
                                     pill_badge(ui, &j.apc_label, fg, bg);
                                     if let Some(sf) = j.submission_fee_idr {
                                         let sf_txt = if sf == 0 {
@@ -563,6 +536,128 @@ pub fn render_dospen_page(
                     .clicked()
                 {
                     action = DospenPageAction::ExportDospenApprovalDocx(shortlisted.clone());
+                }
+
+                if ui
+                    .add_enabled_ui(!shortlisted.is_empty(), |ui| {
+                        secondary_button(
+                            ui,
+                            p,
+                            if is_en {
+                                "Export Curation Package (.jsfs-list)"
+                            } else {
+                                "Ekspor Paket Kurasi (.jsfs-list)"
+                            },
+                        )
+                    })
+                    .inner
+                    .clicked()
+                {
+                    let ms_title = manuscript
+                        .map(|m| {
+                            if m.extracted_title.trim().is_empty() {
+                                m.name.clone()
+                            } else {
+                                m.extracted_title.clone()
+                            }
+                        })
+                        .unwrap_or_default();
+                    let pkg = crate::config::JsfsCurationPackage {
+                        format: "jsfs-list-v1".to_string(),
+                        exported_at: chrono::Local::now().format("%Y-%m-%d %H:%M").to_string(),
+                        manuscript_title: ms_title,
+                        candidates: shortlisted.clone(),
+                    };
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("JSFS Curation List", &["jsfs-list"])
+                        .set_file_name("kurasi_jurnal.jsfs-list")
+                        .save_file()
+                    {
+                        match crate::config::serialize_curation_package(&pkg)
+                            .and_then(|json| {
+                                std::fs::write(&path, json)
+                                    .map_err(|e| format!("Gagal menyimpan berkas: {e}"))
+                            }) {
+                            Ok(()) => sink.send(EngineEvent::Toast(format!(
+                                "Paket kurasi disimpan: {}",
+                                path.display()
+                            ))),
+                            Err(err) => sink.send(EngineEvent::Toast(err)),
+                        }
+                    }
+                }
+
+                if secondary_button(
+                    ui,
+                    p,
+                    if is_en {
+                        "Import Curation Package"
+                    } else {
+                        "Impor Paket Kurasi"
+                    },
+                )
+                .clicked()
+                {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("JSFS Curation List", &["jsfs-list", "json"])
+                        .pick_file()
+                    {
+                        match std::fs::read_to_string(&path)
+                            .map_err(|e| format!("Gagal membaca berkas: {e}"))
+                            .and_then(|raw| crate::config::deserialize_curation_package(&raw))
+                        {
+                            Ok(pkg) => {
+                                let total = pkg.candidates.len();
+                                let newly_added = app_state.merge_imported_shortlist(pkg.candidates);
+                                sink.send(EngineEvent::Toast(format!(
+                                    "Impor berhasil: {total} kandidat ({newly_added} baru ditambahkan ke shortlist)."
+                                )));
+                            }
+                            Err(err) => sink.send(EngineEvent::Toast(err)),
+                        }
+                    }
+                }
+
+                if ui
+                    .add_enabled_ui(!shortlisted.is_empty(), |ui| {
+                        secondary_button(
+                            ui,
+                            p,
+                            if is_en {
+                                "Export HTML Summary (WA/Email)"
+                            } else {
+                                "Ekspor Ringkasan HTML Siap Kirim WA/Email"
+                            },
+                        )
+                    })
+                    .inner
+                    .clicked()
+                {
+                    let ms_title = manuscript
+                        .map(|m| {
+                            if m.extracted_title.trim().is_empty() {
+                                m.name.clone()
+                            } else {
+                                m.extracted_title.clone()
+                            }
+                        })
+                        .unwrap_or_default();
+                    let html = crate::config::generate_dospen_html_report(&shortlisted, &ms_title);
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("HTML Report", &["html"])
+                        .set_file_name("Ringkasan_Kurasi_Dospen.html")
+                        .save_file()
+                    {
+                        match std::fs::write(&path, html) {
+                            Ok(()) => sink.send(EngineEvent::Toast(format!(
+                                "Ringkasan HTML siap kirim WA/Email disimpan: {}",
+                                path.display()
+                            ))),
+                            Err(e) => sink.send(EngineEvent::Toast(format!(
+                                "Gagal menyimpan ringkasan HTML: {e}"
+                            ))),
+                        }
+                    }
                 }
             });
         });

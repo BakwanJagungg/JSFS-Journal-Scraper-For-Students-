@@ -79,22 +79,11 @@ impl AppSettings {
 }
 
 pub fn load_app_settings_from(path: &Path) -> AppSettings {
-    if let Ok(raw) = std::fs::read_to_string(path) {
-        if let Ok(cfg) = serde_json::from_str::<AppSettings>(&raw) {
-            return cfg.normalized();
-        }
-    }
-    AppSettings::default()
+    crate::config::load_json_or_default::<AppSettings>(path).normalized()
 }
 
 pub fn save_app_settings_to(path: &Path, settings: &AppSettings) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let clean = settings.clone().normalized();
-    let json = serde_json::to_string_pretty(&clean)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    std::fs::write(path, json)
+    crate::config::save_json_pretty(path, &settings.clone().normalized())
 }
 
 pub fn load_app_settings() -> AppSettings {

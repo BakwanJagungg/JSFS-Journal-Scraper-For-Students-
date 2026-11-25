@@ -2,7 +2,7 @@ use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-pub const APP_VERSION: &str = "4.14.1";
+pub const APP_VERSION: &str = "4.16.0";
 pub const CACHE_VERSION: &str = "4.3.0";
 pub const CACHE_TTL_DAYS: i64 = 14;
 pub const MAX_WORKERS: usize = 32;
@@ -61,7 +61,7 @@ pub fn effective_max_workers() -> usize {
     *WORKERS.get_or_init(|| workers_for_cpus(logical_cpus()))
 }
 
-fn is_dir_writable(dir: &Path) -> bool {
+pub fn is_dir_writable(dir: &Path) -> bool {
     if std::fs::create_dir_all(dir).is_err() {
         return false;
     }
@@ -78,6 +78,27 @@ fn is_dir_writable(dir: &Path) -> bool {
         }
         Err(_) => false,
     }
+}
+
+/// Read a JSON file into `T`, falling back to `T::default()` if missing or invalid.
+pub fn load_json_or_default<T: serde::de::DeserializeOwned + Default>(path: &Path) -> T {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default()
+}
+
+/// Ensure parent directory exists and write `value` as formatted JSON.
+pub fn save_json_pretty<T: serde::Serialize + ?Sized>(
+    path: &Path,
+    value: &T,
+) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let json = serde_json::to_string_pretty(value)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    std::fs::write(path, json)
 }
 
 fn local_appdata_jsfs_dir() -> Option<PathBuf> {
@@ -264,10 +285,7 @@ pub fn saved_shortlist_path() -> PathBuf {
 
 /// Load saved shortlisted journals (`★`) from disk, returning empty on missing/corrupt files.
 pub fn load_saved_shortlist_from(path: &Path) -> Vec<crate::models::UiJournalItem> {
-    let Ok(raw) = std::fs::read_to_string(path) else {
-        return Vec::new();
-    };
-    serde_json::from_str(&raw).unwrap_or_default()
+    load_json_or_default(path)
 }
 
 pub fn load_saved_shortlist() -> Vec<crate::models::UiJournalItem> {
@@ -279,16 +297,141 @@ pub fn save_saved_shortlist_to(
     path: &Path,
     items: &[crate::models::UiJournalItem],
 ) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let json = serde_json::to_string_pretty(items)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    std::fs::write(path, json)
+    save_json_pretty(path, items)
 }
 
 pub fn save_saved_shortlist(items: &[crate::models::UiJournalItem]) -> std::io::Result<()> {
     save_saved_shortlist_to(&saved_shortlist_path(), items)
+}
+
+/// Portable curation package (`.jsfs-list`) for sharing shortlisted candidates with advisors/team.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsfsCurationPackage {
+    #[serde(default = "default_curation_format")]
+    pub format: String,
+    #[serde(default)]
+    pub exported_at: String,
+    #[serde(default)]
+    pub manuscript_title: String,
+    #[serde(default)]
+    pub candidates: Vec<crate::models::UiJournalItem>,
+}
+
+fn default_curation_format() -> String {
+    "jsfs-list-v1".to_string()
+}
+
+/// Serialize a `JsfsCurationPackage` into pretty JSON for `.jsfs-list` export.
+pub fn serialize_curation_package(pkg: &JsfsCurationPackage) -> Result<String, String> {
+    serde_json::to_string_pretty(pkg).map_err(|e| format!("Gagal menyusun paket kurasi: {e}"))
+}
+
+/// Parse and validate a `.jsfs-list` curation package from JSON.
+pub fn deserialize_curation_package(raw: &str) -> Result<JsfsCurationPackage, String> {
+    let pkg: JsfsCurationPackage = serde_json::from_str(raw)
+        .map_err(|e| format!("Format berkas .jsfs-list tidak valid: {e}"))?;
+    if pkg.candidates.is_empty() {
+        return Err("Paket kurasi .jsfs-list tidak berisi kandidat jurnal.".to_string());
+    }
+    Ok(pkg)
+}
+
+fn escape_html_text(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+/// Generate a lightweight, self-contained responsive HTML summary report for advisors (WA/Email).
+pub fn generate_dospen_html_report(
+    candidates: &[crate::models::UiJournalItem],
+    manuscript_title: &str,
+) -> String {
+    let title_disp = if manuscript_title.trim().is_empty() {
+        "Draf Naskah Penelitian"
+    } else {
+        manuscript_title.trim()
+    };
+    let generated_at = chrono::Local::now().format("%d %b %Y %H:%M").to_string();
+
+    let mut rows_html = String::new();
+    for (idx, j) in candidates.iter().enumerate() {
+        let accred = j.accreditation_badge_text("Garuda");
+
+        let turnaround = if let Some(days) = j.turnaround_days {
+            crate::parser::heuristics::format_turnaround_estimate_id(days)
+        } else if !j.turnaround_label.trim().is_empty() {
+            j.turnaround_label.clone()
+        } else {
+            "Belum terdata".to_string()
+        };
+
+        let match_txt = if j.match_score > 0.0 {
+            format!("{:.0}%", j.match_score)
+        } else {
+            "N/A".to_string()
+        };
+
+        let url_esc = escape_html_text(&j.url);
+        let name_esc = escape_html_text(&j.nama);
+        let pub_esc = escape_html_text(&j.penerbit);
+        let apc_esc = escape_html_text(&j.apc_label);
+        let jadwal_esc = escape_html_text(&j.jadwal_terbit);
+        let turn_esc = escape_html_text(&turnaround);
+        let accred_esc = escape_html_text(&accred);
+
+        rows_html.push_str(&format!(
+            "<tr>\
+             <td>{}</td>\
+             <td><strong>{name_esc}</strong><br><small>{pub_esc}</small><br><a href=\"{url_esc}\" target=\"_blank\" rel=\"noopener\">{url_esc}</a></td>\
+             <td><span class=\"badge\">{accred_esc}</span></td>\
+             <td>{match_txt}</td>\
+             <td>{apc_esc}</td>\
+             <td>{turn_esc}<br><small>Jadwal: {jadwal_esc}</small></td>\
+             </tr>",
+            idx + 1
+        ));
+    }
+
+    let ms_esc = escape_html_text(title_disp);
+    format!(
+        "<!DOCTYPE html>\
+<html lang=\"id\">\
+<head>\
+<meta charset=\"utf-8\">\
+<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
+<title>Ringkasan Kurasi Jurnal Dospen</title>\
+<style>\
+body{{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:16px;background:#f6f8fb;color:#1f2937;line-height:1.45;}}\
+.wrap{{max-width:960px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:18px;}}\
+h1{{font-size:18px;margin:0 0 6px;color:#111827;}}\
+.meta{{font-size:13px;color:#4b5563;margin-bottom:14px;}}\
+.tbl-wrap{{overflow-x:auto;}}\
+table{{width:100%;border-collapse:collapse;font-size:13px;min-width:620px;}}\
+th,td{{padding:10px 8px;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:top;}}\
+th{{background:#f3f4f6;font-weight:600;color:#374151;}}\
+.badge{{display:inline-block;padding:2px 8px;border-radius:999px;background:#dbeafe;color:#1d4ed8;font-weight:600;font-size:12px;}}\
+a{{color:#2563eb;word-break:break-all;}}\
+small{{color:#6b7280;}}\
+</style>\
+</head>\
+<body>\
+<div class=\"wrap\">\
+<h1>Ringkasan Kurasi Jurnal Target Publikasi</h1>\
+<div class=\"meta\">Naskah: <strong>{ms_esc}</strong> | Disiapkan via JSFS pada {generated_at}</div>\
+<div class=\"tbl-wrap\">\
+<table>\
+<thead><tr><th>No</th><th>Nama Jurnal &amp; Tautan</th><th>Akreditasi</th><th>Cocok</th><th>Estimasi APC</th><th>Estimasi &amp; Jadwal Terbit</th></tr></thead>\
+<tbody>{rows_html}</tbody>\
+</table>\
+</div>\
+</div>\
+</body>\
+</html>"
+    )
 }
 
 /// Persisted user preference for JSFS Match Engine (`builtin` | `cloud` | `ollama`).
@@ -365,25 +508,14 @@ pub fn mask_api_key(key: &str) -> String {
 }
 
 pub fn load_matcher_config() -> MatcherConfig {
-    let path = matcher_config_path();
-    if let Ok(raw) = std::fs::read_to_string(&path) {
-        if let Ok(mut cfg) = serde_json::from_str::<MatcherConfig>(&raw) {
-            cfg.mode = cfg.normalized_mode().to_string();
-            cfg.cloud_provider = cfg.normalized_provider().to_string();
-            return cfg;
-        }
-    }
-    MatcherConfig::default()
+    let mut cfg: MatcherConfig = load_json_or_default(&matcher_config_path());
+    cfg.mode = cfg.normalized_mode().to_string();
+    cfg.cloud_provider = cfg.normalized_provider().to_string();
+    cfg
 }
 
 pub fn save_matcher_config_to_disk(cfg: &MatcherConfig) -> std::io::Result<()> {
-    let path = matcher_config_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let json = serde_json::to_string_pretty(cfg)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    std::fs::write(path, json)
+    save_json_pretty(&matcher_config_path(), cfg)
 }
 
 pub const MAX_SAVED_MANUSCRIPTS: usize = 5;
@@ -400,10 +532,7 @@ pub struct SavedManuscriptEntry {
 
 /// Load saved manuscript summaries from disk, returning empty on missing/corrupt files.
 pub fn load_saved_manuscripts_from(path: &Path) -> Vec<SavedManuscriptEntry> {
-    let Ok(raw) = std::fs::read_to_string(path) else {
-        return Vec::new();
-    };
-    let mut entries: Vec<SavedManuscriptEntry> = serde_json::from_str(&raw).unwrap_or_default();
+    let mut entries: Vec<SavedManuscriptEntry> = load_json_or_default(path);
     entries.truncate(MAX_SAVED_MANUSCRIPTS);
     entries
 }
@@ -417,13 +546,8 @@ pub fn save_saved_manuscripts_to(
     path: &Path,
     entries: &[SavedManuscriptEntry],
 ) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let capped: Vec<&SavedManuscriptEntry> = entries.iter().take(MAX_SAVED_MANUSCRIPTS).collect();
-    let json = serde_json::to_string_pretty(&capped)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    std::fs::write(path, json)
+    let slice = &entries[..entries.len().min(MAX_SAVED_MANUSCRIPTS)];
+    save_json_pretty(path, slice)
 }
 
 pub fn save_saved_manuscripts(entries: &[SavedManuscriptEntry]) -> std::io::Result<()> {
@@ -508,13 +632,7 @@ pub fn create_backup_bundle(
 }
 
 pub fn save_backup_bundle_to_path(bundle: &JsfsBackupBundle, dest: &Path) -> std::io::Result<()> {
-    if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let json = bundle
-        .to_json_pretty()
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    std::fs::write(dest, json)
+    save_json_pretty(dest, bundle)
 }
 
 #[cfg(test)]
@@ -716,5 +834,38 @@ mod tests {
         assert_eq!(loaded[1].apc_label, "Rp 500.000");
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_curation_package_roundtrip_and_dospen_html() {
+        let items = vec![crate::models::UiJournalItem {
+            nama: "Jurnal Teknologi & Informasi <Uji>".to_string(),
+            penerbit: "Universitas Nusantara".to_string(),
+            url: "https://jti.example.ac.id".to_string(),
+            sinta: "2".to_string(),
+            match_score: 86.5,
+            apc_label: "Gratis (Rp 0)".to_string(),
+            jadwal_terbit: "Mei & November".to_string(),
+            turnaround_days: Some(75),
+            ..Default::default()
+        }];
+        let pkg = JsfsCurationPackage {
+            format: "jsfs-list-v1".to_string(),
+            exported_at: "2026-11-25 20:00".to_string(),
+            manuscript_title: "Analisis Sentimen Mahasiswa".to_string(),
+            candidates: items.clone(),
+        };
+        let raw = serialize_curation_package(&pkg).expect("serialize");
+        let parsed = deserialize_curation_package(&raw).expect("deserialize");
+        assert_eq!(parsed.candidates.len(), 1);
+        assert_eq!(parsed.candidates[0].turnaround_days, Some(75));
+
+        let html = generate_dospen_html_report(&items, "Analisis Sentimen Mahasiswa");
+        assert!(html.contains("<!DOCTYPE html>"));
+        assert!(html.contains("Jurnal Teknologi &amp; Informasi &lt;Uji&gt;"));
+        assert!(html.contains("Sekitar 2,5 Bulan (75 Hari)"));
+        assert!(html.contains("SINTA 2"));
+        assert!(!html.contains("--"));
+        assert!(!html.contains('\u{2014}'));
     }
 }

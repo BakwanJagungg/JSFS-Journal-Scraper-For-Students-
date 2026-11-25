@@ -15,8 +15,8 @@ use crate::parser::doc_matcher::check_manuscript_word_fit;
 use crate::ui::i18n::{AppLanguage, AppSettings};
 use crate::ui::state::AppState;
 use crate::ui::theme::{
-    accent_button, card, card_divider, page_header, pill_badge, quartile_pill_colors,
-    secondary_button, secondary_button_h, Palette,
+    accent_button, card, card_divider, match_badge_colors, page_header, pill_badge,
+    quartile_pill_colors, secondary_button, secondary_button_h, Palette,
 };
 use egui::{
     Align, CornerRadius, Frame, Layout, Margin, RichText, ScrollArea, Sense, Stroke, Ui, Vec2,
@@ -371,11 +371,7 @@ fn render_right_detail_cards(
                 );
             }
             if j.match_score > 0.0 {
-                let (fg, bg) = if j.match_score >= 70.0 {
-                    (p.good, p.good_soft)
-                } else {
-                    (p.warn, p.warn_soft)
-                };
+                let (fg, bg) = match_badge_colors(p, j.match_score);
                 pill_badge(ui, &format!("Match {:.0}%", j.match_score), fg, bg);
             }
             if let Some(open) = j.submission_open {
@@ -864,8 +860,28 @@ fn render_right_detail_cards(
         info_kv(ui, p, "Keaktifan Edisi", &year_disp);
         info_kv(ui, p, "Jadwal Terbit", &j.jadwal_terbit);
         info_kv(ui, p, "Terbit Terdekat", &j.terbit_terdekat);
-        if !j.turnaround_label.trim().is_empty() {
-            info_kv(ui, p, "Kecepatan Review", &j.turnaround_label);
+        if let Some(days) = j.turnaround_days {
+            info_kv(
+                ui,
+                p,
+                if is_en {
+                    "Est. Publication"
+                } else {
+                    "Estimasi Terbit"
+                },
+                &crate::parser::heuristics::format_turnaround_estimate_id(days),
+            );
+        } else if !j.turnaround_label.trim().is_empty() {
+            info_kv(
+                ui,
+                p,
+                if is_en {
+                    "Est. Publication"
+                } else {
+                    "Estimasi Terbit"
+                },
+                &j.turnaround_label,
+            );
         }
         if !j.article_languages.trim().is_empty() {
             info_kv(ui, p, "Bahasa Artikel", &j.article_languages);

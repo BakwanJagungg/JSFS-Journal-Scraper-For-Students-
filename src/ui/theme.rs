@@ -281,6 +281,45 @@ pub fn quartile_pill_colors(p: &Palette, q: &str) -> (Color32, Color32) {
     }
 }
 
+/// Shared color pair (foreground, background) for APC category badges (`free`, `paid`, `unknown`).
+pub fn apc_badge_colors(p: &Palette, apc_category: &str) -> (Color32, Color32) {
+    match apc_category {
+        "free" => (p.good, p.good_soft),
+        "paid" => (p.warn, p.warn_soft),
+        _ => (p.muted, p.control_bg),
+    }
+}
+
+/// Shared color pair (foreground, background) for manuscript match score badges.
+pub fn match_badge_colors(p: &Palette, score: f64) -> (Color32, Color32) {
+    if score >= 70.0 {
+        (p.good, p.good_soft)
+    } else if score >= 45.0 {
+        (p.warn, p.warn_soft)
+    } else {
+        (p.muted, p.control_bg)
+    }
+}
+
+/// Shared color pair (foreground, background) for journal activity status badges.
+pub fn activity_badge_colors(
+    p: &Palette,
+    is_dormant: bool,
+    bot_protected: bool,
+    has_year: bool,
+    activity_status: &str,
+) -> (Color32, Color32) {
+    if is_dormant {
+        (p.bad, p.bad_soft)
+    } else if bot_protected && !has_year {
+        (p.warn, p.warn_soft)
+    } else if activity_status.contains("Aktif") {
+        (p.good, p.good_soft)
+    } else {
+        (p.warn, p.warn_soft)
+    }
+}
+
 pub fn card_divider(ui: &mut Ui, p: &Palette) {
     ui.add_space(4.0);
     let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 1.0), Sense::hover());

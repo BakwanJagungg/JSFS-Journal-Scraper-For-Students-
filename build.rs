@@ -1,26 +1,27 @@
-fn main() {
-    println!("cargo:rerun-if-changed=assets/icon.ico");
-
-    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
-        let mut res = winres::WindowsResource::new();
-        res.set_icon("assets/icon.ico");
-        res.set("ProductName", "JSFS - Journal Scraper For Students");
-        res.set(
-            "FileDescription",
-            "JSFS Academic Journal Finder & APC Validator",
-        );
-        res.set("CompanyName", "JSFS Open Source");
-        res.set("OriginalFilename", "jsfs.exe");
-        res.set("InternalName", "jsfs");
-        res.set(
-            "LegalCopyright",
-            "Copyright (c) 2026 JSFS Contributors - MIT License",
-        );
-        res.set("FileVersion", "4.14.1.0");
-        res.set("ProductVersion", "4.14.1.0");
-        res.set_manifest(
-            r#"<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0" xmlns:asmv3="urn:schemas-microsoft-com:asm.v3">
-  <assemblyIdentity version="4.14.1.0" processorArchitecture="*" name="JSFS.OpenSource.Desktop" type="win32" />
+#[cfg(windows)]
+fn embed_windows_resources() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
+        return;
+    }
+    let mut res = winres::WindowsResource::new();
+    res.set_icon("assets/icon.ico");
+    res.set("ProductName", "JSFS - Journal Scraper For Students");
+    res.set(
+        "FileDescription",
+        "JSFS Academic Journal Finder & APC Validator",
+    );
+    res.set("CompanyName", "JSFS Open Source");
+    res.set("OriginalFilename", "jsfs.exe");
+    res.set("InternalName", "jsfs");
+    res.set(
+        "LegalCopyright",
+        "Copyright (c) 2026 JSFS Contributors - MIT License",
+    );
+    res.set("FileVersion", "4.16.0.0");
+    res.set("ProductVersion", "4.16.0.0");
+    res.set_manifest(
+        r#"<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0" xmlns:asmv3="urn:schemas-microsoft-com:asm.v3">
+  <assemblyIdentity version="4.16.0.0" processorArchitecture="*" name="JSFS.OpenSource.Desktop" type="win32" />
   <description>JSFS Academic Journal Finder and APC Validator</description>
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
@@ -47,9 +48,16 @@ fn main() {
     </asmv3:windowsSettings>
   </asmv3:application>
 </assembly>"#,
-        );
-        if let Err(e) = res.compile() {
-            println!("cargo:warning=winres resource compilation skipped: {e}");
-        }
+    );
+    if let Err(e) = res.compile() {
+        println!("cargo:warning=winres resource compilation skipped: {e}");
     }
+}
+
+#[cfg(not(windows))]
+fn embed_windows_resources() {}
+
+fn main() {
+    println!("cargo:rerun-if-changed=assets/icon.ico");
+    embed_windows_resources();
 }

@@ -136,6 +136,29 @@ pub fn format_turnaround_label(weeks: u16) -> String {
     }
 }
 
+/// Format turnaround days into a student-friendly publication estimate,
+/// e.g. `Sekitar 2,5 Bulan (75 Hari)` or `Sekitar 3 Minggu (21 Hari)`.
+pub fn format_turnaround_estimate_id(days: u16) -> String {
+    if days == 0 {
+        return String::new();
+    }
+    if days >= 45 {
+        let half_months = ((days as f32) / 15.0).round().max(3.0) as u32;
+        if half_months.is_multiple_of(2) {
+            let m = half_months / 2;
+            format!("Sekitar {m} Bulan ({days} Hari)")
+        } else {
+            let m = half_months / 2;
+            format!("Sekitar {m},5 Bulan ({days} Hari)")
+        }
+    } else if days >= 14 {
+        let weeks = ((days as f32) / 7.0).round().max(2.0) as u32;
+        format!("Sekitar {weeks} Minggu ({days} Hari)")
+    } else {
+        format!("Sekitar {days} Hari")
+    }
+}
+
 fn month_num_from_token(tok: &str) -> Option<u32> {
     let low = tok
         .trim_matches(|c: char| !c.is_ascii_alphabetic())
@@ -202,10 +225,10 @@ fn parse_flexible_date(raw: &str) -> Option<NaiveDate> {
     None
 }
 
-/// Extract estimated review/publication turnaround time in weeks from OJS page text.
-pub fn extract_turnaround_time(text: &str) -> Option<(u16, String)> {
-    // 1. Check Received -> Accepted/Published date pairs within nearby windows
-    let mut diffs_weeks: Vec<u16> = Vec::new();
+/// Extract estimated review/publication turnaround details `(weeks, days, compact_label)` from OJS page text.
+pub fn extract_turnaround_details(text: &str) -> Option<(u16, u16, String)> {
+    // 1. Check Received/Submitted -> Accepted/Published date pairs within nearby windows
+    let mut diffs_days: Vec<u16> = Vec::new();
     for rec_cap in RE_RECEIVED_LABEL.captures_iter(text) {
         let Some(rec_match) = rec_cap.get(0) else {
             continue;
@@ -225,22 +248,22 @@ pub fn extract_turnaround_time(text: &str) -> Option<(u16, String)> {
                 if let Some(end_date) = parse_flexible_date(pub_date_str) {
                     let days = (end_date - start_date).num_days();
                     if (7..=730).contains(&days) {
-                        let weeks = ((days as f32) / 7.0).round().clamp(1.0, 104.0) as u16;
-                        diffs_weeks.push(weeks);
+                        diffs_days.push(days as u16);
                         break;
                     }
                 }
             }
         }
-        if diffs_weeks.len() >= 5 {
+        if diffs_days.len() >= 5 {
             break;
         }
     }
 
-    if !diffs_weeks.is_empty() {
-        diffs_weeks.sort_unstable();
-        let median = diffs_weeks[diffs_weeks.len() / 2];
-        return Some((median, format_turnaround_label(median)));
+    if !diffs_days.is_empty() {
+        let total: u32 = diffs_days.iter().map(|&d| u32::from(d)).sum();
+        let avg_days = (total / (diffs_days.len() as u32)).clamp(7, 730) as u16;
+        let weeks = ((avg_days as f32) / 7.0).round().clamp(1.0, 104.0) as u16;
+        return Some((weeks, avg_days, format_turnaround_label(weeks)));
     }
 
     // 2. Check explicit statements ("review process takes 4-8 weeks", "waktu review 2 bulan")
@@ -265,12 +288,18 @@ pub fn extract_turnaround_time(text: &str) -> Option<(u16, String)> {
                 avg
             };
             if (1..=104).contains(&weeks) {
-                return Some((weeks, format_turnaround_label(weeks)));
+                let days = weeks.saturating_mul(7);
+                return Some((weeks, days, format_turnaround_label(weeks)));
             }
         }
     }
 
     None
+}
+
+/// Extract estimated review/publication turnaround time in weeks from OJS page text.
+pub fn extract_turnaround_time(text: &str) -> Option<(u16, String)> {
+    extract_turnaround_details(text).map(|(weeks, _days, label)| (weeks, label))
 }
 
 /// Detect supported article languages (`"ID"`, `"EN"`, or `"ID & EN"`) from journal metadata and text.
@@ -1071,6 +1100,19 @@ mod tests {
         let (w2, l2) = extract_turnaround_time(explicit_id).expect("should parse explicit weeks");
         assert_eq!(w2, 14);
         assert_eq!(l2, "~3 bln");
+
+        let multi_articles = "Submitted: 2025-01-01; Published: 2025-03-17. Received: 2025-02-01; Published: 2025-04-17.";
+        let (_w3, days3, _l3) =
+            extract_turnaround_details(multi_articles).expect("should average turnaround days");
+        assert_eq!(days3, 75);
+        assert_eq!(
+            format_turnaround_estimate_id(days3),
+            "Sekitar 2,5 Bulan (75 Hari)"
+        );
+        assert_eq!(
+            format_turnaround_estimate_id(60),
+            "Sekitar 2 Bulan (60 Hari)"
+        );
     }
 
     #[test]

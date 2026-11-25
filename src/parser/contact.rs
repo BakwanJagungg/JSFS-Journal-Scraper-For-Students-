@@ -259,9 +259,9 @@ pub fn extract_contacts(html: &str, plain_text: &str, ojs_url: &str) -> (String,
     for m in RE_PHONE_CAND.find_iter(plain_text) {
         let s = m.start();
         let e = m.end();
-        let ctx_start = floor_char_boundary(&plain_low, s.saturating_sub(45));
-        let pre_start = floor_char_boundary(&plain_low, s.saturating_sub(18));
-        let ctx_end = ceil_char_boundary(&plain_low, (e + 20).min(plain_low.len()));
+        let ctx_start = plain_low.floor_char_boundary(s.saturating_sub(45));
+        let pre_start = plain_low.floor_char_boundary(s.saturating_sub(18));
+        let ctx_end = plain_low.ceil_char_boundary((e + 20).min(plain_low.len()));
         let window = &plain_low[ctx_start..ctx_end];
         let immediate_pre = &plain_low[pre_start..s];
         if immediate_pre.contains("issn")
@@ -281,22 +281,6 @@ pub fn extract_contacts(html: &str, plain_text: &str, ojs_url: &str) -> (String,
     phones.truncate(3);
 
     (email_set.join(", "), phones.join(", "))
-}
-
-fn floor_char_boundary(s: &str, mut idx: usize) -> usize {
-    idx = idx.min(s.len());
-    while idx > 0 && !s.is_char_boundary(idx) {
-        idx -= 1;
-    }
-    idx
-}
-
-fn ceil_char_boundary(s: &str, mut idx: usize) -> usize {
-    idx = idx.min(s.len());
-    while idx < s.len() && !s.is_char_boundary(idx) {
-        idx += 1;
-    }
-    idx
 }
 
 #[cfg(test)]

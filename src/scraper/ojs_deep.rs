@@ -439,8 +439,9 @@ fn absorb_page(
         rec.template_url = heuristics::extract_template_url(html, page_url);
     }
     if rec.turnaround_weeks.is_none() {
-        if let Some((w, lbl)) = heuristics::extract_turnaround_time(&plain) {
+        if let Some((w, days, lbl)) = heuristics::extract_turnaround_details(&plain) {
             rec.turnaround_weeks = Some(w);
+            rec.turnaround_days = Some(days);
             rec.turnaround_label = lbl;
         }
     }
@@ -921,8 +922,11 @@ async fn deep_enrich_record_inner(
                         apply_apc_with_paid_priority(&mut rec, parsed_agg, ev_agg);
                     }
                     if rec.turnaround_weeks.is_none() && !agg_text.trim().is_empty() {
-                        if let Some((w, lbl)) = heuristics::extract_turnaround_time(&agg_text) {
+                        if let Some((w, days, lbl)) =
+                            heuristics::extract_turnaround_details(&agg_text)
+                        {
                             rec.turnaround_weeks = Some(w);
+                            rec.turnaround_days = Some(days);
                             rec.turnaround_label = lbl;
                         }
                     }

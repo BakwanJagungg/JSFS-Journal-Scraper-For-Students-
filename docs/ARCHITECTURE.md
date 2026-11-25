@@ -1,12 +1,12 @@
-# Arsitektur Sistem: JSFS v4.14.1 (Pure Rust Native Desktop)
+# Arsitektur Sistem: JSFS v4.16.0 (Pure Rust Native Desktop Lintas Platform)
 
-Dokumen ini menjelaskan arsitektur teknis **JSFS (Journal Scraper For Students) v4.14.1** yang berjalan sebagai aplikasi desktop **100% Pure Rust** dengan antarmuka GPU native (`eframe` / `egui` + `glow` OpenGL), sepenuhnya bebas dari lapisan WebView2, Tauri, maupun Node.js.
+Dokumen ini menjelaskan arsitektur teknis **JSFS (Journal Scraper For Students) v4.16.0** yang berjalan sebagai aplikasi desktop **100% Pure Rust** lintas platform (**Windows 64/32-bit, Linux, dan macOS**) dengan antarmuka GPU native (`eframe` / `egui` + `glow` OpenGL), sepenuhnya bebas dari lapisan WebView2, Tauri, maupun Node.js.
 
 ---
 
 ## 1. Gambaran Umum Arsitektur
 
-JSFS v4.14.1 memisahkan rendering GPU immediate-mode dari mesin komputasi asinkron (`tokio`) menggunakan batas arsitektur berbasis **`Arc<EngineState>`** dan saluran pesan satu arah **`EventSink`**:
+JSFS v4.16.0 memisahkan rendering GPU immediate-mode dari mesin komputasi asinkron (`tokio`) menggunakan batas arsitektur berbasis **`Arc<EngineState>`** dan saluran pesan satu arah **`EventSink`**:
 
 ```text
 +-----------------------------------------------------------------------+
@@ -91,9 +91,13 @@ Setiap tugas berat (permintaan HTTP konkuren, parsing dokumen OOXML/PDF, dan que
 
 ---
 
-## 3. Windows DPI, Resource Embedding & Distribusi (`build.rs`, `installer/jsfs.iss`, `main.rs`)
+## 3. Isolasi Lintas Platform, DPI & Distribusi (`build.rs`, `installer/jsfs.iss`, `main.rs`)
 
-- Di Windows, `main.rs` menerapkan `#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]` agar executable rilis berjalan langsung tanpa jendela konsol, dan `.cargo/config.toml` menautkan CRT secara statis (`+crt-static`) untuk target ganda `x86_64-pc-windows-msvc` (64-bit) dan `i686-pc-windows-msvc` (32-bit) agar bebas dari dependensi runtime eksternal.
-- `build.rs` mengompilasi `assets/icon.ico`, `VersionInfo` (`4.14.1.0`), *Common Controls v6*, serta manifes **`PerMonitorV2`** DPI awareness melalui `winres` sehingga teks dan layout tetap tajam di layar Full HD, 2K, maupun 4K.
-- Distribusi biner mencakup installer Inno Setup 6 (`JSFS-windows-x64-setup.exe`), arsip portabel 64-bit (`JSFS-windows-x64-portable.zip`), arsip portabel 32-bit (`JSFS-windows-x86-portable.zip`), dan single executable (`jsfs.exe`).
+- **Kompilasi Bersyarat Lintas OS (`Cargo.toml`, `build.rs`, `src/main.rs`)**:
+  - `winres` ditempatkan di `[target.'cfg(windows)'.build-dependencies]` dan `build.rs` hanya menyematkan ikon serta manifes Windows ketika target kompilasi adalah Windows.
+  - `src/main.rs` menerapkan `#![cfg_attr(all(not(debug_assertions), target_os = "windows"), windows_subsystem = "windows")]`, dialog error native `MessageBoxW` pada Windows, serta *graceful degradation* log standar `eprintln!` saat inisialisasi GUI gagal di Linux/macOS.
+  - `src/engine/updater.rs` memisahkan mekanisme penggantian biner `.exe` / `.old` / `setup.exe` khusus Windows dengan jalur verifikasi `SHA256SUMS.txt` untuk arsip `JSFS-linux-x64.tar.gz` dan `JSFS-macos-arm64-preview.tar.gz` pada Unix.
+- `.cargo/config.toml` menautkan CRT Windows secara statis (`+crt-static`) untuk target `x86_64-pc-windows-msvc` (64-bit) dan `i686-pc-windows-msvc` (32-bit) agar bebas dari dependensi runtime eksternal.
+- `build.rs` mengompilasi `assets/icon.ico`, `VersionInfo` (`4.16.0.0`), *Common Controls v6*, serta manifes **`PerMonitorV2`** DPI awareness melalui `winres` sehingga teks dan layout tetap tajam di layar Full HD, 2K, maupun 4K.
+- Distribusi rilis multi-platform melalui `.github/workflows/release.yml` mencakup installer Inno Setup 6 (`JSFS-windows-x64-setup.exe`), arsip portabel Windows x64 (`JSFS-windows-x64-portable.zip`), portabel Windows x86 (`JSFS-windows-x86-portable.zip`), single binary `jsfs.exe`, Linux x64 (`JSFS-linux-x64.tar.gz`), macOS Apple Silicon Preview (`JSFS-macos-arm64-preview.tar.gz`), serta `SHA256SUMS.txt` terpadu.
 - `installer/jsfs.iss` mengemas installer **Inno Setup 6** (`JSFS-windows-x64-setup.exe`) dengan instalasi user-level tanpa hak Administrator ke `%LOCALAPPDATA%\Programs\JSFS`.

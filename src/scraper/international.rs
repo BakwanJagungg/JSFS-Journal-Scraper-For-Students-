@@ -146,27 +146,22 @@ pub fn parse_openalex_response(raw: &str, usd_to_idr: i64) -> Vec<JournalRecord>
         let quartile = compute_quartile(citedness, h_index, in_doaj);
 
         let mut topics: Vec<String> = Vec::new();
-        if let Some(arr) = item.get("topics").and_then(|v| v.as_array()) {
-            for t in arr.iter().take(5) {
-                if let Some(name) = t.get("display_name").and_then(|v| v.as_str()) {
-                    let clean = name.trim();
-                    if !clean.is_empty() && !topics.iter().any(|x| x.eq_ignore_ascii_case(clean)) {
-                        topics.push(clean.to_string());
-                    }
-                }
-            }
-        }
-        if topics.is_empty() {
-            if let Some(arr) = item.get("x_concepts").and_then(|v| v.as_array()) {
-                for c in arr.iter().take(5) {
-                    if let Some(name) = c.get("display_name").and_then(|v| v.as_str()) {
-                        let clean = name.trim();
-                        if !clean.is_empty()
-                            && !topics.iter().any(|x| x.eq_ignore_ascii_case(clean))
-                        {
+        for key in ["topics", "x_concepts"] {
+            if let Some(arr) = item.get(key).and_then(|v| v.as_array()) {
+                for entry in arr.iter().take(5) {
+                    if let Some(clean) = entry
+                        .get("display_name")
+                        .and_then(|v| v.as_str())
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                    {
+                        if !topics.iter().any(|x| x.eq_ignore_ascii_case(clean)) {
                             topics.push(clean.to_string());
                         }
                     }
+                }
+                if !topics.is_empty() {
+                    break;
                 }
             }
         }

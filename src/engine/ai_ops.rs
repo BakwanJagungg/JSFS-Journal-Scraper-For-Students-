@@ -2,8 +2,8 @@
 
 use crate::ai::{cloud, ollama, GLOBAL_AI_BREAKER};
 use crate::config::{
-    cache_dir, default_model_for_provider, mask_api_key, save_matcher_config_to_disk,
-    MatcherConfig, DEFAULT_AI_MODEL, OLLAMA_BASE_URL,
+    default_model_for_provider, mask_api_key, save_matcher_config_to_disk, MatcherConfig,
+    DEFAULT_AI_MODEL, OLLAMA_BASE_URL,
 };
 use crate::engine::{EngineEvent, EngineState, EventSink};
 use crate::error::JsfsError;
@@ -282,6 +282,7 @@ pub fn launch_ollama_async(engine: Arc<EngineState>, sink: EventSink) {
     });
 }
 
+#[cfg(target_os = "windows")]
 pub fn install_ollama_async(engine: Arc<EngineState>, sink: EventSink) {
     let client = engine.http_client.clone();
     engine.runtime.spawn(async move {
@@ -309,7 +310,7 @@ pub fn install_ollama_async(engine: Arc<EngineState>, sink: EventSink) {
         };
 
         let total = resp.content_length().unwrap_or(0);
-        let setup_dir = cache_dir().join("downloads");
+        let setup_dir = crate::config::cache_dir().join("downloads");
         let _ = std::fs::create_dir_all(&setup_dir);
         let setup_path = setup_dir.join("OllamaSetup.exe");
 
@@ -351,6 +352,11 @@ pub fn install_ollama_async(engine: Arc<EngineState>, sink: EventSink) {
             },
         });
     });
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn install_ollama_async(_engine: Arc<EngineState>, sink: EventSink) {
+    crate::engine::file_ops::open_url_with_feedback("https://ollama.com/download", &sink);
 }
 
 pub fn pull_ai_model_async(engine: Arc<EngineState>, sink: EventSink, model: Option<String>) {

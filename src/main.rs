@@ -1,4 +1,7 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(
+    all(not(debug_assertions), target_os = "windows"),
+    windows_subsystem = "windows"
+)]
 
 use jsfs::config;
 use jsfs::ui::JsfsNativeApp;
@@ -107,6 +110,7 @@ fn load_app_icon() -> Option<egui::IconData> {
 
 fn main() -> eframe::Result<()> {
     setup_panic_hook();
+    jsfs::engine::updater::cleanup_old_updater_binary();
     config::ensure_runtime_dirs();
     let _log_guard = init_tracing();
 
@@ -136,10 +140,15 @@ fn main() -> eframe::Result<()> {
     if let Err(ref e) = result {
         let err_str = format!("{e}");
         write_startup_error_log("EFRAME RUN NATIVE ERROR", &err_str);
+        let hint = if cfg!(target_os = "windows") {
+            "Pastikan driver grafis mendukung hardware acceleration (DirectX / OpenGL)."
+        } else {
+            "Pastikan sesi desktop (Wayland / X11 / Metal) dan driver OpenGL aktif."
+        };
         let dialog_msg = format!(
             "Gagal membuka jendela utama JSFS:\n\n\
              {err_str}\n\n\
-             Pastikan driver grafis mendukung hardware acceleration (DirectX / OpenGL).\n\
+             {hint}\n\
              Log telah disimpan di .cache/startup_error.log."
         );
         show_native_error_dialog("JSFS - Gagal Membuka Jendela", &dialog_msg);

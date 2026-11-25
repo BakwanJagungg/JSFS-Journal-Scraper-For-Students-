@@ -92,6 +92,8 @@ pub struct JsfsNativeApp {
     update_banner: Option<(String, String)>,
     update_dismissed: bool,
     update_check_fired: bool,
+    update_in_progress: bool,
+    update_status_msg: Option<String>,
 }
 
 impl JsfsNativeApp {
@@ -184,6 +186,8 @@ impl JsfsNativeApp {
             update_banner: None,
             update_dismissed: false,
             update_check_fired: false,
+            update_in_progress: false,
+            update_status_msg: None,
         }
     }
 
@@ -418,6 +422,20 @@ impl JsfsNativeApp {
                         self.update_banner = Some((tag, body));
                     }
                 }
+                EngineEvent::UpdateProgress(msg) => {
+                    if msg.is_empty() {
+                        self.update_in_progress = false;
+                        self.update_status_msg = None;
+                    } else {
+                        self.update_in_progress = true;
+                        self.update_status_msg = Some(msg);
+                    }
+                }
+                EngineEvent::UpdateFailed(err) => {
+                    self.update_in_progress = false;
+                    self.update_status_msg = Some(err.clone());
+                    self.set_toast(err);
+                }
             }
         }
 
@@ -620,34 +638,55 @@ impl eframe::App for JsfsNativeApp {
                                     ui.with_layout(
                                         egui::Layout::right_to_left(egui::Align::Center),
                                         |ui| {
-                                            if ui
-                                                .small_button("âœ• Nanti Saja")
-                                                .on_hover_text("Sembunyikan notifikasi ini")
-                                                .clicked()
+                                            if !self.update_in_progress
+                                                && ui
+                                                    .small_button("✕ Nanti Saja")
+                                                    .on_hover_text("Sembunyikan notifikasi ini")
+                                                    .clicked()
                                             {
                                                 self.update_dismissed = true;
                                             }
                                             if ui
-                                                .add(
+                                                .add_enabled(
+                                                    !self.update_in_progress,
                                                     egui::Button::new(
-                                                        RichText::new("â¬‡ Unduh Versi Baru")
-                                                            .size(12.0)
-                                                            .strong()
-                                                            .color(p.accent),
+                                                        RichText::new(if self.update_in_progress {
+                                                            "⏳ Memperbarui..."
+                                                        } else {
+                                                            "⚡ Perbarui Otomatis"
+                                                        })
+                                                        .size(12.0)
+                                                        .strong()
+                                                        .color(p.accent),
                                                     )
                                                     .fill(p.control_bg)
                                                     .stroke(Stroke::new(1.2, p.accent)),
                                                 )
+                                                .on_hover_text("Unduh rilis terbaru, verifikasi SHA-256, dan pasang otomatis")
+                                                .clicked()
+                                            {
+                                                self.update_in_progress = true;
+                                                self.update_status_msg = Some("Memulai pembaruan...".to_string());
+                                                crate::engine::updater::spawn_self_update(
+                                                    tag.clone(),
+                                                    self.sink.clone(),
+                                                );
+                                            }
+                                            if ui
+                                                .small_button("🌐 Buka GitHub")
+                                                .on_hover_text("Buka halaman unduhan manual di browser")
                                                 .clicked()
                                             {
                                                 let url = "https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/latest";
                                                 crate::engine::file_ops::open_url_with_feedback(url, &self.sink);
-
-                                                self.update_dismissed = true;
                                             }
                                         },
                                     );
                                 });
+                                if let Some(ref st) = self.update_status_msg {
+                                    ui.add_space(4.0);
+                                    ui.label(RichText::new(st).size(11.5).color(p.text));
+                                }
                             });
                         ui.add_space(8.0);
                     }

@@ -12,8 +12,9 @@ use crate::ui::state::{
     SortColumn,
 };
 use crate::ui::theme::{
-    accent_button_h, card, card_divider, danger_button_h, page_header, pill_badge,
-    quartile_pill_colors, secondary_button, secondary_button_h, Palette,
+    accent_button_h, activity_badge_colors, apc_badge_colors, card, card_divider, danger_button_h,
+    match_badge_colors, page_header, pill_badge, quartile_pill_colors, secondary_button,
+    secondary_button_h, Palette,
 };
 use egui::{
     Align, Align2, CornerRadius, Frame, Layout, Margin, ProgressBar, RichText, ScrollArea, Sense,
@@ -1285,24 +1286,14 @@ pub fn render_search_page(
 
                         row.col(|ui| {
                             table_cell(ui, |ui| {
-                                let (fg, bg) = if item.match_score >= 70.0 {
-                                    (p.good, p.good_soft)
-                                } else if item.match_score >= 45.0 {
-                                    (p.warn, p.warn_soft)
-                                } else {
-                                    (p.muted, p.control_bg)
-                                };
+                                let (fg, bg) = match_badge_colors(p, item.match_score);
                                 pill_badge(ui, &format!("{:.0}%", item.match_score), fg, bg);
                             });
                         });
 
                         row.col(|ui| {
                             table_cell(ui, |ui| {
-                                let (fg, bg) = match item.apc_category.as_str() {
-                                    "free" => (p.good, p.good_soft),
-                                    "paid" => (p.warn, p.warn_soft),
-                                    _ => (p.muted, p.control_bg),
-                                };
+                                let (fg, bg) = apc_badge_colors(p, &item.apc_category);
                                 let (disp_text, hover_hint): (&str, Option<&str>) =
                                     if item.apc_label.contains("Proteksi Bot") {
                                         (
@@ -1337,15 +1328,13 @@ pub fn render_search_page(
                                 ui.vertical(|ui| {
                                     ui.spacing_mut().item_spacing.y = 4.0;
                                     let act_lbl = activity_badge_label(item);
-                                    let (fg, bg) = if item.is_dormant {
-                                        (p.bad, p.bad_soft)
-                                    } else if item.bot_protected && item.last_issue_year.is_none() {
-                                        (p.warn, p.warn_soft)
-                                    } else if item.activity_status.contains("Aktif") {
-                                        (p.good, p.good_soft)
-                                    } else {
-                                        (p.warn, p.warn_soft)
-                                    };
+                                    let (fg, bg) = activity_badge_colors(
+                                        p,
+                                        item.is_dormant,
+                                        item.bot_protected,
+                                        item.last_issue_year.is_some(),
+                                        &item.activity_status,
+                                    );
                                     ui.horizontal(|ui| {
                                         ui.spacing_mut().item_spacing.x = 4.0;
                                         pill_badge(ui, &act_lbl, fg, bg);

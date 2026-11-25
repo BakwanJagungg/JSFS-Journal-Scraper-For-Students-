@@ -1,4 +1,4 @@
-name: Release Windows Binary (JSFS v4)
+name: Release Multi-Platform Binaries (JSFS v4)
 
 on:
   push:
@@ -31,7 +31,7 @@ jobs:
       - name: Run unit tests
         run: cargo test --locked
 
-      - name: Run Clippy lints
+      - name: Run Clippy lints (64-bit & 32-bit)
         run: |
           cargo clippy --all-targets --locked -- -D warnings
           cargo clippy --all-targets --locked --target i686-pc-windows-msvc -- -D warnings
@@ -45,22 +45,25 @@ jobs:
       - name: Build Windows Installer (Inno Setup)
         shell: pwsh
         run: |
-          $tag = if ($env:GITHUB_REF_NAME -match '^v(.+)$') { $matches[1] } else { 'v4.14.1' }
+          $tag = if ($env:GITHUB_REF_NAME -match '^v(.+)$') { $matches[1] } else { '4.16.0' }
           $iscc = Get-Command iscc -ErrorAction SilentlyContinue
           $isccExe = if ($iscc) { $iscc.Source } else { "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
           if (-not (Test-Path $isccExe)) { throw "Inno Setup compiler (iscc.exe) not found." }
           & $isccExe "/DMyAppVersion=$tag" installer\jsfs.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Package Portable Windows ZIP & SHA256SUMS
+      - name: Package Portable Windows Archives
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Path release-artifacts -Force | Out-Null
+          Copy-Item JSFS-windows-x64-setup.exe release-artifacts\JSFS-windows-x64-setup.exe -Force
+          Copy-Item target\release\jsfs.exe release-artifacts\jsfs.exe -Force
+
           New-Item -ItemType Directory -Path release-pkg-x64 -Force | Out-Null
           Copy-Item target\release\jsfs.exe release-pkg-x64\jsfs.exe -Force
           Copy-Item README.md release-pkg-x64\README.md -Force
           Copy-Item LICENSE release-pkg-x64\LICENSE -Force
-          $zipX64 = "JSFS-windows-x64-portable.zip"
-          Compress-Archive -Path release-pkg-x64\jsfs.exe, release-pkg-x64\README.md, release-pkg-x64\LICENSE -DestinationPath $zipX64 -Force
+          Compress-Archive -Path release-pkg-x64\jsfs.exe, release-pkg-x64\README.md, release-pkg-x64\LICENSE -DestinationPath release-artifacts\JSFS-windows-x64-portable.zip -Force
 
           New-Item -ItemType Directory -Path release-pkg-x86 -Force | Out-Null
           Copy-Item target\i686-pc-windows-msvc\release\jsfs.exe release-pkg-x86\jsfs.exe -Force
@@ -78,30 +81,138 @@ jobs:
             '3. Seluruh hasil ekspor akan otomatis disimpan pada folder output\ di samping file jsfs.exe.'
           ) -join "`r`n"
           $readme32 | Set-Content -Path release-pkg-x86\README-32bit.txt -Encoding UTF8
+          Compress-Archive -Path release-pkg-x86\jsfs.exe, release-pkg-x86\README.md, release-pkg-x86\LICENSE, release-pkg-x86\README-32bit.txt -DestinationPath release-artifacts\JSFS-windows-x86-portable.zip -Force
 
-          $zipX86 = "JSFS-windows-x86-portable.zip"
-          Compress-Archive -Path release-pkg-x86\jsfs.exe, release-pkg-x86\README.md, release-pkg-x86\LICENSE, release-pkg-x86\README-32bit.txt -DestinationPath $zipX86 -Force
+      - name: Upload Windows release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-artifacts
+          path: release-artifacts/*
+          retention-days: 7
 
-          $setupHash = (Get-FileHash JSFS-windows-x64-setup.exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          $zipX64Hash = (Get-FileHash $zipX64 -Algorithm SHA256).Hash.ToLowerInvariant()
-          $zipX86Hash = (Get-FileHash $zipX86 -Algorithm SHA256).Hash.ToLowerInvariant()
-          $exeHash = (Get-FileHash target\release\jsfs.exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          @(
-            "$setupHash  JSFS-windows-x64-setup.exe"
-            "$zipX64Hash  $zipX64"
-            "$zipX86Hash  $zipX86"
-            "$exeHash  jsfs.exe"
-          ) | Set-Content -Path SHA256SUMS.txt -Encoding UTF8
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Upload Installer, Portable ZIP, EXE & Checksums to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Install minimal Linux desktop dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libxkbcommon-dev \
+            libssl-dev \
+            pkg-config
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run Clippy lints
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Run unit tests
+        run: cargo test --locked
+
+      - name: Build Pure Rust Linux x64 Release Binary
+        run: cargo build --release --locked
+
+      - name: Package Linux tar.gz archive
+        run: |
+          mkdir -p release-pkg-linux release-artifacts
+          cp target/release/jsfs release-pkg-linux/jsfs
+          chmod +x release-pkg-linux/jsfs
+          cp README.md release-pkg-linux/README.md
+          cp LICENSE release-pkg-linux/LICENSE
+          tar -czf release-artifacts/JSFS-linux-x64.tar.gz -C release-pkg-linux jsfs README.md LICENSE
+
+      - name: Upload Linux release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-artifacts
+          path: release-artifacts/JSFS-linux-x64.tar.gz
+          retention-days: 7
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain (Apple Silicon Preview)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+          components: clippy
+
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run Clippy lints
+        run: cargo clippy --all-targets --locked --target aarch64-apple-darwin -- -D warnings
+
+      - name: Run unit tests
+        run: cargo test --locked --target aarch64-apple-darwin
+
+      - name: Build Pure Rust macOS ARM64 Preview Binary
+        run: cargo build --release --locked --target aarch64-apple-darwin
+
+      - name: Package macOS tar.gz archive
+        run: |
+          mkdir -p release-pkg-macos release-artifacts
+          cp target/aarch64-apple-darwin/release/jsfs release-pkg-macos/jsfs
+          chmod +x release-pkg-macos/jsfs
+          cp README.md release-pkg-macos/README.md
+          cp LICENSE release-pkg-macos/LICENSE
+          tar -czf release-artifacts/JSFS-macos-arm64-preview.tar.gz -C release-pkg-macos jsfs README.md LICENSE
+
+      - name: Upload macOS preview release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-artifacts
+          path: release-artifacts/JSFS-macos-arm64-preview.tar.gz
+          retention-days: 7
+
+  publish-release:
+    needs: [build-windows, build-linux, build-macos]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate unified SHA256SUMS.txt
+        working-directory: release-assets
+        run: |
+          sha256sum \
+            JSFS-windows-x64-setup.exe \
+            JSFS-windows-x64-portable.zip \
+            JSFS-windows-x86-portable.zip \
+            jsfs.exe \
+            JSFS-linux-x64.tar.gz \
+            JSFS-macos-arm64-preview.tar.gz > SHA256SUMS.txt
+
+      - name: Upload Multi-Platform Release & Unified Checksums
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            JSFS-windows-x64-setup.exe
-            JSFS-windows-x64-portable.zip
-            JSFS-windows-x86-portable.zip
-            target/release/jsfs.exe
-            SHA256SUMS.txt
+            release-assets/JSFS-windows-x64-setup.exe
+            release-assets/JSFS-windows-x64-portable.zip
+            release-assets/JSFS-windows-x86-portable.zip
+            release-assets/jsfs.exe
+            release-assets/JSFS-linux-x64.tar.gz
+            release-assets/JSFS-macos-arm64-preview.tar.gz
+            release-assets/SHA256SUMS.txt
           fail_on_unmatched_files: true
           generate_release_notes: true

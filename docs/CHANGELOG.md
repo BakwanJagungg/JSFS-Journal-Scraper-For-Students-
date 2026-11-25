@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.16.0] - 2026-11-25
+
+### Changed
+- **Refaktorisasi Ringan & Optimasi Memori Startup (`src/config.rs`, `src/models.rs`, `src/engine/mod.rs`, `src/ui/theme.rs`)**:
+  - Memusatkan helper JSON (`load_json_or_default`, `save_json_pretty`), utilitas `is_dir_writable`, fungsi warna badge UI bersama (`apc_badge_colors`, `match_badge_colors`, `activity_badge_colors`), serta batas karakter UTF-8 standar (`floor_char_boundary`, `ceil_char_boundary`).
+  - Menghilangkan alokasi string berulang pada `apc_category`, `sinta_rank_num`, dan pemeriksaan gaya sitasi, serta membatasi worker thread Tokio startup (`2 hingga 4` thread) agar konsumsi RAM tetap hemat di bawah `120 MB`.
+- **Dukungan Lintas Platform: Windows 64/32-bit, Linux & macOS (`Cargo.toml`, `build.rs`, `src/main.rs`, `src/engine/updater.rs`, `.github/workflows/release.yml`)**:
+  - Mengisolasi `winres` di bawah `[target.'cfg(windows)'.build-dependencies]` dan menyematkan ikon/manifes Windows hanya saat target OS adalah Windows.
+  - Mengisolasi subsistem Windows dan dialog error Win32 di `src/main.rs`, dengan fallback log `eprintln!` yang bersih di Linux/macOS.
+  - Mengisolasi mekanisme pembaruan `.exe` / `.old` / `setup.exe` khusus Windows, serta menyediakan verifikasi `SHA256SUMS.txt` untuk arsip Linux/macOS dan fallback browser aman pada target Unix.
+  - Memperbarui workflow GitHub Actions multi-platform (`build-windows`, `build-linux`, `build-macos`, dan `publish-release` dengan `SHA256SUMS.txt` terpadu).
+
+## [4.15.0] - 2026-11-25
+
+### Added
+- **Turnaround Time & Jadwal Terbit Estimator (`src/scraper/ojs_deep.rs`, `src/parser/heuristics.rs`, `src/ui/detail_page.rs`)**:
+  - Mengekstrak riwayat tanggal artikel (*Received/Submitted*, *Accepted*, *Published*) dari OJS dan Crossref untuk menghitung rata-rata durasi tunggu publikasi yang ramah mahasiswa (misal `Sekitar 2,5 Bulan (75 Hari)`).
+- **In-App Self-Updater dengan Verifikasi SHA-256 (`src/engine/updater.rs`, `src/ui/mod.rs`)**:
+  - Pembaruan 1-klik asinkron dari GitHub Releases dengan verifikasi hash SHA-256 pure-Rust terhadap `SHA256SUMS.txt` sebelum mengganti biner aktif atau menjalankan installer fallback.
+- **Paket Kurasi Dospen `.jsfs-list` & Ringkasan HTML (`src/config.rs`, `src/ui/dospen_page.rs`, `src/ui/state.rs`)**:
+  - Ekspor dan impor daftar kandidat kurasi portabel `.jsfs-list` serta pembuatan laporan ringkas HTML responsif siap kirim ke dosen pembimbing melalui WhatsApp atau email.
+
 ## [4.14.1] - 2026-11-19
 
 ### Added
