@@ -1,6 +1,7 @@
 //! Lightweight GitHub release checker and SHA-256 verified self-updater for JSFS.
 //! Spawns a dedicated background OS thread on startup; completely panic-safe.
 
+#[cfg(target_os = "windows")]
 use crate::config::is_dir_writable;
 use crate::engine::{EngineEvent, EventSink};
 #[cfg(target_os = "windows")]
