@@ -6,19 +6,19 @@
 
 **Temukan jurnal SINTA, Garuda, dan internasional Q1 hingga Q4 secara serentak, validasi biaya publikasi (APC) asli, estimasikan waktu terbit, dan cocokkan dengan draf naskah Anda dalam satu aplikasi desktop Pure Rust.**
 
-[![Standard Release](https://img.shields.io/badge/JSFS_Standard-v4.16.2-2563eb?style=flat-square)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v4.16.2)
-[![Workstation Release](https://img.shields.io/badge/JSFS%2B_Workstation-plus--v5.0.0-7c3aed?style=flat-square)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/plus-v5.0.0)
+[![Standard Release](https://img.shields.io/badge/JSFS_Standard-v4.16.3-2563eb?style=flat-square)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v4.16.3)
+[![Workstation Release](https://img.shields.io/badge/JSFS%2B_Workstation-plus_v5.0.1-7c3aed?style=flat-square)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/plus-v5.0.1)
 [![Platforms](https://img.shields.io/badge/Platforms-Windows_x64%2Fx86_%7C_Linux_%7C_macOS-0284c7?style=flat-square)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases)
 [![Pure Rust](https://img.shields.io/badge/Built_with-Pure_Rust_(egui)-f97316?style=flat-square&logo=rust&logoColor=white)](docs/ARCHITECTURE.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-16a34a?style=flat-square)](LICENSE)
 
 <br />
 
-<a href="https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v4.16.2">
-  <img src="https://img.shields.io/badge/Unduh_JSFS_Standard-v4.16.2-2563eb?style=for-the-badge&logo=windows&logoColor=white" alt="Download JSFS Standard v4.16.2" />
+<a href="https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v4.16.3">
+  <img src="https://img.shields.io/badge/Unduh_JSFS_Standard-v4.16.3-2563eb?style=for-the-badge&logo=windows&logoColor=white" alt="Download JSFS Standard v4.16.3" />
 </a>
-<a href="https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/plus-v5.0.0">
-  <img src="https://img.shields.io/badge/Unduh_JSFS%2B_Workstation-plus--v5.0.0-7c3aed?style=for-the-badge&logo=rust&logoColor=white" alt="Download JSFS+ Workstation plus-v5.0.0" />
+<a href="https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/plus-v5.0.1">
+  <img src="https://img.shields.io/badge/Unduh_JSFS%2B_Workstation-plus_v5.0.1-7c3aed?style=for-the-badge&logo=rust&logoColor=white" alt="Download JSFS+ Workstation plus-v5.0.1" />
 </a>
 
 <p>
@@ -49,8 +49,8 @@
 
 <table>
   <tr>
-    <th align="left" width="50%">JSFS Standard (`v4.16.2`)</th>
-    <th align="left" width="50%">JSFS+ Workstation (`plus-v5.0.0`)</th>
+    <th align="left" width="50%">JSFS Standard (`v4.16.3`)</th>
+    <th align="left" width="50%">JSFS+ Workstation (`plus-v5.0.1`)</th>
   </tr>
   <tr>
     <td valign="top">
@@ -78,30 +78,30 @@
 
 ## Unduhan Resmi Lintas Platform
 
-### Edisi 1: JSFS Standard (`v4.16.2`)
+### Edisi 1: JSFS Standard (`v4.16.3`)
 
 | Platform & Paket | Arsitektur | Keterangan & Lokasi Hasil |
 | :--- | :---: | :--- |
-| **[Windows Installer (`JSFS-windows-x64-setup.exe`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.2/JSFS-windows-x64-setup.exe)** | Windows x64 | **Direkomendasikan**: pasang dengan ikon Desktop & Start Menu tanpa hak Admin. Output: `Documents\JSFS Output` |
-| **[Windows Portable (`JSFS-windows-x64-portable.zip`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.2/JSFS-windows-x64-portable.zip)** | Windows x64 | Ekstrak dan jalankan langsung tanpa instalasi. Output: folder `output\` di samping `jsfs.exe` |
-| **[Windows 32-bit Portable (`JSFS-windows-x86-portable.zip`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.2/JSFS-windows-x86-portable.zip)** | Windows x86 | Khusus perangkat laptop atau Windows 10/11 32-bit. Output: folder `output\` di samping `jsfs.exe` |
-| **[Windows Single Binary (`jsfs.exe`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.2/jsfs.exe)** | Windows x64 | Satu file biner mandiri siap pakai tanpa kompresi zip |
-| **[Linux Desktop (`JSFS-linux-x64.tar.gz`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.2/JSFS-linux-x64.tar.gz)** | Linux x86_64 | Ekstrak arsip lalu jalankan `./jsfs` (mendukung X11 dan Wayland) |
-| **[macOS Apple Silicon (`JSFS-macos-arm64-preview.tar.gz`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.2/JSFS-macos-arm64-preview.tar.gz)** | macOS arm64 | Build pratinjau native Apple Silicon (ekstrak lalu jalankan `./jsfs`) |
-| **[macOS Intel (`JSFS-macos-x64-preview.tar.gz`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.2/JSFS-macos-x64-preview.tar.gz)** | macOS x86_64 | Build pratinjau native Mac Intel (ekstrak lalu jalankan `./jsfs`) |
-| **[Verifikasi Integritas (`SHA256SUMS.txt`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.2/SHA256SUMS.txt)** | Semua Platform | Daftar hash SHA-256 resmi untuk memverifikasi paket JSFS Standard |
+| **[Windows Installer (`JSFS-windows-x64-setup.exe`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.3/JSFS-windows-x64-setup.exe)** | Windows x64 | **Direkomendasikan**: pasang dengan ikon Desktop & Start Menu tanpa hak Admin. Output: `Documents\JSFS Output` |
+| **[Windows Portable (`JSFS-windows-x64-portable.zip`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.3/JSFS-windows-x64-portable.zip)** | Windows x64 | Ekstrak dan jalankan langsung tanpa instalasi. Output: folder `output\` di samping `jsfs.exe` |
+| **[Windows 32-bit Portable (`JSFS-windows-x86-portable.zip`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.3/JSFS-windows-x86-portable.zip)** | Windows x86 | Khusus perangkat laptop atau Windows 10/11 32-bit. Output: folder `output\` di samping `jsfs.exe` |
+| **[Windows Single Binary (`jsfs.exe`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.3/jsfs.exe)** | Windows x64 | Satu file biner mandiri siap pakai tanpa kompresi zip |
+| **[Linux Desktop (`JSFS-linux-x64.tar.gz`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.3/JSFS-linux-x64.tar.gz)** | Linux x86_64 | Ekstrak arsip lalu jalankan `./jsfs` (mendukung X11 dan Wayland) |
+| **[macOS Apple Silicon (`JSFS-macos-arm64-preview.tar.gz`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.3/JSFS-macos-arm64-preview.tar.gz)** | macOS arm64 | Build pratinjau native Apple Silicon (ekstrak lalu jalankan `./jsfs`) |
+| **[macOS Intel (`JSFS-macos-x64-preview.tar.gz`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.3/JSFS-macos-x64-preview.tar.gz)** | macOS x86_64 | Build pratinjau native Mac Intel (ekstrak lalu jalankan `./jsfs`) |
+| **[Verifikasi Integritas (`SHA256SUMS.txt`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.3/SHA256SUMS.txt)** | Semua Platform | Daftar hash SHA-256 resmi untuk memverifikasi paket JSFS Standard |
 
-### Edisi 2: JSFS+ Workstation (`plus-v5.0.0`)
+### Edisi 2: JSFS+ Workstation (`plus-v5.0.1`)
 
 | Platform & Paket | Arsitektur | Keterangan & Lokasi Hasil |
 | :--- | :---: | :--- |
-| **[Windows Plus Installer (`JSFS-Plus-windows-x64-setup.exe`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/plus-v5.0.0/JSFS-Plus-windows-x64-setup.exe)** | Windows x64 | Terpasang terpisah di folder `JSFS-Plus` sehingga aman berdampingan dengan versi Standard |
-| **[Windows Plus Portable (`JSFS-Plus-windows-x64-portable.zip`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/plus-v5.0.0/JSFS-Plus-windows-x64-portable.zip)** | Windows x64 | Paket portabel `jsfs-plus.exe` siap ekstrak untuk perangkat spesifikasi tinggi |
-| **[Windows Plus Single Binary (`jsfs-plus.exe`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/plus-v5.0.0/jsfs-plus.exe)** | Windows x64 | Satu file biner mandiri edisi Workstation |
-| **[Linux Plus Desktop (`JSFS-Plus-linux-x64.tar.gz`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/plus-v5.0.0/JSFS-Plus-linux-x64.tar.gz)** | Linux x86_64 | Ekstrak arsip lalu jalankan `./jsfs-plus` |
-| **[macOS Plus Apple Silicon (`JSFS-Plus-macos-arm64-preview.tar.gz`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/plus-v5.0.0/JSFS-Plus-macos-arm64-preview.tar.gz)** | macOS arm64 | Build pratinjau Apple Silicon edisi Workstation |
-| **[macOS Plus Intel (`JSFS-Plus-macos-x64-preview.tar.gz`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/plus-v5.0.0/JSFS-Plus-macos-x64-preview.tar.gz)** | macOS x86_64 | Build pratinjau Mac Intel edisi Workstation |
-| **[Verifikasi Integritas Plus (`SHA256SUMS.txt`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/plus-v5.0.0/SHA256SUMS.txt)** | Semua Platform | Daftar hash SHA-256 resmi untuk memverifikasi paket JSFS+ Workstation |
+| **[Windows Plus Installer (`JSFS-Plus-windows-x64-setup.exe`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/plus-v5.0.1/JSFS-Plus-windows-x64-setup.exe)** | Windows x64 | Terpasang terpisah di folder `JSFS-Plus` sehingga aman berdampingan dengan versi Standard |
+| **[Windows Plus Portable (`JSFS-Plus-windows-x64-portable.zip`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/plus-v5.0.1/JSFS-Plus-windows-x64-portable.zip)** | Windows x64 | Paket portabel `jsfs-plus.exe` siap ekstrak untuk perangkat spesifikasi tinggi |
+| **[Windows Plus Single Binary (`jsfs-plus.exe`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/plus-v5.0.1/jsfs-plus.exe)** | Windows x64 | Satu file biner mandiri edisi Workstation |
+| **[Linux Plus Desktop (`JSFS-Plus-linux-x64.tar.gz`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/plus-v5.0.1/JSFS-Plus-linux-x64.tar.gz)** | Linux x86_64 | Ekstrak arsip lalu jalankan `./jsfs-plus` |
+| **[macOS Plus Apple Silicon (`JSFS-Plus-macos-arm64-preview.tar.gz`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/plus-v5.0.1/JSFS-Plus-macos-arm64-preview.tar.gz)** | macOS arm64 | Build pratinjau Apple Silicon edisi Workstation |
+| **[macOS Plus Intel (`JSFS-Plus-macos-x64-preview.tar.gz`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/plus-v5.0.1/JSFS-Plus-macos-x64-preview.tar.gz)** | macOS x86_64 | Build pratinjau Mac Intel edisi Workstation |
+| **[Verifikasi Integritas Plus (`SHA256SUMS.txt`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/plus-v5.0.1/SHA256SUMS.txt)** | Semua Platform | Daftar hash SHA-256 resmi untuk memverifikasi paket JSFS+ Workstation |
 
 ## Keunggulan Inti Bersama
 

@@ -5,6 +5,17 @@ All notable changes to **JSFS (Journal Scraper For Students)** will be documente
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.16.3] - 2026-11-26
+
+### Fixed & Improved
+- **Redesain Header Sidebar Terbuka (`244 px`) & Mode Terlipat (`64 px`) (`src/ui/sidebar.rs`, `src/ui/mod.rs`)**:
+  - Merapatkan header mode terbuka menjadi 2 baris simetris (ikon `36 x 36 px` + versi `JSFS v4.16.3` + tombol lipat `«` `28 x 28 px` pada baris pertama, serta strip status engine penuh tanpa terpotong pada baris kedua di atas garis pemisah tipis).
+  - Menetapkan lebar mode terlipat ke `64 px` dengan ikon `36 x 36 px` bersih di atas dan tombol ekspansi `»` berukuran `40 x 30 px` (`15 pt`) beserta footer tema ikon terpusat simetris.
+- **Perbaikan Tata Letak Multi-Halaman Zero-Clipping (`src/ui/search_page.rs`, `src/ui/detail_page.rs`, `src/ui/dospen_page.rs`)**:
+  - Merapatkan jarak dan lebar kontrol toolbar Cari Jurnal (`item_spacing [5, 6]`, tinggi seragam `26 px`) agar seluruh 12 tombol termasuk `↺ Reset` sejajar rapi dalam 1 baris pada layar `1366x768` ke atas.
+  - Menyematkan (*pinned*) kartu header jurnal aktif dan tombol aksi cepat (`Buka Web`, `Salin Link`, `☆ Simpan`, `Cari Mirip`, `Salin 5 Referensi`) di bagian atas halaman Detail Jurnal & Persiapan Submit serta menambahkan panduan 3 langkah saat belum ada jurnal yang dipilih.
+  - Mencegah penumpukan teks tombol secara vertikal pada Bagian A Shortlist & Dospen dengan `TextWrapMode::Extend` serta membersihkan kolom *Sitasi & Batas Kata* pada Bagian B agar menampilkan `Belum terdeteksi di OJS` tanpa simbol `- •`.
+
 ## [4.16.2] - 2026-11-26
 
 ### Added & Improved

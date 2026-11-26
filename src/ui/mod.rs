@@ -570,7 +570,7 @@ impl eframe::App for JsfsNativeApp {
         let viewport_w = ui.ctx().viewport_rect().width();
         let auto_collapse = viewport_w < 1080.0;
         let sidebar_collapsed = self.sidebar_collapsed_override.unwrap_or(auto_collapse);
-        let sidebar_w = if sidebar_collapsed { 64.0 } else { 248.0 };
+        let sidebar_w = if sidebar_collapsed { 64.0 } else { 244.0 };
 
         // Left Navigation Sidebar
         Panel::left("jsfs_sidebar")

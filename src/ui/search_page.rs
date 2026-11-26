@@ -885,10 +885,11 @@ pub fn render_search_page(
             }
         }
 
-        // Table Toolbar (clean left-to-right wrapping prevents overlap at any width)
+        // Table Toolbar (tightened gaps/padding fit all controls cleanly on 1 row at 1366px+)
         ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = Vec2::new(6.0, 6.0);
-            ui.label(RichText::new(txt.results_heading).size(14.5).strong().color(p.text));
+            ui.spacing_mut().item_spacing = Vec2::new(5.0, 6.0);
+            ui.spacing_mut().button_padding = Vec2::new(8.0, 4.0);
+            ui.label(RichText::new(txt.results_heading).size(13.5).strong().color(p.text));
             pill_badge(
                 ui,
                 &format!("{} / {} {}", filtered.len(), results.len(), txt.results_unit),
@@ -910,7 +911,7 @@ pub fn render_search_page(
             .fill(bm_fill)
             .stroke(Stroke::new(if app_state.only_bookmarked { 1.4 } else { 1.0 }, bm_border))
             .corner_radius(CornerRadius::same(7))
-            .min_size(Vec2::new(0.0, 28.0));
+            .min_size(Vec2::new(0.0, 26.0));
             if ui
                 .add(bm_btn)
                 .on_hover_text("Tampilkan hanya jurnal yang ditandai bintang")
@@ -926,7 +927,7 @@ pub fn render_search_page(
                 format!("Bandingkan ({bm_count})")
             };
             if ui
-                .add_enabled_ui(can_compare, |ui| secondary_button(ui, p, &cmp_lbl))
+                .add_enabled_ui(can_compare, |ui| secondary_button_h(ui, p, &cmp_lbl, 26.0))
                 .inner
                 .on_hover_text(if can_compare {
                     "Bandingkan jurnal bertanda ★ secara berdampingan (side-by-side)"
@@ -939,12 +940,13 @@ pub fn render_search_page(
             }
 
             ui.add_sized(
-                [138.0, 26.0],
+                [108.0, 26.0],
                 egui::TextEdit::singleline(table_filter)
                     .hint_text(txt.filter_table_hint),
             );
 
             egui::ComboBox::from_id_salt("apc_filter_combo")
+                .width(98.0)
                 .selected_text(apc_filter.label())
                 .show_ui(ui, |ui| {
                     ui.selectable_value(apc_filter, ApcFilter::All, ApcFilter::All.label());
@@ -954,6 +956,7 @@ pub fn render_search_page(
                 });
 
             egui::ComboBox::from_id_salt("sort_col_combo")
+                .width(102.0)
                 .selected_text(match *sort_col {
                     SortColumn::MatchScore => "Urut: Match",
                     SortColumn::Cost => "Urut: Biaya",
@@ -970,12 +973,12 @@ pub fn render_search_page(
                 });
 
             let dir_lbl = if *sort_desc { "Turun" } else { "Naik" };
-            if secondary_button(ui, p, dir_lbl).clicked() {
+            if secondary_button_h(ui, p, dir_lbl, 26.0).clicked() {
                 *sort_desc = !*sort_desc;
             }
 
             if ui
-                .add_enabled_ui(!filtered.is_empty(), |ui| secondary_button(ui, p, txt.copy_wa_btn))
+                .add_enabled_ui(!filtered.is_empty(), |ui| secondary_button_h(ui, p, txt.copy_wa_btn, 26.0))
                 .inner
                 .on_hover_text("Salin daftar jurnal tampil ke clipboard (format WhatsApp)")
                 .clicked()
@@ -983,7 +986,7 @@ pub fn render_search_page(
                 action = SearchPageAction::CopyWa(filtered.clone());
             }
 
-            if secondary_button(ui, p, "Excel")
+            if secondary_button_h(ui, p, "Excel", 26.0)
                 .on_hover_text("Buka file Excel hasil pencarian terakhir")
                 .clicked()
             {
@@ -995,7 +998,7 @@ pub fn render_search_page(
             } else {
                 if is_en { "Spacious" } else { "Lega" }
             };
-            if secondary_button(ui, p, density_btn_lbl)
+            if secondary_button_h(ui, p, density_btn_lbl, 26.0)
                 .on_hover_text(if is_en {
                     "Toggle row density: Compact (42px) vs Spacious (58px)"
                 } else {
@@ -1019,7 +1022,8 @@ pub fn render_search_page(
                 )
                 .fill(p.warn_soft)
                 .stroke(Stroke::new(1.0, p.warn))
-                .corner_radius(CornerRadius::same(7));
+                .corner_radius(CornerRadius::same(7))
+                .min_size(Vec2::new(0.0, 26.0));
                 if ui
                     .add(reset_btn)
                     .on_hover_text("Kembalikan semua filter ke pengaturan default")

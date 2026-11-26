@@ -4,6 +4,18 @@ Seluruh perubahan dan fitur khusus pada edisi perangkat spesifikasi tinggi **JSF
 
 Format mengacu pada standar Keep a Changelog dengan Semantic Versioning pada kanal rilis `plus-v*`.
 
+## [plus-v5.0.1] - 2026-11-26
+
+### Fixed & Improved
+- **Header Sidebar Padat 2 Baris & Mode Terlipat `64 px` (`src/ui/sidebar.rs`, `src/ui/mod.rs`)**:
+  - Baris pertama menampilkan ikon `36 x 36 px` (dengan titik aksen oranye Workstation), judul `JSFS+ v5.0.1`, dan tombol lipat `«` `28 x 28 px` sejajar di tengah vertikal.
+  - Baris kedua membentang selebar sidebar menampilkan pill kompak `PLUS` bersanding dengan indikator dan teks status engine utuh (`Built-in Smart` / `Ollama AI`) tanpa terpotong.
+  - Mode terlipat (`64 px`) kini menampilkan ikon bersih di atas tombol tile ekspansi `»` `40 x 30 px` (`15 pt`) serta tombol tema footer terpusat.
+- **Perbaikan Presisi Multi-Halaman (`src/ui/search_page.rs`, `src/ui/detail_page.rs`, `src/ui/dospen_page.rs`)**:
+  - Toolbar Cari Jurnal (`1366x768+`) kini menempatkan 12 kontrol termasuk `↺ Reset` pada 1 baris seragam `26 px`.
+  - Header detail jurnal aktif tetap tersemat di atas saat kartu audit digulir, disertai panduan 3 langkah saat kosong.
+  - Tombol aksi Bagian A Shortlist & Dospen memakai `TextWrapMode::Extend` agar label tidak pernah tergencet vertikal, dan kolom *Sitasi & Batas Kata* Bagian B bersih tanpa artefak `- •`.
+
 ## [plus-v5.0.0] - 2026-11-26
 
 ### Added

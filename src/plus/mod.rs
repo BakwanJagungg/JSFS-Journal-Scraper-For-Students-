@@ -37,7 +37,7 @@ mod tests {
         assert_eq!(crate::config::SQLITE_CACHE_SIZE_KIB, 131_072);
         assert_eq!(crate::config::MAX_HTML_BYTES, 12 * 1024 * 1024);
         const { assert!(crate::config::IS_PLUS_EDITION) };
-        assert_eq!(crate::config::APP_VERSION, "5.0.0-plus");
+        assert_eq!(crate::config::APP_VERSION, "5.0.1-plus");
         let caps = detect_capabilities();
         assert_eq!(caps.max_target_count, 5000);
         assert!(caps.max_workers >= 24);

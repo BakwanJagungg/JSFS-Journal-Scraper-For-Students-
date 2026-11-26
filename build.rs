@@ -10,7 +10,7 @@ fn embed_windows_resources() {
             "JSFS+ Workstation Academic Journal Finder, Headless Sidecar & Semantic Analyzer",
             "jsfs-plus.exe",
             "jsfs-plus",
-            "5.0.0.0",
+            "5.0.1.0",
         )
     } else {
         (

@@ -90,6 +90,72 @@ fn draw_nav_item(
     badge: Option<String>,
     dot_color: Option<Color32>,
 ) -> bool {
+    if collapsed {
+        let row_w = ui.available_width();
+        let (row_rect, _) = ui.allocate_exact_size(Vec2::new(row_w, 38.0), Sense::hover());
+        let btn_rect = Rect::from_center_size(row_rect.center(), Vec2::splat(38.0));
+        let resp = ui.interact(
+            btn_rect,
+            ui.scope_id().with(("nav_col", page as u8)),
+            Sense::click(),
+        );
+        let hovered = resp.hovered();
+
+        let bg = if active {
+            p.accent_soft
+        } else if hovered {
+            p.nav_hover
+        } else {
+            Color32::TRANSPARENT
+        };
+        if bg != Color32::TRANSPARENT {
+            ui.painter()
+                .rect_filled(btn_rect, CornerRadius::same(9), bg);
+        }
+
+        if active {
+            let pill = Rect::from_center_size(
+                egui::pos2(row_rect.left() + 1.5, row_rect.center().y),
+                Vec2::new(3.0, 18.0),
+            );
+            ui.painter()
+                .rect_filled(pill, CornerRadius::same(2), p.accent);
+        }
+
+        let tile_rect = Rect::from_center_size(btn_rect.center(), Vec2::splat(24.0));
+        ui.painter()
+            .rect_filled(tile_rect, CornerRadius::same(6), tile_color(page));
+        ui.painter().rect_stroke(
+            tile_rect,
+            CornerRadius::same(6),
+            Stroke::new(0.7, Color32::from_rgba_unmultiplied(255, 255, 255, 64)),
+            StrokeKind::Inside,
+        );
+        draw_vector_icon(
+            ui.painter(),
+            tile_rect.shrink(4.0),
+            nav_icon(page),
+            Color32::WHITE,
+        );
+
+        if let Some(dot) = dot_color {
+            let dot_c = if active { Color32::WHITE } else { dot };
+            ui.painter()
+                .circle_filled(tile_rect.right_top() + Vec2::new(1.0, 1.0), 3.2, dot_c);
+        } else if badge.is_some() {
+            ui.painter().circle_filled(
+                tile_rect.right_top() + Vec2::new(1.0, 1.0),
+                3.2,
+                if active { Color32::WHITE } else { p.accent },
+            );
+        }
+        let tip = match badge {
+            Some(ref b) => format!("{} ({b})", nav_label(page, lang)),
+            None => nav_label(page, lang).to_string(),
+        };
+        return resp.on_hover_text(tip).clicked();
+    }
+
     let desired = Vec2::new(ui.available_width(), 34.0);
     let (rect, resp) = ui.allocate_exact_size(desired, Sense::click());
     let hovered = resp.hovered();
@@ -106,14 +172,11 @@ fn draw_nav_item(
         ui.painter().rect_filled(rect, CornerRadius::same(7), bg);
     }
 
-    let tile_rect = if collapsed {
-        Rect::from_center_size(rect.center(), Vec2::splat(24.0))
-    } else {
-        Rect::from_min_size(
-            egui::pos2(rect.left() + 8.0, rect.center().y - 11.0),
-            Vec2::splat(22.0),
-        )
-    };
+    // Center X = rect.left() + 8.0 + 11.0 = rect.left() + 19.0 (aligned with header & footer)
+    let tile_rect = Rect::from_min_size(
+        egui::pos2(rect.left() + 8.0, rect.center().y - 11.0),
+        Vec2::splat(22.0),
+    );
     let tile_fill = if active {
         Color32::from_rgba_unmultiplied(255, 255, 255, 48)
     } else {
@@ -133,25 +196,6 @@ fn draw_nav_item(
         nav_icon(page),
         Color32::WHITE,
     );
-
-    if collapsed {
-        if let Some(dot) = dot_color {
-            let dot_c = if active { Color32::WHITE } else { dot };
-            ui.painter()
-                .circle_filled(tile_rect.right_top() + Vec2::new(1.0, 1.0), 3.2, dot_c);
-        } else if badge.is_some() {
-            ui.painter().circle_filled(
-                tile_rect.right_top() + Vec2::new(1.0, 1.0),
-                3.2,
-                if active { Color32::WHITE } else { p.accent },
-            );
-        }
-        let tip = match badge {
-            Some(ref b) => format!("{} ({b})", nav_label(page, lang)),
-            None => nav_label(page, lang).to_string(),
-        };
-        return resp.on_hover_text(tip).clicked();
-    }
 
     let text_color = if active { Color32::WHITE } else { p.text };
     ui.painter().text(
@@ -192,6 +236,39 @@ fn draw_nav_item(
     resp.clicked()
 }
 
+fn draw_logo_box(ui: &mut Ui, p: &Palette) {
+    let (logo_rect, _) = ui.allocate_exact_size(Vec2::splat(36.0), Sense::hover());
+    ui.painter()
+        .rect_filled(logo_rect, CornerRadius::same(9), p.accent);
+    ui.painter().rect_stroke(
+        logo_rect,
+        CornerRadius::same(9),
+        Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 64)),
+        StrokeKind::Inside,
+    );
+    draw_vector_icon(
+        ui.painter(),
+        logo_rect.shrink(7.0),
+        VectorIcon::BrandLogo,
+        Color32::WHITE,
+    );
+    if crate::config::IS_PLUS_EDITION {
+        let badge_pos = logo_rect.right_top() + Vec2::new(-2.0, 2.0);
+        ui.painter().circle_filled(badge_pos, 4.5, p.sidebar_bg);
+        ui.painter()
+            .circle_filled(badge_pos, 3.0, Color32::from_rgb(0xf5, 0x9e, 0x0b));
+    }
+}
+
+fn draw_sidebar_separator(ui: &mut Ui, p: &Palette) {
+    let (sep_rect, _) =
+        ui.allocate_exact_size(Vec2::new(ui.available_width(), 1.0), Sense::hover());
+    ui.painter().line_segment(
+        [sep_rect.left_center(), sep_rect.right_center()],
+        Stroke::new(1.0, p.row_line),
+    );
+}
+
 pub fn render_sidebar(ui: &mut Ui, p: &Palette, props: SidebarProps<'_>) -> SidebarAction {
     let mut action = SidebarAction {
         selected: None,
@@ -199,104 +276,123 @@ pub fn render_sidebar(ui: &mut Ui, p: &Palette, props: SidebarProps<'_>) -> Side
         toggle_collapse: false,
     };
 
-    ui.add_space(10.0);
+    ui.add_space(6.0);
 
     // Identity Brand Header
     if props.collapsed {
         ui.vertical_centered(|ui| {
-            let logo_size = Vec2::splat(36.0);
-            let (logo_rect, _) = ui.allocate_exact_size(logo_size, Sense::hover());
-            ui.painter()
-                .rect_filled(logo_rect, CornerRadius::same(10), p.accent);
-            draw_vector_icon(
-                ui.painter(),
-                logo_rect.shrink(7.0),
-                VectorIcon::BrandLogo,
-                Color32::WHITE,
+            draw_logo_box(ui, p);
+            ui.add_space(6.0);
+            let (exp_rect, resp) = ui.allocate_exact_size(Vec2::new(40.0, 30.0), Sense::click());
+            let hovered = resp.hovered();
+            ui.painter().rect_filled(
+                exp_rect,
+                CornerRadius::same(8),
+                if hovered { p.accent_soft } else { p.card_bg },
             );
-            ui.add_space(4.0);
-            if ui
-                .small_button("»")
-                .on_hover_text("Perluas Sidebar")
-                .clicked()
-            {
+            ui.painter().rect_stroke(
+                exp_rect,
+                CornerRadius::same(8),
+                Stroke::new(1.0, if hovered { p.accent } else { p.line }),
+                StrokeKind::Inside,
+            );
+            ui.painter().text(
+                exp_rect.center(),
+                egui::Align2::CENTER_CENTER,
+                "»",
+                egui::FontId::proportional(15.0),
+                if hovered { p.accent } else { p.text },
+            );
+            if resp.on_hover_text("Perluas Sidebar").clicked() {
                 action.toggle_collapse = true;
             }
         });
     } else {
-        ui.horizontal(|ui| {
-            let logo_size = Vec2::splat(40.0);
-            let (logo_rect, _) = ui.allocate_exact_size(logo_size, Sense::hover());
-            ui.painter()
-                .rect_filled(logo_rect, CornerRadius::same(10), p.accent);
-            ui.painter().rect_stroke(
-                logo_rect,
-                CornerRadius::same(10),
-                Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 64)),
-                StrokeKind::Inside,
-            );
-            draw_vector_icon(
-                ui.painter(),
-                logo_rect.shrink(8.0),
-                VectorIcon::BrandLogo,
-                Color32::WHITE,
-            );
-
-            ui.add_space(6.0);
-            ui.vertical(|ui| {
-                ui.horizontal(|ui| {
-                    let brand_lbl = if crate::config::IS_PLUS_EDITION {
-                        format!(
-                            "JSFS+ v{}",
-                            crate::config::APP_VERSION.trim_end_matches("-plus")
-                        )
-                    } else {
-                        format!("JSFS v{}", crate::config::APP_VERSION)
-                    };
-                    ui.label(RichText::new(brand_lbl).size(14.5).strong().color(p.text));
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if ui
-                            .small_button("«")
-                            .on_hover_text("Ringkas Sidebar")
-                            .clicked()
-                        {
-                            action.toggle_collapse = true;
-                        }
-                    });
-                });
-                ui.horizontal(|ui| {
-                    if crate::config::IS_PLUS_EDITION {
-                        crate::ui::theme::pill_badge(ui, "Workstation", p.accent, p.accent_soft);
+        // Row 1 (36px): 36x36 icon + version title + vertically centered 28x28 collapse button
+        ui.allocate_ui_with_layout(
+            Vec2::new(ui.available_width(), 36.0),
+            Layout::left_to_right(Align::Center),
+            |ui| {
+                draw_logo_box(ui, p);
+                ui.add_space(8.0);
+                let brand_lbl = if crate::config::IS_PLUS_EDITION {
+                    format!(
+                        "JSFS+ v{}",
+                        crate::config::APP_VERSION.trim_end_matches("-plus")
+                    )
+                } else {
+                    format!("JSFS v{}", crate::config::APP_VERSION)
+                };
+                ui.label(RichText::new(brand_lbl).size(14.5).strong().color(p.text));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    let col_btn = egui::Button::new(RichText::new("«").size(13.5).color(p.text))
+                        .fill(p.control_bg)
+                        .stroke(Stroke::new(1.0, p.line))
+                        .corner_radius(CornerRadius::same(7))
+                        .min_size(Vec2::splat(28.0));
+                    if ui.add(col_btn).on_hover_text("Ringkas Sidebar").clicked() {
+                        action.toggle_collapse = true;
                     }
-                    let (dot_r, _) = ui.allocate_exact_size(Vec2::splat(8.0), Sense::hover());
-                    let dot_c = if props.is_searching {
-                        p.accent
-                    } else if props.engine_ready {
-                        p.good
-                    } else {
-                        p.warn
-                    };
-                    ui.painter().circle_filled(dot_r.center(), 3.6, dot_c);
-
-                    let txt = t(props.lang);
-                    let short_status = if props.is_searching {
-                        txt.status_searching
-                    } else {
-                        props
-                            .engine_label
-                            .strip_prefix("Match Engine: ")
-                            .unwrap_or(props.engine_label)
-                    };
-                    ui.add(
-                        egui::Label::new(RichText::new(short_status).size(11.0).color(p.muted))
-                            .truncate(),
-                    );
                 });
+            },
+        );
+
+        ui.add_space(6.0);
+
+        // Row 2: Full-width compact status strip (no empty gap below logo)
+        Frame::new()
+            .fill(p.row_alt)
+            .corner_radius(CornerRadius::same(6))
+            .inner_margin(Margin::symmetric(8, 3))
+            .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                ui.allocate_ui_with_layout(
+                    Vec2::new(ui.available_width(), 18.0),
+                    Layout::left_to_right(Align::Center),
+                    |ui| {
+                        if crate::config::IS_PLUS_EDITION {
+                            Frame::new()
+                                .fill(p.accent_soft)
+                                .corner_radius(CornerRadius::same(99))
+                                .inner_margin(Margin::symmetric(6, 2))
+                                .show(ui, |ui| {
+                                    ui.label(
+                                        RichText::new("PLUS").size(10.5).strong().color(p.accent),
+                                    );
+                                });
+                            ui.add_space(6.0);
+                        }
+                        let (dot_r, _) = ui.allocate_exact_size(Vec2::splat(8.0), Sense::hover());
+                        let dot_c = if props.is_searching {
+                            p.accent
+                        } else if props.engine_ready {
+                            p.good
+                        } else {
+                            p.warn
+                        };
+                        ui.painter().circle_filled(dot_r.center(), 3.6, dot_c);
+
+                        let txt = t(props.lang);
+                        let short_status = if props.is_searching {
+                            txt.status_searching
+                        } else {
+                            props
+                                .engine_label
+                                .strip_prefix("Match Engine: ")
+                                .unwrap_or(props.engine_label)
+                        };
+                        ui.add(
+                            egui::Label::new(RichText::new(short_status).size(11.0).color(p.muted))
+                                .wrap_mode(egui::TextWrapMode::Extend),
+                        );
+                    },
+                );
             });
-        });
     }
 
-    ui.add_space(12.0);
+    ui.add_space(8.0);
+    draw_sidebar_separator(ui, p);
+    ui.add_space(8.0);
 
     let items = [
         (
@@ -323,6 +419,7 @@ pub fn render_sidebar(ui: &mut Ui, p: &Palette, props: SidebarProps<'_>) -> Side
         (NavPage::History, None, None),
     ];
 
+    let nav_gap = if props.collapsed { 6.0 } else { 3.0 };
     for (page, badge, dot) in items {
         if draw_nav_item(
             ui,
@@ -336,7 +433,7 @@ pub fn render_sidebar(ui: &mut Ui, p: &Palette, props: SidebarProps<'_>) -> Side
         ) {
             action.selected = Some(page);
         }
-        ui.add_space(2.0);
+        ui.add_space(nav_gap);
     }
 
     // Subtle separator line above bottom section
@@ -364,7 +461,7 @@ pub fn render_sidebar(ui: &mut Ui, p: &Palette, props: SidebarProps<'_>) -> Side
     ) {
         action.selected = Some(NavPage::Settings);
     }
-    ui.add_space(2.0);
+    ui.add_space(nav_gap);
 
     if draw_nav_item(
         ui,
@@ -379,41 +476,64 @@ pub fn render_sidebar(ui: &mut Ui, p: &Palette, props: SidebarProps<'_>) -> Side
         action.selected = Some(NavPage::Guide);
     }
 
-    // Pinned footer: Instant JSFS Dark / JSFS Daylight toggle card
+    // Pinned footer: Instant JSFS Dark / JSFS Daylight toggle
     ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
         ui.add_space(8.0);
-        Frame::new()
-            .fill(p.card_bg)
-            .stroke(Stroke::new(1.0, p.line))
-            .corner_radius(CornerRadius::same(8))
-            .inner_margin(Margin::symmetric(if props.collapsed { 6 } else { 8 }, 7))
-            .show(ui, |ui| {
-                if props.collapsed {
-                    ui.set_min_width(ui.available_width());
-                    ui.vertical_centered(|ui| {
-                        let (ir, resp) = ui.allocate_exact_size(Vec2::splat(20.0), Sense::click());
-                        draw_vector_icon(ui.painter(), ir, VectorIcon::SunMoon, p.accent);
-                        if resp
-                            .on_hover_text(format!(
-                                "{} ({})",
-                                props.theme_mode.label(),
-                                t(props.lang).theme_change
-                            ))
-                            .clicked()
-                        {
-                            action.toggle_theme = true;
-                        }
-                    });
-                } else {
+        if props.collapsed {
+            ui.vertical_centered(|ui| {
+                let (btn_rect, resp) = ui.allocate_exact_size(Vec2::splat(34.0), Sense::click());
+                if resp.hovered() {
+                    ui.painter()
+                        .rect_filled(btn_rect, CornerRadius::same(8), p.nav_hover);
+                }
+                draw_vector_icon(
+                    ui.painter(),
+                    btn_rect.shrink(9.0),
+                    VectorIcon::SunMoon,
+                    p.accent,
+                );
+                if resp
+                    .on_hover_text(format!(
+                        "Tema: {} | Klik untuk ganti",
+                        props.theme_mode.label()
+                    ))
+                    .clicked()
+                {
+                    action.toggle_theme = true;
+                }
+            });
+            ui.add_space(6.0);
+            let (sep_f, _) =
+                ui.allocate_exact_size(Vec2::new(ui.available_width(), 1.0), Sense::hover());
+            ui.painter().line_segment(
+                [
+                    egui::pos2(sep_f.left() + 10.0, sep_f.center().y),
+                    egui::pos2(sep_f.right() - 10.0, sep_f.center().y),
+                ],
+                Stroke::new(1.0, p.line),
+            );
+        } else {
+            // Margin 7 + stroke 1 => content starts at inner_left + 8.0; 22 px slot centers icon at inner_left + 19.0
+            Frame::new()
+                .fill(p.card_bg)
+                .stroke(Stroke::new(1.0, p.line))
+                .corner_radius(CornerRadius::same(8))
+                .inner_margin(Margin::symmetric(7, 7))
+                .show(ui, |ui| {
                     let row_w = ui.available_width();
                     let resp = ui
                         .allocate_ui_with_layout(
-                            Vec2::new(row_w, 20.0),
+                            Vec2::new(row_w, 22.0),
                             Layout::left_to_right(Align::Center),
                             |ui| {
-                                let (ir, _) =
-                                    ui.allocate_exact_size(Vec2::splat(15.0), Sense::hover());
-                                draw_vector_icon(ui.painter(), ir, VectorIcon::SunMoon, p.accent);
+                                let (slot_rect, _) =
+                                    ui.allocate_exact_size(Vec2::splat(22.0), Sense::hover());
+                                draw_vector_icon(
+                                    ui.painter(),
+                                    slot_rect.shrink(3.0),
+                                    VectorIcon::SunMoon,
+                                    p.accent,
+                                );
                                 ui.label(
                                     RichText::new(props.theme_mode.label())
                                         .size(11.5)
@@ -436,8 +556,8 @@ pub fn render_sidebar(ui: &mut Ui, p: &Palette, props: SidebarProps<'_>) -> Side
                     if resp.clicked() {
                         action.toggle_theme = true;
                     }
-                }
-            });
+                });
+        }
     });
 
     action

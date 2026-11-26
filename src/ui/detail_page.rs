@@ -168,7 +168,7 @@ fn render_left_panel(
         }
     });
 
-    ui.add_space(10.0);
+    ui.add_space(8.0);
 
     card(ui, p, |ui| {
         ui.label(
@@ -249,7 +249,7 @@ fn render_left_panel(
         }
     });
 
-    ui.add_space(10.0);
+    ui.add_space(8.0);
 
     card(ui, p, |ui| {
         ui.label(
@@ -330,24 +330,18 @@ fn render_left_panel(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn render_right_detail_cards(
+fn render_detail_header_card(
     ui: &mut Ui,
     p: &Palette,
     j: &UiJournalItem,
-    keyword: &str,
-    manuscript: Option<&ManuscriptSummary>,
-    selected_copy_idx: &mut usize,
-    app_settings: &AppSettings,
+    is_en: bool,
     app_state: &mut AppState,
     sink: &EventSink,
     action: &mut DetailPageAction,
 ) {
-    let is_en = app_settings.language == AppLanguage::En;
     let ctx = ui.ctx().clone();
-
-    // Header Card
     card(ui, p, |ui| {
-        ui.add(egui::Label::new(RichText::new(&j.nama).size(17.5).strong().color(p.text)).wrap());
+        ui.add(egui::Label::new(RichText::new(&j.nama).size(16.5).strong().color(p.text)).wrap());
         ui.add(
             egui::Label::new(
                 RichText::new(format!("{} • {}", j.penerbit, j.sumber))
@@ -356,9 +350,9 @@ fn render_right_detail_cards(
             )
             .wrap(),
         );
-        ui.add_space(6.0);
+        ui.add_space(4.0);
         ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing.x = 6.0;
+            ui.spacing_mut().item_spacing = Vec2::new(6.0, 4.0);
             if let Some(ref q) = j.quartile {
                 if !q.trim().is_empty() {
                     let (q_fg, q_bg) = quartile_pill_colors(p, q);
@@ -389,8 +383,9 @@ fn render_right_detail_cards(
             }
         });
 
-        ui.add_space(8.0);
+        ui.add_space(6.0);
         ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = Vec2::new(6.0, 6.0);
             let target_url = if j.url.starts_with("http") {
                 j.url.as_str()
             } else {
@@ -399,12 +394,13 @@ fn render_right_detail_cards(
             if accent_button(
                 ui,
                 p,
-                if is_en {
-                    "Open Journal Web"
-                } else {
-                    "Buka Web Jurnal"
-                },
+                if is_en { "Open Web" } else { "Buka Web" },
             )
+            .on_hover_text(if is_en {
+                "Open journal OJS webpage in browser"
+            } else {
+                "Buka situs web OJS jurnal di browser"
+            })
             .clicked()
             {
                 open_url_with_feedback(target_url, sink);
@@ -413,11 +409,7 @@ fn render_right_detail_cards(
                 && secondary_button(
                     ui,
                     p,
-                    if is_en {
-                        "Copy Journal Link"
-                    } else {
-                        "Salin Link Jurnal"
-                    },
+                    if is_en { "Copy Link" } else { "Salin Link" },
                 )
                 .clicked()
             {
@@ -433,15 +425,11 @@ fn render_right_detail_cards(
             }
             let starred = app_state.is_bookmarked(j);
             let star_lbl = if starred {
-                if is_en {
-                    "★ Shortlisted"
-                } else {
-                    "★ Pilihan Dospen"
-                }
+                if is_en { "★ Saved" } else { "★ Pilihan" }
             } else if is_en {
-                "☆ Add Shortlist"
+                "☆ Save"
             } else {
-                "☆ Tandai Pilihan"
+                "☆ Simpan"
             };
             if secondary_button(ui, p, star_lbl).clicked() {
                 let added = app_state.toggle_bookmark(j);
@@ -454,11 +442,7 @@ fn render_right_detail_cards(
             if secondary_button(
                 ui,
                 p,
-                if is_en {
-                    "Find Similar Journals"
-                } else {
-                    "Cari Jurnal Mirip"
-                },
+                if is_en { "Find Similar" } else { "Cari Mirip" },
             )
             .clicked()
             {
@@ -474,9 +458,9 @@ fn render_right_detail_cards(
                 ui,
                 p,
                 if is_en {
-                    "Copy 5 Latest References"
+                    "Copy 5 Refs"
                 } else {
-                    "Salin 5 Referensi Terbaru Jurnal Ini (Format Sitasi)"
+                    "Salin 5 Referensi"
                 },
             )
             .on_hover_text(if is_en {
@@ -503,6 +487,22 @@ fn render_right_detail_cards(
             }
         });
     });
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_detail_scroll_cards(
+    ui: &mut Ui,
+    p: &Palette,
+    j: &UiJournalItem,
+    keyword: &str,
+    manuscript: Option<&ManuscriptSummary>,
+    selected_copy_idx: &mut usize,
+    app_settings: &AppSettings,
+    sink: &EventSink,
+    action: &mut DetailPageAction,
+) {
+    let is_en = app_settings.language == AppLanguage::En;
+    let ctx = ui.ctx().clone();
 
     if let Some(ref warn) = j.risk_warning {
         ui.add_space(10.0);
@@ -1206,59 +1206,62 @@ pub fn render_detail_page(
     let total_w = ui.available_width();
     let avail_h = ui.available_height();
 
-    let render_right_or_empty = |ui: &mut Ui,
-                                 selected_copy_idx: &mut usize,
-                                 app_state: &mut AppState,
-                                 action: &mut DetailPageAction| {
-        if let Some(j) = inspected {
-            render_right_detail_cards(
-                ui,
-                p,
-                j,
-                keyword,
-                manuscript,
-                selected_copy_idx,
-                app_settings,
-                app_state,
-                sink,
-                action,
+    let render_empty_card = |ui: &mut Ui| {
+        card(ui, p, |ui| {
+            ui.add_space(8.0);
+            ui.label(
+                RichText::new(if is_en {
+                    "No Journal Selected Yet"
+                } else {
+                    "Belum Ada Jurnal Dipilih"
+                })
+                .size(15.5)
+                .strong()
+                .color(p.text),
             );
-        } else {
-            card(ui, p, |ui| {
-                ui.add_space(16.0);
-                ui.label(
-                    RichText::new(if is_en {
-                        "No Journal Selected Yet"
-                    } else {
-                        "Belum Ada Jurnal Dipilih"
-                    })
-                    .size(15.5)
-                    .strong()
-                    .color(p.text),
-                );
+            ui.add_space(6.0);
+            let steps: [&str; 3] = if is_en {
+                [
+                    "1. Search target journals in the 1. Journal Search menu.",
+                    "2. Click Detail on any row for full audit (APC, schedule, Turnitin & readiness).",
+                    "3. Or paste an OJS journal URL directly in Quick Check 1 OJS URL on the left.",
+                ]
+            } else {
+                [
+                    "1. Cari jurnal target di menu 1. Cari Jurnal.",
+                    "2. Klik tombol Detail untuk audit lengkap (APC, jadwal, Turnitin & kesiapan naskah).",
+                    "3. Atau tempel URL OJS langsung di panel Cek Cepat 1 URL OJS di sebelah kiri.",
+                ]
+            };
+            for step in steps {
+                ui.add(egui::Label::new(RichText::new(step).size(12.2).color(p.muted)).wrap());
                 ui.add_space(4.0);
-                ui.add(
-                    egui::Label::new(
-                        RichText::new(if is_en {
-                            "Click \"Detail\" on any journal row in Journal Search, or paste an OJS link on the left panel."
-                        } else {
-                            "Klik tombol \"Detail\" pada salah satu jurnal di menu Pencarian Jurnal, atau tempel langsung URL OJS di panel sebelah kiri."
-                        })
-                        .size(12.5)
-                        .color(p.muted),
-                    )
-                    .wrap(),
-                );
-                ui.add_space(16.0);
-            });
-        }
+            }
+            ui.add_space(6.0);
+        });
     };
 
     if total_w < 720.0 {
         ScrollArea::vertical()
             .id_salt("detail_stacked_scroll")
             .show(ui, |ui| {
-                render_right_or_empty(ui, selected_copy_idx, app_state, &mut action);
+                if let Some(j) = inspected {
+                    render_detail_header_card(ui, p, j, is_en, app_state, sink, &mut action);
+                    ui.add_space(8.0);
+                    render_detail_scroll_cards(
+                        ui,
+                        p,
+                        j,
+                        keyword,
+                        manuscript,
+                        selected_copy_idx,
+                        app_settings,
+                        sink,
+                        &mut action,
+                    );
+                } else {
+                    render_empty_card(ui);
+                }
                 ui.add_space(12.0);
                 render_left_panel(
                     ui,
@@ -1305,18 +1308,38 @@ pub fn render_detail_page(
             },
         );
 
-        // Right column: Spacious scrollable workspace
+        // Right column: Pinned journal header card + independently scrollable audit cards
         let right_w = (total_w - left_w - 14.0).max(320.0);
         ui.allocate_ui_with_layout(
             Vec2::new(right_w, avail_h),
             Layout::top_down(Align::Min),
             |ui| {
                 ui.set_max_width(right_w);
-                ScrollArea::vertical()
-                    .id_salt("detail_workspace_scroll")
-                    .show(ui, |ui| {
-                        render_right_or_empty(ui, selected_copy_idx, app_state, &mut action);
-                    });
+                if let Some(j) = inspected {
+                    render_detail_header_card(ui, p, j, is_en, app_state, sink, &mut action);
+                    ui.add_space(8.0);
+                    ScrollArea::vertical()
+                        .id_salt("detail_workspace_scroll")
+                        .show(ui, |ui| {
+                            render_detail_scroll_cards(
+                                ui,
+                                p,
+                                j,
+                                keyword,
+                                manuscript,
+                                selected_copy_idx,
+                                app_settings,
+                                sink,
+                                &mut action,
+                            );
+                        });
+                } else {
+                    ScrollArea::vertical()
+                        .id_salt("detail_workspace_scroll")
+                        .show(ui, |ui| {
+                            render_empty_card(ui);
+                        });
+                }
             },
         );
     });

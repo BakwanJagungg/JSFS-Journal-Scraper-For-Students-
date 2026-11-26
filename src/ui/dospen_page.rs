@@ -13,10 +13,13 @@ use crate::ui::detail_page::{format_word_limit_label, SUBMISSION_STATUS_OPTIONS}
 use crate::ui::i18n::{AppLanguage, AppSettings};
 use crate::ui::state::AppState;
 use crate::ui::theme::{
-    accent_button, apc_badge_colors, card, card_divider, match_badge_colors, page_header,
-    pill_badge, quartile_pill_colors, secondary_button, secondary_button_h, Palette,
+    apc_badge_colors, card, card_divider, match_badge_colors, page_header, pill_badge,
+    quartile_pill_colors, secondary_button_h, Palette,
 };
-use egui::{CornerRadius, Frame, Grid, Margin, RichText, ScrollArea, Stroke, Ui};
+use egui::{
+    Align, Color32, CornerRadius, Frame, Grid, Layout, Margin, Response, RichText, ScrollArea,
+    Stroke, TextWrapMode, Ui, Vec2,
+};
 
 pub enum DospenPageAction {
     None,
@@ -326,18 +329,44 @@ fn render_compare_section(
                             .color(p.muted),
                         );
                         for j in &compared {
-                            ui.allocate_ui([col_width, 38.0].into(), |ui| {
-                                ui.vertical(|ui| {
-                                    let sty = j.citation_style.as_deref().unwrap_or("-");
-                                    let wlim = format_word_limit_label(j.word_limit, is_en);
-                                    let sim = j
-                                        .max_similarity_pct
-                                        .map(|pct| format!("Sim <= {pct}%"))
-                                        .unwrap_or_else(|| "Sim: -".to_string());
-                                    ui.label(
-                                        RichText::new(format!("{sty} • {wlim} • {sim}"))
-                                            .size(11.5)
-                                            .color(p.text),
+                            ui.allocate_ui_with_layout(
+                                Vec2::new(col_width, 0.0),
+                                Layout::top_down(Align::Min),
+                                |ui| {
+                                    ui.set_max_width(col_width);
+                                    let mut parts: Vec<String> = Vec::new();
+                                    if let Some(sty) = j
+                                        .citation_style
+                                        .as_deref()
+                                        .map(str::trim)
+                                        .filter(|s| !s.is_empty() && *s != "-")
+                                    {
+                                        parts.push(sty.to_string());
+                                    }
+                                    if j.word_limit.is_some() {
+                                        parts.push(format_word_limit_label(j.word_limit, is_en));
+                                    }
+                                    if let Some(pct) = j.max_similarity_pct {
+                                        parts.push(format!("Sim <= {pct}%"));
+                                    }
+                                    let (fit_text, fit_color) = if parts.is_empty() {
+                                        (
+                                            if is_en {
+                                                "Not detected on OJS"
+                                            } else {
+                                                "Belum terdeteksi di OJS"
+                                            }
+                                            .to_string(),
+                                            p.muted,
+                                        )
+                                    } else {
+                                        (parts.join(" • "), p.text)
+                                    };
+                                    ui.add(
+                                        egui::Label::new(
+                                            RichText::new(fit_text).size(11.5).color(fit_color),
+                                        )
+                                        .wrap(),
                                     );
                                     if let Some(ms) = manuscript {
                                         if let Some(st) = check_manuscript_word_fit(
@@ -358,8 +387,8 @@ fn render_compare_section(
                                             pill_badge(ui, lbl, fg, bg);
                                         }
                                     }
-                                });
-                            });
+                                },
+                            );
                         }
                         ui.end_row();
 
@@ -397,6 +426,31 @@ fn render_compare_section(
                     });
             });
     });
+}
+
+fn dospen_action_btn(
+    ui: &mut Ui,
+    p: &Palette,
+    label: &str,
+    accent: bool,
+    enabled: bool,
+) -> Response {
+    let (fg, fill, stroke) = if accent {
+        (Color32::WHITE, p.accent, p.accent)
+    } else {
+        (p.text, p.control_bg, p.line)
+    };
+    let mut rt = RichText::new(label).size(12.5).color(fg);
+    if accent {
+        rt = rt.strong();
+    }
+    let btn = egui::Button::new(rt)
+        .wrap_mode(TextWrapMode::Extend)
+        .fill(fill)
+        .stroke(Stroke::new(1.0, stroke))
+        .corner_radius(CornerRadius::same(7))
+        .min_size(Vec2::new(0.0, 30.0));
+    ui.add_enabled(enabled, btn)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -473,21 +527,21 @@ pub fn render_dospen_page(
                 ui.add_space(4.0);
             }
 
+            let has_items = !shortlisted.is_empty();
             ui.horizontal_wrapped(|ui| {
-                if ui
-                    .add_enabled_ui(!shortlisted.is_empty(), |ui| {
-                        accent_button(
-                            ui,
-                            p,
-                            if is_en {
-                                "Copy Supervisor Brief (WA / Email)"
-                            } else {
-                                "Salin Paket Konsultasi WA / Email"
-                            },
-                        )
-                    })
-                    .inner
-                    .clicked()
+                ui.spacing_mut().item_spacing = Vec2::new(8.0, 8.0);
+                if dospen_action_btn(
+                    ui,
+                    p,
+                    if is_en {
+                        "Copy Brief (WA / Email)"
+                    } else {
+                        "Salin Brief WA / Email"
+                    },
+                    true,
+                    has_items,
+                )
+                .clicked()
                 {
                     let refs: Vec<&UiJournalItem> = shortlisted.iter().collect();
                     let brief = generate_dosbing_brief(&refs, app_settings.language);
@@ -502,56 +556,50 @@ pub fn render_dospen_page(
                     ));
                 }
 
-                if ui
-                    .add_enabled_ui(!shortlisted.is_empty(), |ui| {
-                        secondary_button(
-                            ui,
-                            p,
-                            if is_en {
-                                "Export Advisor Report (.docx)"
-                            } else {
-                                "Ekspor Laporan Dospen (.docx)"
-                            },
-                        )
-                    })
-                    .inner
-                    .clicked()
+                if dospen_action_btn(
+                    ui,
+                    p,
+                    if is_en {
+                        "Export Report (.docx)"
+                    } else {
+                        "Ekspor Laporan (.docx)"
+                    },
+                    false,
+                    has_items,
+                )
+                .clicked()
                 {
                     action = DospenPageAction::ExportDosbingDocx(shortlisted.clone());
                 }
 
-                if ui
-                    .add_enabled_ui(!shortlisted.is_empty(), |ui| {
-                        secondary_button(
-                            ui,
-                            p,
-                            if is_en {
-                                "Supervisor Approval Sheet (.docx)"
-                            } else {
-                                "Lembar Persetujuan Dospen (.docx)"
-                            },
-                        )
-                    })
-                    .inner
-                    .clicked()
+                if dospen_action_btn(
+                    ui,
+                    p,
+                    if is_en {
+                        "Advisor Approval (.docx)"
+                    } else {
+                        "Persetujuan Dospen (.docx)"
+                    },
+                    false,
+                    has_items,
+                )
+                .clicked()
                 {
                     action = DospenPageAction::ExportDospenApprovalDocx(shortlisted.clone());
                 }
 
-                if ui
-                    .add_enabled_ui(!shortlisted.is_empty(), |ui| {
-                        secondary_button(
-                            ui,
-                            p,
-                            if is_en {
-                                "Export Curation Package (.jsfs-list)"
-                            } else {
-                                "Ekspor Paket Kurasi (.jsfs-list)"
-                            },
-                        )
-                    })
-                    .inner
-                    .clicked()
+                if dospen_action_btn(
+                    ui,
+                    p,
+                    if is_en {
+                        "Export Package (.jsfs-list)"
+                    } else {
+                        "Ekspor Paket (.jsfs-list)"
+                    },
+                    false,
+                    has_items,
+                )
+                .clicked()
                 {
                     let ms_title = manuscript
                         .map(|m| {
@@ -587,14 +635,16 @@ pub fn render_dospen_page(
                     }
                 }
 
-                if secondary_button(
+                if dospen_action_btn(
                     ui,
                     p,
                     if is_en {
-                        "Import Curation Package"
+                        "Import Package"
                     } else {
                         "Impor Paket Kurasi"
                     },
+                    false,
+                    true,
                 )
                 .clicked()
                 {
@@ -618,20 +668,23 @@ pub fn render_dospen_page(
                     }
                 }
 
-                if ui
-                    .add_enabled_ui(!shortlisted.is_empty(), |ui| {
-                        secondary_button(
-                            ui,
-                            p,
-                            if is_en {
-                                "Export HTML Summary (WA/Email)"
-                            } else {
-                                "Ekspor Ringkasan HTML Siap Kirim WA/Email"
-                            },
-                        )
-                    })
-                    .inner
-                    .clicked()
+                if dospen_action_btn(
+                    ui,
+                    p,
+                    if is_en {
+                        "Export HTML Summary"
+                    } else {
+                        "Ekspor HTML Dospen"
+                    },
+                    false,
+                    has_items,
+                )
+                .on_hover_text(if is_en {
+                    "Export standalone HTML summary ready to send via WA/Email"
+                } else {
+                    "Ekspor ringkasan HTML siap kirim ke Dosen Pembimbing via WA atau Email"
+                })
+                .clicked()
                 {
                     let ms_title = manuscript
                         .map(|m| {

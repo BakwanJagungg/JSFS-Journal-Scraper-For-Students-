@@ -13,9 +13,9 @@ pub const IS_PLUS_EDITION: bool = true;
 pub const IS_PLUS_EDITION: bool = false;
 
 #[cfg(feature = "plus")]
-pub const APP_VERSION: &str = "5.0.0-plus";
+pub const APP_VERSION: &str = "5.0.1-plus";
 #[cfg(not(feature = "plus"))]
-pub const APP_VERSION: &str = "4.16.2";
+pub const APP_VERSION: &str = "4.16.3";
 
 pub const CACHE_VERSION: &str = "4.3.0";
 pub const CACHE_TTL_DAYS: i64 = 14;
