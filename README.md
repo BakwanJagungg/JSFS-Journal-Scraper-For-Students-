@@ -4,7 +4,7 @@
 
 # JSFS & JSFS+ Workstation
 
-**Temukan jurnal SINTA, Garuda, dan internasional Q1 hingga Q4 secara serentak, validasi biaya publikasi (APC) asli, estimasikan waktu terbit, dan cocokkan dengan draf naskah Anda dalam satu aplikasi desktop Pure Rust.**
+**Cari jurnal ilmiah yang tepat untuk skripsi atau tesis Anda, cek biaya publikasi asli, dan ekspor daftar siap kirim ke dosen pembimbing — semuanya dalam satu aplikasi desktop gratis.**
 
 [![Standard Release](https://img.shields.io/badge/JSFS_Standard-v4.16.3-2563eb?style=flat-square)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/v4.16.3)
 [![Workstation Release](https://img.shields.io/badge/JSFS%2B_Workstation-plus_v5.0.1-7c3aed?style=flat-square)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/tag/plus-v5.0.1)
@@ -35,92 +35,108 @@
 <table>
   <tr>
     <td align="center" width="50%">
-      <strong>1. Cari Jurnal & Filter Biaya APC Real-Time</strong><br /><br />
+      <strong>1. Cari Jurnal &amp; Filter Biaya APC Real-Time</strong><br /><br />
       <img src="assets/preview-search.png" alt="Halaman 1. Cari Jurnal JSFS" width="100%" />
     </td>
     <td align="center" width="50%">
-      <strong>2. Detail Jurnal, Estimasi Terbit & Kesiapan Naskah</strong><br /><br />
+      <strong>2. Detail Jurnal, Estimasi Terbit &amp; Kesiapan Naskah</strong><br /><br />
       <img src="assets/preview-detail.png" alt="Halaman 2. Detail dan Naskah JSFS" width="100%" />
     </td>
   </tr>
 </table>
 
-## Pilih Edisi yang Sesuai Perangkat Anda
+## Pilih Edisi yang Sesuai Laptop Anda
 
 <table>
   <tr>
-    <th align="left" width="50%">JSFS Standard (`v4.16.3`)</th>
-    <th align="left" width="50%">JSFS+ Workstation (`plus-v5.0.1`)</th>
+    <th align="left" width="50%">JSFS Standard (v4.16.3) — Ringan untuk Semua Laptop</th>
+    <th align="left" width="50%">JSFS+ Workstation (plus-v5.0.1) — Khusus Laptop Spek Tinggi</th>
   </tr>
   <tr>
     <td valign="top">
-      Dirancang ringan untuk semua laptop mahasiswa (Windows 64/32-bit, Linux, dan macOS Apple Silicon / Intel) dengan penggunaan RAM hemat serta UI adaptif hingga layar skala tinggi.
+      Cocok untuk laptop perkuliahan apa pun — Windows 64/32-bit, Linux, maupun macOS Apple Silicon atau Intel. Ringan di memori dan tetap nyaman dipakai seharian.
       <ul>
-        <li>Batas pencarian hingga <strong>1.000 jurnal/sesi</strong> &amp; cache SQLite 16 MB</li>
-        <li>Buffer halaman 4 MB, stream 5 MB &amp; ekstraksi biaya dari PDF OJS (&lt; 3 MB)</li>
-        <li>TLS ketat dengan fallback otomatis domain kampus &amp; catatan sertifikat</li>
-        <li>Deteksi sitasi <strong>IEEE, APA, Vancouver, dan Chicago/Turabian</strong></li>
-        <li>Dukungan self-updater otomatis lintas Windows, Linux &amp; macOS</li>
+        <li>Hemat memori (RAM di bawah 500 MB), tidak bikin laptop lemot</li>
+        <li>Mencari hingga <strong>1.000 jurnal per sesi</strong> dari SINTA, Garuda, dan internasional Q1 hingga Q4</li>
+        <li>Tetap bisa mengakses website jurnal kampus meskipun sertifikat HTTPS-nya sudah kedaluwarsa, dan bisa membaca biaya publikasi langsung dari dokumen PDF</li>
+        <li>Mengenali format daftar pustaka <strong>IEEE, APA, Vancouver, dan Chicago/Turabian</strong> secara otomatis</li>
+        <li>Pembaruan otomatis tanpa perlu unduh ulang secara manual</li>
       </ul>
     </td>
     <td valign="top">
-      Dirancang khusus untuk workstation berspesifikasi tinggi (RAM 16 hingga 32 GB, CPU multi-core, dan GPU opsional) serta dapat terpasang berdampingan dengan JSFS Standard.
+      Dirancang untuk laptop atau PC spek tinggi (RAM 16 hingga 32 GB) dan dapat dipasang berdampingan dengan JSFS Standard tanpa konflik.
       <ul>
-        <li>Skala hingga <strong>5.000 jurnal/sesi</strong>, cache SQLite ~128 MB &amp; hingga 64 worker paralel</li>
-        <li><strong>Headless Browser Sidecar</strong> (Edge/Chrome) untuk portal Cloudflare &amp; SPA JS</li>
-        <li><strong>Jembatan OCR PDF Scan</strong> (Tesseract CLI &amp; Windows Native WinRT OCR)</li>
-        <li><strong>Hybrid Semantic Reranker</strong> (vektor 256-D + Ollama Embeddings GPU opsional)</li>
-        <li>Indikator <strong>Citation Velocity</strong> berbasis metrik sitasi OpenAlex</li>
+        <li>Kapasitas hingga <strong>5.000 jurnal per sesi</strong> dengan kecepatan tinggi berkat banyak proses paralel</li>
+        <li>Menembus halaman jurnal yang diproteksi anti-bot (misalnya Cloudflare) menggunakan browser bawaan aplikasi</li>
+        <li>Membaca teks dari PDF hasil scan gambar (OCR) tanpa perlu pasang software tambahan</li>
+        <li>Pencocokan makna abstrak lebih mendalam menggunakan AI lokal opsional</li>
+        <li>Menampilkan tren sitasi jurnal berdasarkan data internasional terkini</li>
       </ul>
     </td>
   </tr>
 </table>
 
-## Unduhan Resmi Lintas Platform
+## Unduhan Resmi
 
-### Edisi 1: JSFS Standard (`v4.16.3`)
+### JSFS Standard (v4.16.3)
 
-| Platform & Paket | Arsitektur | Keterangan & Lokasi Hasil |
+| Platform &amp; Paket | Arsitektur | Keterangan |
 | :--- | :---: | :--- |
-| **[Windows Installer (`JSFS-windows-x64-setup.exe`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.3/JSFS-windows-x64-setup.exe)** | Windows x64 | **Direkomendasikan**: pasang dengan ikon Desktop & Start Menu tanpa hak Admin. Output: `Documents\JSFS Output` |
-| **[Windows Portable (`JSFS-windows-x64-portable.zip`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.3/JSFS-windows-x64-portable.zip)** | Windows x64 | Ekstrak dan jalankan langsung tanpa instalasi. Output: folder `output\` di samping `jsfs.exe` |
-| **[Windows 32-bit Portable (`JSFS-windows-x86-portable.zip`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.3/JSFS-windows-x86-portable.zip)** | Windows x86 | Khusus perangkat laptop atau Windows 10/11 32-bit. Output: folder `output\` di samping `jsfs.exe` |
-| **[Windows Single Binary (`jsfs.exe`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.3/jsfs.exe)** | Windows x64 | Satu file biner mandiri siap pakai tanpa kompresi zip |
+| **[Windows Installer (`JSFS-windows-x64-setup.exe`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.3/JSFS-windows-x64-setup.exe)** | Windows x64 | **Direkomendasikan**: pasang dengan ikon Desktop &amp; Start Menu, tidak perlu hak Admin. Hasil simpan di `Documents\JSFS Output` |
+| **[Windows Portable (`JSFS-windows-x64-portable.zip`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.3/JSFS-windows-x64-portable.zip)** | Windows x64 | Ekstrak lalu langsung jalankan, tanpa proses instalasi. Hasil simpan di folder `output\` di samping `jsfs.exe` |
+| **[Windows 32-bit Portable (`JSFS-windows-x86-portable.zip`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.3/JSFS-windows-x86-portable.zip)** | Windows x86 | Khusus laptop atau PC Windows 10/11 32-bit. Hasil simpan di folder `output\` di samping `jsfs.exe` |
+| **[Windows Single Binary (`jsfs.exe`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.3/jsfs.exe)** | Windows x64 | Satu file siap pakai tanpa perlu ekstrak |
+
+<details><summary>Lihat Unduhan Linux, macOS &amp; Verifikasi SHA256SUMS</summary>
+
+| Platform &amp; Paket | Arsitektur | Keterangan |
+| :--- | :---: | :--- |
 | **[Linux Desktop (`JSFS-linux-x64.tar.gz`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.3/JSFS-linux-x64.tar.gz)** | Linux x86_64 | Ekstrak arsip lalu jalankan `./jsfs` (mendukung X11 dan Wayland) |
 | **[macOS Apple Silicon (`JSFS-macos-arm64-preview.tar.gz`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.3/JSFS-macos-arm64-preview.tar.gz)** | macOS arm64 | Build pratinjau native Apple Silicon (ekstrak lalu jalankan `./jsfs`) |
 | **[macOS Intel (`JSFS-macos-x64-preview.tar.gz`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.3/JSFS-macos-x64-preview.tar.gz)** | macOS x86_64 | Build pratinjau native Mac Intel (ekstrak lalu jalankan `./jsfs`) |
-| **[Verifikasi Integritas (`SHA256SUMS.txt`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.3/SHA256SUMS.txt)** | Semua Platform | Daftar hash SHA-256 resmi untuk memverifikasi paket JSFS Standard |
+| **[Verifikasi Integritas (`SHA256SUMS.txt`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/v4.16.3/SHA256SUMS.txt)** | Semua Platform | Daftar hash SHA-256 resmi untuk memverifikasi keaslian file unduhan |
 
-### Edisi 2: JSFS+ Workstation (`plus-v5.0.1`)
+</details>
 
-| Platform & Paket | Arsitektur | Keterangan & Lokasi Hasil |
+### JSFS+ Workstation (plus-v5.0.1)
+
+| Platform &amp; Paket | Arsitektur | Keterangan |
 | :--- | :---: | :--- |
-| **[Windows Plus Installer (`JSFS-Plus-windows-x64-setup.exe`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/plus-v5.0.1/JSFS-Plus-windows-x64-setup.exe)** | Windows x64 | Terpasang terpisah di folder `JSFS-Plus` sehingga aman berdampingan dengan versi Standard |
-| **[Windows Plus Portable (`JSFS-Plus-windows-x64-portable.zip`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/plus-v5.0.1/JSFS-Plus-windows-x64-portable.zip)** | Windows x64 | Paket portabel `jsfs-plus.exe` siap ekstrak untuk perangkat spesifikasi tinggi |
+| **[Windows Plus Installer (`JSFS-Plus-windows-x64-setup.exe`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/plus-v5.0.1/JSFS-Plus-windows-x64-setup.exe)** | Windows x64 | Terpasang terpisah di folder `JSFS-Plus`, aman berdampingan dengan JSFS Standard |
+| **[Windows Plus Portable (`JSFS-Plus-windows-x64-portable.zip`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/plus-v5.0.1/JSFS-Plus-windows-x64-portable.zip)** | Windows x64 | Ekstrak lalu langsung jalankan `jsfs-plus.exe` |
 | **[Windows Plus Single Binary (`jsfs-plus.exe`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/plus-v5.0.1/jsfs-plus.exe)** | Windows x64 | Satu file biner mandiri edisi Workstation |
+
+<details><summary>Lihat Unduhan Linux, macOS &amp; Verifikasi SHA256SUMS</summary>
+
+| Platform &amp; Paket | Arsitektur | Keterangan |
+| :--- | :---: | :--- |
 | **[Linux Plus Desktop (`JSFS-Plus-linux-x64.tar.gz`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/plus-v5.0.1/JSFS-Plus-linux-x64.tar.gz)** | Linux x86_64 | Ekstrak arsip lalu jalankan `./jsfs-plus` |
 | **[macOS Plus Apple Silicon (`JSFS-Plus-macos-arm64-preview.tar.gz`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/plus-v5.0.1/JSFS-Plus-macos-arm64-preview.tar.gz)** | macOS arm64 | Build pratinjau Apple Silicon edisi Workstation |
 | **[macOS Plus Intel (`JSFS-Plus-macos-x64-preview.tar.gz`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/plus-v5.0.1/JSFS-Plus-macos-x64-preview.tar.gz)** | macOS x86_64 | Build pratinjau Mac Intel edisi Workstation |
-| **[Verifikasi Integritas Plus (`SHA256SUMS.txt`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/plus-v5.0.1/SHA256SUMS.txt)** | Semua Platform | Daftar hash SHA-256 resmi untuk memverifikasi paket JSFS+ Workstation |
+| **[Verifikasi Integritas Plus (`SHA256SUMS.txt`)](https://github.com/BakwanJagungg/JSFS-Journal-Scraper-For-Students-/releases/download/plus-v5.0.1/SHA256SUMS.txt)** | Semua Platform | Daftar hash SHA-256 resmi untuk memverifikasi keaslian file unduhan |
 
-## Keunggulan Inti Bersama
+</details>
 
-- **Pencarian Serentak Nasional & Internasional**: Menggabungkan data dari **SINTA (1 hingga 6)**, **Garuda**, **OpenAlex**, **DOAJ**, dan **Crossref**, lengkap dengan *fuzzy cross-source deduplication* (`>= 85%`) serta kamus sinonim akademik dwibahasa ID-EN.
-- **Akurasi APC Anti-Jebakan & Ekstraksi PDF**: Memisahkan biaya publikasi asli dari biaya submit Rp 0, mengabaikan jebakan biaya cetak maupun denda penarikan naskah, serta mengekstrak biaya dari dokumen PDF kebijakan penulis OJS.
-- **Turnaround Time & Asisten Naskah Offline (`.docx` / `.pdf`)**: Menampilkan estimasi durasi tunggu publikasi, audit struktur IMRAD, pengecekan batas kata, deteksi gaya sitasi **IEEE / Vancouver / APA / Chicago**, serta tombol salin 5 referensi terbaru jurnal target.
-- **Paket Kurasi Dospen & Bundel Pengajuan**: Ekspor daftar kurasi `.jsfs-list`, ringkasan HTML responsif, Cover Letter & Surat Keaslian `.docx`, hingga paket arsip `.zip` siap kirim ke dosen pembimbing.
-- **Pembaruan In-App Terisolasi per Kanal**: Edisi Standard hanya memantau kanal rilis `v*` dan edisi Workstation hanya memantau `plus-v*`, seluruhnya terverifikasi SHA-256.
+## Apa Saja yang Bisa Dilakukan JSFS?
 
-## Panduan Singkat Keamanan OS (SmartScreen & Gatekeeper)
+- **Cari sekaligus dari banyak sumber**: Satu klik mencari di SINTA (peringkat 1 hingga 6), Garuda, OpenAlex, DOAJ, dan Crossref secara bersamaan — tidak perlu buka banyak tab browser.
+- **Pisahkan biaya nyata dari yang palsu**: Tampilkan biaya publikasi (APC) yang sesungguhnya, abaikan label "gratis submit" yang sebenarnya berbayar saat diterima, dan baca biaya langsung dari dokumen PDF jurnal.
+- **Tahu berapa lama naskah bakal terbit**: Estimasi waktu tunggu dari submit sampai terbit ditampilkan langsung, sehingga Anda bisa merencanakan jadwal sidang lebih akurat.
+- **Periksa kesiapan naskah Word atau PDF Anda**: Audit struktur IMRAD, periksa batas jumlah kata, dan pastikan format daftar pustaka sesuai gaya jurnal target (IEEE, APA, Vancouver, atau Chicago).
+- **Salin 5 referensi terbaru jurnal pilihan**: Satu tombol langsung menyalin daftar referensi terkini dari jurnal tersebut ke clipboard Anda.
+- **Ekspor paket siap kirim ke dosen pembimbing**: Buat daftar kurasi jurnal, ringkasan HTML, Cover Letter, Surat Keaslian, hingga arsip `.zip` lengkap — semua dalam format yang rapi dan siap dilampirkan ke email.
+- **Pembaruan otomatis per kanal**: JSFS Standard memperbarui dirinya sendiri via kanal `v*`, sedangkan JSFS+ Workstation via kanal `plus-v*`, keduanya terverifikasi keasliannya secara otomatis.
 
-> **Windows SmartScreen**: Karena JSFS adalah proyek open-source gratis tanpa sertifikat *EV Code Signing* berbayar, Windows Defender SmartScreen dapat menampilkan peringatan saat pertama kali dijalankan. Klik **More info** (*Info lebih lanjut*) lalu pilih **Run anyway** (*Tetap jalankan*).
+## Panduan Singkat Keamanan OS (SmartScreen &amp; Gatekeeper)
 
-> **macOS Gatekeeper (Preview Build)**: Untuk build pratinjau macOS yang belum melalui proses notarisasi Apple, jalankan perintah berikut di Terminal pada folder hasil ekstrak sebelum membuka aplikasi:
+> **Windows SmartScreen**: Karena JSFS adalah proyek open-source gratis tanpa sertifikat tanda tangan digital berbayar, Windows Defender SmartScreen mungkin menampilkan peringatan saat pertama kali dijalankan. Klik **More info** (Info lebih lanjut) lalu pilih **Run anyway** (Tetap jalankan).
+
+> **macOS Gatekeeper (Build Pratinjau)**: Untuk build pratinjau macOS yang belum melalui proses notarisasi Apple, jalankan perintah berikut di Terminal pada folder hasil ekstrak sebelum membuka aplikasi:
 > ```bash
 > xattr -d com.apple.quarantine ./jsfs && chmod +x ./jsfs && ./jsfs
 > ```
 
-## Kompilasi dari Kode Sumber
+<details><summary>Untuk Pengembang: Kompilasi dari Kode Sumber (Rust)</summary>
 
 Membutuhkan [Rust toolchain](https://rustup.rs/) versi stabil terbaru. Pada Linux Debian/Ubuntu, pasang paket desktop minimal terlebih dahulu:
 
@@ -140,6 +156,8 @@ cargo build --release --locked --no-default-features --bin jsfs
 # Membangun JSFS+ Workstation:
 cargo build --release --locked --bin jsfs-plus --features plus
 ```
+
+</details>
 
 ## Lisensi
 
